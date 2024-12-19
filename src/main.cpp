@@ -106,6 +106,10 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
     data = (Ssimulacra2Data *)malloc(sizeof(d));
     *data = d;
 
+    for (int i = 0; i < STREAMNUM; i++){
+        data->streams[i] = d.streams[i];
+    }
+
     VSFilterDependency deps[] = {{d.reference, rpStrictSpatial}, {d.distorted, rpStrictSpatial}};
 
     vsapi->createVideoFilter(out, "vshipssimu2", viref, ssimulacra2GetFrame, ssimulacra2Free, fmParallel, deps, 2, data, core);
