@@ -1,73 +1,56 @@
-//////////////////////////////////////////
-// This file contains a simple invert
-// filter that's commented to show
-// the basics of the filter api.
-// This file may make more sense when
-// read from the bottom and up.
-
 #include <stdlib.h>
 #include <stdio.h>
 #include "VapourSynth4.h"
 #include "VSHelper4.h"
+#include "hip/hip_runtime.h"
+
+#define STREAMNUM 10
+
+double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, hipStream_t stream){
+    return 0;
+}
 
 typedef struct {
     VSNode *reference;
     VSNode *distorted;
+    hipStream_t streams[STREAMNUM];
 } Ssimulacra2Data;
 
-// This is the main function that gets called when a frame should be produced. It will, in most cases, get
-// called several times to produce one frame. This state is being kept track of by the value of
-// activationReason. The first call to produce a certain frame n is always arInitial. In this state
-// you should request all the input frames you need. Always do it in ascending order to play nice with the
-// upstream filters.
-// Once all frames are ready, the filter will be called with arAllFramesReady. It is now time to
-// do the actual processing.
 static const VSFrame *VS_CC ssimulacra2GetFrame(int n, int activationReason, void *instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
     Ssimulacra2Data *d = (Ssimulacra2Data *)instanceData;
 
     if (activationReason == arInitial) {
-        // Request the source frame on the first call
         vsapi->requestFrameFilter(n, d->reference, frameCtx);
+        vsapi->requestFrameFilter(n, d->distorted, frameCtx);
     } else if (activationReason == arAllFramesReady) {
-        const VSFrame *src = vsapi->getFrameFilter(n, d->reference, frameCtx);
-        // The reason we query this on a per frame basis is because we want our filter
-        // to accept clips with varying dimensions. If we reject such content using d->vi
-        // would be easier.
-        const VSVideoFormat *fi = vsapi->getVideoFrameFormat(src);
-        int height = vsapi->getFrameHeight(src, 0);
-        int width = vsapi->getFrameWidth(src, 0);
+        const VSFrame *src1 = vsapi->getFrameFilter(n, d->reference, frameCtx);
+        const VSFrame *src2 = vsapi->getFrameFilter(n, d->distorted, frameCtx);
+        
+        int height = vsapi->getFrameHeight(src1, 0);
+        int width = vsapi->getFrameWidth(src1, 0);
+        int stride = vsapi->getStride(src1, 0);
 
+        VSFrame *dst = vsapi->copyFrame(src2, core);
 
-        // When creating a new frame for output it is VERY EXTREMELY SUPER IMPORTANT to
-        // supply the "dominant" source frame to copy properties from. Frame props
-        // are an essential part of the filter chain and you should NEVER break it.
-        VSFrame *dst = vsapi->newVideoFrame(fi, width, height, src, core);
+        const uint8_t *srcp1[3] = {
+            vsapi->getReadPtr(src1, 0),
+            vsapi->getReadPtr(src1, 1),
+            vsapi->getReadPtr(src1, 2),
+        };
 
-        // It's processing loop time!
-        // Loop over all the planes
-        int plane;
-        for (plane = 0; plane < fi->numPlanes; plane++) {
-            const uint8_t * VS_RESTRICT srcp = vsapi->getReadPtr(src, plane);
-            ptrdiff_t src_stride = vsapi->getStride(src, plane);
-            uint8_t * VS_RESTRICT dstp = vsapi->getWritePtr(dst, plane);
-            ptrdiff_t dst_stride = vsapi->getStride(dst, plane); // note that if a frame has the same dimensions and format, the stride is guaranteed to be the same. int dst_stride = src_stride would be fine too in this filter.
-            // Since planes may be subsampled you have to query the height of them individually
-            int h = vsapi->getFrameHeight(src, plane);
-            int y;
-            int w = vsapi->getFrameWidth(src, plane);
-            int x;
+        const uint8_t *srcp2[3] = {
+            vsapi->getReadPtr(src2, 0),
+            vsapi->getReadPtr(src2, 1),
+            vsapi->getReadPtr(src2, 2),
+        };
 
-            for (y = 0; y < h; y++) {
-                for (x = 0; x < w; x++)
-                    dstp[x] = ~srcp[x];
+        const double val = ssimu2process(srcp1, srcp2, stride, width, height, d->streams[n%STREAMNUM]);
 
-                dstp += dst_stride;
-                srcp += src_stride;
-            }
-        }
+        vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_SSIMULACRA2", val, maReplace);
 
         // Release the source frame
-        vsapi->freeFrame(src);
+        vsapi->freeFrame(src1);
+        vsapi->freeFrame(src2);
 
         // A reference is consumed when it is returned, so saving the dst reference somewhere
         // and reusing it is not allowed.
@@ -82,6 +65,11 @@ static void VS_CC ssimulacra2Free(void *instanceData, VSCore *core, const VSAPI 
     Ssimulacra2Data *d = (Ssimulacra2Data *)instanceData;
     vsapi->freeNode(d->reference);
     vsapi->freeNode(d->distorted);
+
+    for (int i = 0; i < STREAMNUM; i++){
+        hipStreamDestroy(d->streams[i]);
+    }
+
     free(d);
 }
 
@@ -109,6 +97,10 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
         vsapi->freeNode(d.reference);
         vsapi->freeNode(d.distorted);
         return;
+    }
+
+    for (int i = 0; i < STREAMNUM; i++){
+        hipStreamCreate(d.streams + i);
     }
 
     data = (Ssimulacra2Data *)malloc(sizeof(d));
