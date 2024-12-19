@@ -1,0 +1,16 @@
+
+current_dir := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+
+ifeq ($(OS),Windows_NT)
+	dllend := .dll
+else
+	dllend := .so
+endif
+
+.FORCE:
+
+build: src/main.cpp
+	hipcc src/main.cpp --offload-arch=native -I "$(current_dir)include" -Wno-ignored-attributes -shared -static -o "$(current_dir)build/hipssimu2$(dllend)"
+
+test: .FORCE build
+	vspipe .\test\vsscript.vpy --
