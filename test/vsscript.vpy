@@ -5,5 +5,5 @@ vclip = vs.core.bs.VideoSource(r"C:\Users\leofr\Desktop\Passable Female Voice - 
 
 vs.core.std.LoadPlugin("../build/hipssimu2.dll")
 
-out = vs.core.invert.Filter(vclip, 50)
+out = vs.core.vshipssimu2.SSIMULACRA2(vclip, vclip)
 out.set_output()
