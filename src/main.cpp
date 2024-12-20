@@ -33,9 +33,28 @@
     #define hipStreamDestroy cudaStreamDestroy
 #endif
 
-#define STREAMNUM 10
+#define STREAMNUM 30
 
 double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, hipStream_t stream){
+    const float *srcpf1[3] = {(float*)srcp1[0], (float*)srcp1[1], (float*)srcp1[2]};
+    const float *srcpf2[3] = {(float*)srcp2[0], (float*)srcp2[1], (float*)srcp2[2]};
+
+    int wh = width*height;
+    float3* srcs = (float3*)malloc(sizeof(float3)*wh * 2);
+
+    for (int i = 0; i < height; i++){
+        for (int j = 0; j < width; j++){
+            srcs[i*width + j].x = srcpf1[0][i*stride + j];
+            srcs[i*width + j].y = srcpf1[1][i*stride + j];
+            srcs[i*width + j].z = srcpf1[2][i*stride + j];
+            srcs[wh + i*width + j].x = srcpf2[0][i*stride + j];
+            srcs[wh + i*width + j].y = srcpf2[1][i*stride + j];
+            srcs[wh + i*width + j].z = srcpf2[2][i*stride + j];
+        }
+    }
+
+    free(srcs);
+
     return 0;
 }
 
