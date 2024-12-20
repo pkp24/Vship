@@ -3,10 +3,10 @@ current_dir := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
 ifeq ($(OS),Windows_NT)
 	dllend := .dll
-	mvcommand := move "$(current_dir)hipssimu2$(dllend)" "%APPDATA%\VapourSynth\plugins64"
+	mvcommand := copy $(subst /,\,"$(current_dir)hipssimu2$(dllend)") "%APPDATA%\VapourSynth\plugins64"
 else
 	dllend := .so
-	mvcommand := mv "$(current_dir)hipssimu2$(dllend)" /usr/lib/vapoursynth
+	mvcommand := cp "$(current_dir)hipssimu2$(dllend)" /usr/lib/vapoursynth
 endif
 
 .FORCE:
@@ -18,7 +18,7 @@ buildcuda: src/main.cpp .FORCE
 	nvcc -x cu src/main.cpp -arch=native -I "$(current_dir)include" -shared -o "$(current_dir)hipssimu2$(dllend)"
 
 install:
-	mvcommand
+	$(mvcommand)
 
 test: .FORCE build
 	vspipe .\test\vsscript.vpy --
