@@ -2,7 +2,36 @@
 #include <stdio.h>
 #include "VapourSynth4.h"
 #include "VSHelper4.h"
-#include "hip/hip_runtime.h"
+
+#ifdef __HIPCC__
+    #include<hip/hip_runtime.h>
+#elif defined __CUDACC__
+    #define LOWLEVEL
+    #define hipMemcpyDtoH(x, y, z) cudaMemcpy(x, y, z, cudaMemcpyDeviceToHost)
+    #define hipMemcpyHtoD(x, y, z) cudaMemcpy(x, y, z, cudaMemcpyHostToDevice)
+    #define hipMemcpyDtoHAsync(x, y, z, w) cudaMemcpyAsync(x, y, z, cudaMemcpyDeviceToHost, w)
+    #define hipMemcpyHtoDAsync(x, y, z, w) cudaMemcpyAsync(x, y, z, cudaMemcpyHostToDevice, w)
+    #define hipMemcpyPeer cudaMemcpyPeer
+    #define hipMemcpyPeerAsync cudaMemcpyPeerAsync
+    #define hipMalloc cudaMalloc
+    #define hipFree cudaFree
+    #define hipDeviceSynchronize cudaDeviceSynchronize
+    #define hipSetDevice cudaSetDevice
+    #define hipDeviceProp_t cudaDeviceProp
+    #define hipGetDeviceCount cudaGetDeviceCount
+    #define hipDeviceptr_t void*
+    #define hipGetDevice cudaGetDevice
+    #define hipGetDeviceProperties cudaGetDeviceProperties
+    #define hipError_t cudaError_t
+    #define hipGetErrorString cudaGetErrorString
+    #define hipStream_t cudaStream_t
+    #define hipStreamAddCallback cudaStreamAddCallback
+    #define hipDeviceEnablePeerAccess cudaDeviceEnablePeerAccess
+    #define hipSuccess cudaSuccess
+    #define hipGetLastError cudaGetLastError
+    #define hipStreamCreate cudaStreamCreate
+    #define hipStreamDestroy cudaStreamDestroy
+#endif
 
 #define STREAMNUM 10
 
@@ -77,7 +106,6 @@ static void VS_CC ssimulacra2Free(void *instanceData, VSCore *core, const VSAPI 
 static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
     Ssimulacra2Data d;
     Ssimulacra2Data *data;
-    int err;
 
     // Get a clip reference from the input arguments. This must be freed later.
     d.reference = vsapi->mapGetNode(in, "reference", 0, 0);

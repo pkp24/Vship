@@ -12,5 +12,8 @@ endif
 build: src/main.cpp .FORCE
 	hipcc src/main.cpp --offload-arch=native -I "$(current_dir)include" -Wno-ignored-attributes -shared -static -o "$(current_dir)build/hipssimu2$(dllend)"
 
+buildcuda: src/main.cpp .FORCE
+	nvcc -x cu src/main.cpp -arch=native -I "$(current_dir)include" -shared -o "$(current_dir)build/hipssimu2$(dllend)"
+
 test: .FORCE build
 	vspipe .\test\vsscript.vpy --
