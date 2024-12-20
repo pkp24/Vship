@@ -9,7 +9,7 @@ endif
 
 .FORCE:
 
-build: src/main.cpp
+build: src/main.cpp .FORCE
 	hipcc src/main.cpp --offload-arch=native -I "$(current_dir)include" -Wno-ignored-attributes -shared -static -o "$(current_dir)build/hipssimu2$(dllend)"
 
 test: .FORCE build
