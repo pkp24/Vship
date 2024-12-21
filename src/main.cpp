@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include<math.h>
 #include "VapourSynth4.h"
 #include "VSHelper4.h"
 
@@ -41,11 +42,20 @@
 
 #define STREAMNUM 30
 
+#include "float3operations.hpp"
+#include "downsample.hpp"
+#include "makeXYB.hpp"
+
 double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, hipStream_t stream){
 
     int wh = width*height;
-    int whs[6] = {wh, (height >> 1)*(width >> 1), (height >> 2)*(width >> 2), (height >> 3)*(width >> 3), (height >> 4)*(width >> 4), (height >> 5)*(width >> 5)};
-    int totalscalesize = whs[0]+whs[1]+whs[2]+whs[3]+whs[4]+whs[5];
+    int whs[6] = {wh, ((height-1)/2 + 1)*((width-1)/2 + 1), ((height-1)/4 + 1)*((width-1)/4 + 1), ((height-1)/8 + 1)*((width-1)/8 + 1), ((height-1)/16 + 1)*((width-1)/16 + 1), ((height-1)/32 + 1)*((width-1)/32 + 1)};
+    int whs_integral[7];
+    whs_integral[0] = 0;
+    for (int i = 0; i < 7; i++){
+        whs_integral[i+1] = whs_integral[i] + whs[i];
+    }
+    int totalscalesize = whs_integral[6];
 
     float3* srcs = (float3*)malloc(sizeof(float3)*wh * 2);
 
@@ -57,6 +67,8 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
             srcs[wh + i*width + j].x = ((float*)(srcp2[0] + i*stride))[j];
             srcs[wh + i*width + j].y = ((float*)(srcp2[1] + i*stride))[j];
             srcs[wh + i*width + j].z = ((float*)(srcp2[2] + i*stride))[j];
+
+            //printf("source is %f, %f, %f in %d, %d\n", srcs[i*width + j].x, srcs[i*width + j].y, srcs[i*width + j].z, j, i);
         }
     }
 
@@ -83,8 +95,24 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     hipMemcpyHtoDAsync((hipDeviceptr_t)src2_d, (void*)(srcs+wh), sizeof(float3)*wh, stream);
     
     //step 1 : fill the downsample part
+    int nw = width;
+    int nh = height;
+    for (int scale = 1; scale <= 5; scale++){
+        downsample(src1_d+whs_integral[scale-1], src1_d+whs_integral[scale], nw, nh, stream);
+        nw = (nw -1)/2 + 1;
+        nh = (nh - 1)/2 + 1;
+    }
+    nw = width;
+    nh = height;
+    for (int scale = 1; scale <= 5; scale++){
+        downsample(src2_d+whs_integral[scale-1], src2_d+whs_integral[scale], nw, nh, stream);
+        nw = (nw -1)/2 + 1;
+        nh = (nh - 1)/2 + 1;
+    }
 
     //step 2 : positive XYB transition
+    rgb_to_positive_xyb(src1_d, totalscalesize, stream);
+    rgb_to_positive_xyb(src2_d, totalscalesize, stream);
 
     //step 3 : fill buffer s11 s22 and s12
 
