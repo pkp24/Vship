@@ -31,15 +31,25 @@
     #define hipGetLastError cudaGetLastError
     #define hipStreamCreate cudaStreamCreate
     #define hipStreamDestroy cudaStreamDestroy
+    #define hipEventCreate cudaEventCreate
+    #define hipEventDestroy cudaEventDestroy
+    #define hipEventSynchronize cudaEventSynchronize
+    #define hipEventRecord cudaEventRecord
+    #define hipEvent_t cudaEvent_t
+    #define hipEventElapsedTime cudaEventElapsedTime
 #endif
 
 #define STREAMNUM 30
 
 double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, hipStream_t stream){
+    stride = stride/sizeof(float);
     const float *srcpf1[3] = {(float*)srcp1[0], (float*)srcp1[1], (float*)srcp1[2]};
     const float *srcpf2[3] = {(float*)srcp2[0], (float*)srcp2[1], (float*)srcp2[2]};
 
     int wh = width*height;
+    int whs[6] = {wh, (height >> 1)*(width >> 1), (height >> 2)*(width >> 2), (height >> 3)*(width >> 3), (height >> 4)*(width >> 4), (height >> 5)*(width >> 5)};
+    int totalscalesize = whs[0]+whs[1]+whs[2]+whs[3]+whs[4]+whs[5];
+
     float3* srcs = (float3*)malloc(sizeof(float3)*wh * 2);
 
     for (int i = 0; i < height; i++){
@@ -53,7 +63,43 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
         }
     }
 
+    float3* mem_d;
+    hipMalloc(&mem_d, sizeof(float3)*totalscalesize*(2 + 6)); //2 base image and 6 working buffers
+    
+    float3* src1_d = mem_d; //length totalscalesize
+    float3* src2_d = mem_d + totalscalesize;
+
+    float3* temp_d = mem_d + 2*totalscalesize;
+    float3* temps11_d = mem_d + 3*totalscalesize;
+    float3* temps22_d = mem_d + 4*totalscalesize;
+    float3* temps12_d = mem_d + 5*totalscalesize;
+    float3* tempb1_d = mem_d + 6*totalscalesize;
+    float3* tempb2_d = mem_d + 7*totalscalesize;
+
+
+    hipEvent_t event_d, startevent_d;
+    hipEventCreate(&event_d);
+    hipEventCreate(&startevent_d);
+    hipEventRecord(startevent_d, stream);
+
+    hipMemcpyHtoDAsync((hipDeviceptr_t)src1_d, (void*)srcs, sizeof(float3)*wh, stream);
+    hipMemcpyHtoDAsync((hipDeviceptr_t)src2_d, (void*)(srcs+wh), sizeof(float3)*wh, stream);
+    
+    
+
+
+    hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
+    hipEventSynchronize(event_d); //when the event is complete, we know our gpu result is ready!
+
+    float time;
+    hipEventElapsedTime (&time, startevent_d, event_d);
+
+    printf("I took %f ms\n", time);
+
     free(srcs);
+    hipFree(mem_d);
+    hipEventDestroy(event_d);
+    hipEventDestroy(startevent_d);
 
     return 0;
 }

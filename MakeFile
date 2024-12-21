@@ -21,4 +21,4 @@ install:
 	$(mvcommand)
 
 test: .FORCE build
-	vspipe .\test\vsscript.vpy --
+	vspipe .\test\vsscript.vpy .
