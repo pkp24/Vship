@@ -85,7 +85,21 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     hipMemcpyHtoDAsync((hipDeviceptr_t)src1_d, (void*)srcs, sizeof(float3)*wh, stream);
     hipMemcpyHtoDAsync((hipDeviceptr_t)src2_d, (void*)(srcs+wh), sizeof(float3)*wh, stream);
     
-    
+    //step 1 : fill the downsample part
+
+    //step 2 : positive XYB transition
+
+    //step 3 : fill buffer s11 s22 and s12
+
+    //step 4 : blur everything
+
+    //step 5 : ssim map
+
+    //step 6 : edge diff map    
+
+    //step 7 : get back the score
+
+    //step 8 : enjoy !
 
 
     hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
@@ -94,7 +108,7 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     float time;
     hipEventElapsedTime (&time, startevent_d, event_d);
 
-    printf("I took %f ms\n", time);
+    //printf("I took %f ms\n", time);
 
     free(srcs);
     hipFree(mem_d);
