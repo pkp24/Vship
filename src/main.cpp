@@ -3,6 +3,7 @@
 #include<math.h>
 #include "VapourSynth4.h"
 #include "VSHelper4.h"
+#include<vector>
 
 #ifdef __HIPCC__
     #include<hip/hip_runtime.h>
@@ -50,6 +51,7 @@
 #include "downsample.hpp"
 #include "makeXYB.hpp"
 #include "gaussianblur.hpp"
+#include "score.hpp"
 
 double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, float* gaussiankernel, hipStream_t stream){
 
