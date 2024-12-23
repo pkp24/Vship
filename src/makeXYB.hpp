@@ -38,11 +38,8 @@ __device__ inline void opsin_absorbance(float3& a, const float matrix[9], const 
 }
 
 __device__ inline void mixed_to_xyb(float3& a){
-    float temp;
-
-    temp = 0.5 * (a.x - a.y);
-    a.y = 0.5 * (a.x + a.y);
-    a.x = temp;
+    a.x = 0.5 * (a.x - a.y);
+    a.y = a.x + a.y;
 }
 
 __device__ inline void linear_rgb_to_xyb(float3& a, const float matrix[9], const float opsin_bias, const float abs_bias){
@@ -70,7 +67,7 @@ __global__ void rgb_to_positive_xyb_Kernel(float3* array, int width, const float
     size_t x = threadIdx.x + blockIdx.x*blockDim.x;
     if (x >= width) return;
     const float matrix[9] = {M_00, M_01, M_02, M_10, M_11, M_12, M_20, M_21, M_22};
-    float3 old = array[x];
+    //float3 old = array[x];
     rgb_to_positive_xyb_d(array[x], matrix, opsin_bias, abs_bias);
     //printf("from %f, %f, %f to %f, %f, %f\n", old.x, old.y, old.z, array[x].x, array[x].y, array[x].z);
 }

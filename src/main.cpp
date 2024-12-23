@@ -41,12 +41,17 @@
 #endif
 
 #define STREAMNUM 30
+#define GAUSSIANSIZE 10
+#define SIGMA 1.5f
+#define PI 3.14159265359
+#define Gfactor 0.265962
 
 #include "float3operations.hpp"
 #include "downsample.hpp"
 #include "makeXYB.hpp"
+#include "gaussianblur.hpp"
 
-double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, hipStream_t stream){
+double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, float* gaussiankernel, hipStream_t stream){
 
     int wh = width*height;
     int whs[6] = {wh, ((height-1)/2 + 1)*((width-1)/2 + 1), ((height-1)/4 + 1)*((width-1)/4 + 1), ((height-1)/8 + 1)*((width-1)/8 + 1), ((height-1)/16 + 1)*((width-1)/16 + 1), ((height-1)/32 + 1)*((width-1)/32 + 1)};
@@ -114,17 +119,26 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     rgb_to_positive_xyb(src1_d, totalscalesize, stream);
     rgb_to_positive_xyb(src2_d, totalscalesize, stream);
 
-    //step 3 : fill buffer s11 s22 and s12
+    //step 3 : fill buffer s11 s22 and s12 and blur everything
+    multarray(src1_d, src1_d, temps11_d, totalscalesize, stream);
+    gaussianBlur(temps11_d, temps11_d, temp_d, width, height, gaussiankernel, stream);
 
-    //step 4 : blur everything
+    multarray(src1_d, src2_d, temps12_d, totalscalesize, stream);
+    gaussianBlur(temps12_d, temps12_d, temp_d, width, height, gaussiankernel, stream);
 
-    //step 5 : ssim map
+    multarray(src2_d, src2_d, temps22_d, totalscalesize, stream);
+    gaussianBlur(temps22_d, temps22_d, temp_d, width, height, gaussiankernel, stream);
 
-    //step 6 : edge diff map    
+    gaussianBlur(src1_d, tempb1_d, temp_d, width, height, gaussiankernel, stream);
+    gaussianBlur(src2_d, tempb2_d, temp_d, width, height, gaussiankernel, stream);
 
-    //step 7 : get back the score
+    //step 4 : ssim map
 
-    //step 8 : enjoy !
+    //step 5 : edge diff map    
+
+    //step 6 : get back the score
+
+    //step 7 : enjoy !
 
 
     hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
@@ -146,6 +160,7 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
 typedef struct {
     VSNode *reference;
     VSNode *distorted;
+    float* gaussiankernel_d;
     hipStream_t streams[STREAMNUM];
 } Ssimulacra2Data;
 
@@ -177,7 +192,7 @@ static const VSFrame *VS_CC ssimulacra2GetFrame(int n, int activationReason, voi
             vsapi->getReadPtr(src2, 2),
         };
 
-        const double val = ssimu2process(srcp1, srcp2, stride, width, height, d->streams[n%STREAMNUM]);
+        const double val = ssimu2process(srcp1, srcp2, stride, width, height, d->gaussiankernel_d, d->streams[n%STREAMNUM]);
 
         vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_SSIMULACRA2", val, maReplace);
 
@@ -202,6 +217,7 @@ static void VS_CC ssimulacra2Free(void *instanceData, VSCore *core, const VSAPI 
     for (int i = 0; i < STREAMNUM; i++){
         hipStreamDestroy(d->streams[i]);
     }
+    hipFree(d->gaussiankernel_d);
 
     free(d);
 }
@@ -241,6 +257,14 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
     for (int i = 0; i < STREAMNUM; i++){
         data->streams[i] = d.streams[i];
     }
+
+    float gaussiankernel[2*GAUSSIANSIZE+1];
+    for (int i = 0; i < 2*GAUSSIANSIZE+1; i++){
+        gaussiankernel[i] = std::exp(-(GAUSSIANSIZE-i)*(GAUSSIANSIZE-i)/(2*SIGMA*SIGMA))*Gfactor;
+    }
+
+    hipMalloc(&(data->gaussiankernel_d), sizeof(float)*(2*GAUSSIANSIZE+1));
+    hipMemcpyHtoD((hipDeviceptr_t)data->gaussiankernel_d, gaussiankernel, (2*GAUSSIANSIZE+1)*sizeof(float));
 
     VSFilterDependency deps[] = {{d.reference, rpStrictSpatial}, {d.distorted, rpStrictSpatial}};
 
