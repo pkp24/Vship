@@ -17,7 +17,7 @@ __global__ void ssim_map_Kernel(float3* dst, float3* s11, float3* s22, float3* s
     
     extern __shared__ float3 sharedmem[];
     float3* sum1 = sharedmem; //size sizeof(float3)*threadnum
-    float3* sum4 = sharedmem+sizeof(float3)*blockDim.x; //size sizeof(float3)*threadnum
+    float3* sum4 = sharedmem+blockDim.x; //size sizeof(float3)*threadnum
 
     float3 d1;
     if (x < width*height){
@@ -55,24 +55,54 @@ __global__ void ssim_map_Kernel(float3* dst, float3* s11, float3* s22, float3* s
     }
 }
 
-std::vector<float3> ssim_map(float3* s11, float3* s22, float3* s12, float3* mu1, float3* mu2, float3* temp, int basewidth, int baseheight, hipStream_t stream){
+std::vector<float3> ssim_map(float3* s11, float3* s22, float3* s12, float3* mu1, float3* mu2, float3* temp, int basewidth, int baseheight, hipEvent_t event_d, hipStream_t stream){
     //output is {norm1scale1, norm4scale1, norm1scale2, ...}
     std::vector<float3> result(2*6);
+    for (int i = 0; i < 2*6; i++) {result[i].x = 0; result[i].y = 0; result[i].z = 0;}
 
     int w = basewidth;
     int h = baseheight;
     int th_x;
     int bl_x;
     int index = 0;
+    std::vector<int> scaleoutdone(7);
+    scaleoutdone[0] = 0;
     for (int scale = 0; scale < 6; scale++){
         th_x = std::min(1024, w*h);
         bl_x = (w*h-1)/th_x + 1;
-        ssim_map_Kernel<<<dim3(bl_x), dim3(th_x), 2*sizeof(float3)*th_x, stream>>>(temp, s11, s22, s12, mu1, mu2, w, h);
-
+        ssim_map_Kernel<<<dim3(bl_x), dim3(th_x), 2*sizeof(float3)*th_x, stream>>>(temp+scaleoutdone[scale], s11, s22, s12, mu1, mu2, w, h);
+        
+        scaleoutdone[scale+1] = scaleoutdone[scale]+2*bl_x;
         index += w*h;
         w = (w-1)/2+1;
         h = (h-1)/2+1;
     }
+    float3* hostback = (float3*)malloc(sizeof(float3)*scaleoutdone[6]);
+    hipMemcpyDtoHAsync(hostback, (hipDeviceptr_t)temp, sizeof(float3)*scaleoutdone[6], stream);
+    //the data as already been reduced by a factor of 512 which can now be reasonably retrieved from GPU
+
+    hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
+    hipEventSynchronize(event_d);
+
+    //let s reduce!
+    for (int scale = 0; scale < 6; scale++){
+        bl_x = (scaleoutdone[scale+1] - scaleoutdone[scale])/2;
+        for (int i = 0; i < 2*bl_x; i++){
+            if (i < bl_x){
+                result[2*scale] += hostback[scaleoutdone[scale] + i];
+            } else {
+                result[2*scale+1] += hostback[scaleoutdone[scale] + i];
+            }
+        }
+    }
+
+    free(hostback);
+
+    for (int i = 0; i < 6; i++){
+        result[2*i+1].x = std::sqrt(std::sqrt(result[2*i+1].x));
+        result[2*i+1].y = std::sqrt(std::sqrt(result[2*i+1].y));
+        result[2*i+1].z = std::sqrt(std::sqrt(result[2*i+1].z));
+    } //completing 4th norm
 
     return result;
 } //to do: manage hipEvent and get it inside the function to ensure kernel is done before reducing blocks on CPU to then return the result

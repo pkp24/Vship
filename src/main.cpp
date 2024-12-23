@@ -135,6 +135,8 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     gaussianBlur(src2_d, tempb2_d, temp_d, width, height, gaussiankernel, stream);
 
     //step 4 : ssim map
+    std::vector<float3> ssim_res = ssim_map(temps11_d, temps22_d, temps12_d, tempb1_d, tempb2_d, temp_d, width, height, event_d, stream);
+    //printf("ssim vector get %f, %f, %f in pos 0\n", ssim_res[0].x, ssim_res[0].y, ssim_res[0].z);
 
     //step 5 : edge diff map    
 
