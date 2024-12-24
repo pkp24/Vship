@@ -8,6 +8,7 @@ Current status: (with fps for feature and above on my laptop with RTX 4050 mobil
 - downsampling = complete (106 fps)
 - make XYB = complete (106 fps)
 - gaussian blur = complete (93 fps)
-- ssim map = complete (93 fps)
-- edge diff map = x
+- ssim map = complete (92 fps)
+- edge diff map = complete (92 fps)
+- use the matrix to get final score = x
 - enjoy (debug + quality_check) = x

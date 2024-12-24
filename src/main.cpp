@@ -41,6 +41,15 @@
     #define hipEventElapsedTime cudaEventElapsedTime
 #endif
 
+hipError_t errhip;
+
+#define GPU_CHECK(x)\
+errhip = (x);\
+if (errhip != hipSuccess)\
+{\
+   	printf("%s in %s at %d\n", hipGetErrorString(errhip),  __FILE__, __LINE__);\
+}
+
 #define STREAMNUM 30
 #define GAUSSIANSIZE 10
 #define SIGMA 1.5f
@@ -53,7 +62,7 @@
 #include "gaussianblur.hpp"
 #include "score.hpp"
 
-double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, float* gaussiankernel, hipStream_t stream){
+double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, float* gaussiankernel, int maxshared, hipStream_t stream){
 
     int wh = width*height;
     int whs[6] = {wh, ((height-1)/2 + 1)*((width-1)/2 + 1), ((height-1)/4 + 1)*((width-1)/4 + 1), ((height-1)/8 + 1)*((width-1)/8 + 1), ((height-1)/16 + 1)*((width-1)/16 + 1), ((height-1)/32 + 1)*((width-1)/32 + 1)};
@@ -135,12 +144,28 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     gaussianBlur(src2_d, tempb2_d, temp_d, width, height, gaussiankernel, stream);
 
     //step 4 : ssim map
-    std::vector<float3> ssim_res = ssim_map(temps11_d, temps22_d, temps12_d, tempb1_d, tempb2_d, temp_d, width, height, event_d, stream);
+    //std::vector<float3> ssim_res = ssim_map(temps11_d, temps22_d, temps12_d, tempb1_d, tempb2_d, temp_d, width, height, event_d, stream);
     //printf("ssim vector get %f, %f, %f in pos 0\n", ssim_res[0].x, ssim_res[0].y, ssim_res[0].z);
 
     //step 5 : edge diff map    
+    //std::vector<float3> edgediff_res = edgediff_map(src1_d, src2_d, tempb1_d, tempb2_d, temp_d, width, height, event_d, stream);
+    
+    std::vector<float3> allscore_res = allscore_map(src1_d, src2_d, tempb1_d, tempb2_d, temps11_d, temps22_d, temps12_d, temp_d, width, height, maxshared, event_d, stream);
 
-    //step 6 : get back the score
+    //step 6 : format the vector
+    std::vector<float> measure_vec(108);
+
+    for (int plane = 0; plane < 3; plane++){
+        for (int scale = 0; scale < 6; scale++){
+            for (int n = 0; n < 2; n++){
+                for (int i = 0; i < 3; i++){
+                    if (plane == 0) measure_vec[plane*6*2*3 + scale*2*3 + n*3 + i] = allscore_res[scale*2*3 + i*2 + n].x;
+                    if (plane == 1) measure_vec[plane*6*2*3 + scale*2*3 + n*3 + i] = allscore_res[scale*2*3 + i*2 + n].y;
+                    if (plane == 2) measure_vec[plane*6*2*3 + scale*2*3 + n*3 + i] = allscore_res[scale*2*3 + i*2 + n].z;
+                }
+            }
+        }
+    }
 
     //step 7 : enjoy !
 
@@ -164,6 +189,7 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
 typedef struct {
     VSNode *reference;
     VSNode *distorted;
+    int maxshared;
     float* gaussiankernel_d;
     hipStream_t streams[STREAMNUM];
 } Ssimulacra2Data;
@@ -196,7 +222,7 @@ static const VSFrame *VS_CC ssimulacra2GetFrame(int n, int activationReason, voi
             vsapi->getReadPtr(src2, 2),
         };
 
-        const double val = ssimu2process(srcp1, srcp2, stride, width, height, d->gaussiankernel_d, d->streams[n%STREAMNUM]);
+        const double val = ssimu2process(srcp1, srcp2, stride, width, height, d->gaussiankernel_d, d->maxshared, d->streams[n%STREAMNUM]);
 
         vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_SSIMULACRA2", val, maReplace);
 
@@ -266,6 +292,12 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
     for (int i = 0; i < 2*GAUSSIANSIZE+1; i++){
         gaussiankernel[i] = std::exp(-(GAUSSIANSIZE-i)*(GAUSSIANSIZE-i)/(2*SIGMA*SIGMA))*Gfactor;
     }
+
+    int device;
+    hipDeviceProp_t devattr;
+    hipGetDevice(&device);
+    hipGetDeviceProperties(&devattr, device);
+    data->maxshared = devattr.sharedMemPerBlock;    
 
     hipMalloc(&(data->gaussiankernel_d), sizeof(float)*(2*GAUSSIANSIZE+1));
     hipMemcpyHtoD((hipDeviceptr_t)data->gaussiankernel_d, gaussiankernel, (2*GAUSSIANSIZE+1)*sizeof(float));

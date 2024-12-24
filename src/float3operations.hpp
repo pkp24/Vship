@@ -9,12 +9,27 @@ __device__ __host__ void inline operator/=(float3& a, const float b){
     a.y /= b;
     a.z /= b;
 }
+__device__ __host__ float3 inline operator/(const float3&a, const int b){
+    float3 out;
+    out.x = a.x/b;
+    out.y = a.y/b;
+    out.z = a.z/b;
+    return out;
+}
 
 __device__ __host__ float3 inline operator-(const float a, const float3& b){
     float3 out;
     out.x = a - b.x;
     out.y = a - b.y;
     out.z = a - b.z;
+    return out;
+}
+
+__device__ __host__ float3 inline operator-(const float3& a, const float b){
+    float3 out;
+    out.x = a.x - b;
+    out.y = a.y - b;
+    out.z = a.z - b;
     return out;
 }
 
@@ -47,8 +62,16 @@ __device__ __host__ float3 inline fmaf(const float3& a, const float& b, const fl
     out.z = fmaf(a.z, b, c);
     return out;
 }
+__device__ __host__ float3 inline abs(const float3& a){
+    float3 out;
+    out.x = abs(a.x);
+    out.y = abs(a.y);
+    out.z = abs(a.z);
+    return out;
+}
 
 #ifndef __HIPCC__
+
 __device__ __host__ void inline operator+=(float3& a, const float3& b){
     a.x += b.x;
     a.y += b.y;
