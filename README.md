@@ -10,5 +10,5 @@ Current status: (with fps for feature and above on my laptop with RTX 4050 mobil
 - gaussian blur = complete (93 fps)
 - ssim map = complete (92 fps)
 - edge diff map = complete (92 fps)
-- use the matrix to get final score = x
+- use the matrix to get final score = complete (91 fps)
 - enjoy (debug + quality_check) = x

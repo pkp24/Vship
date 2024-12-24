@@ -39,6 +39,11 @@
     #define hipEventRecord cudaEventRecord
     #define hipEvent_t cudaEvent_t
     #define hipEventElapsedTime cudaEventElapsedTime
+    #define hipDeviceSetCacheConfig cudaDeviceSetCacheConfig 
+    #define hipFuncCachePreferShared cudaFuncCachePreferShared
+    #define hipFuncCachePreferNone cudaFuncCachePreferNone
+    #define hipFuncCachePreferL1 cudaFuncCachePreferL1
+    #define hipFuncCachePreferEqual cudaFuncCachePreferEqual
 #endif
 
 hipError_t errhip;
@@ -167,7 +172,12 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
         }
     }
 
+    for (int i = 0; i < 108; i++){
+        printf("measure[%d] = %f\n", i, measure_vec[i]);
+    }
+
     //step 7 : enjoy !
+    const float ssim = final_score(measure_vec);
 
 
     hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
@@ -183,7 +193,7 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     hipEventDestroy(event_d);
     hipEventDestroy(startevent_d);
 
-    return 0;
+    return ssim;
 }
 
 typedef struct {
@@ -293,6 +303,7 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
         gaussiankernel[i] = std::exp(-(GAUSSIANSIZE-i)*(GAUSSIANSIZE-i)/(2*SIGMA*SIGMA))*Gfactor;
     }
 
+    hipDeviceSetCacheConfig(hipFuncCachePreferNone);
     int device;
     hipDeviceProp_t devattr;
     hipGetDevice(&device);
