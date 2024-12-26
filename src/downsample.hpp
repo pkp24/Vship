@@ -10,10 +10,10 @@ __global__ void downsamplekernel(float3* src, float3* dst, int width, int height
     dst[y * neww + x].x = 0;
     dst[y * neww + x].y = 0;
     dst[y * neww + x].z = 0;
-    dst[y * neww + x] += src[min((int)(2*y), (int)(newh-1)) * neww + 2*x];
-    dst[y * neww + x] += src[min((int)(2*y + 1), (int)(newh-1)) * neww + 2*x];
-    dst[y * neww + x] += src[min((int)(2*y), (int)(newh-1)) * neww + 2*x + 1];
-    dst[y * neww + x] += src[min((int)(2*y + 1), (int)(newh-1)) * neww + 2*x + 1];
+    dst[y * neww + x] += src[min((int)(2*y), (int)(height-1)) * width + min((int)(2*x), (int)(width-1))];
+    dst[y * neww + x] += src[min((int)(2*y + 1), (int)(height-1)) * width + min((int)(2*x), (int)(width-1))];
+    dst[y * neww + x] += src[min((int)(2*y), (int)(height-1)) * width + min((int)(2*x+1), (int)(width-1))];
+    dst[y * neww + x] += src[min((int)(2*y + 1), (int)(height-1)) * width + min((int)(2*x+1), (int)(width-1))];
     dst[y * neww + x] /= 4;
     //printf("got %f, %f, %f from %f, %f, %f ; %f, %f, %f ; %f, %f, %f ; %f, %f, %f\n", dst[y * neww + x].x, dst[y * neww + x].y, dst[y * neww + x].z, src[min((int)(2*y), (int)(newh-1)) * neww + 2*x].x, src[min((int)(2*y), (int)(newh-1)) * neww + 2*x].y, src[min((int)(2*y), (int)(newh-1)) * neww + 2*x].z, src[min((int)(2*y + 1), (int)(newh-1)) * neww + 2*x].x, src[min((int)(2*y + 1), (int)(newh-1)) * neww + 2*x].y, src[min((int)(2*y + 1), (int)(newh-1)) * neww + 2*x].z, src[min((int)(2*y), (int)(newh-1)) * neww + 2*x + 1].x, src[min((int)(2*y), (int)(newh-1)) * neww + 2*x + 1].y, src[min((int)(2*y), (int)(newh-1)) * neww + 2*x + 1].z, src[min((int)(2*y + 1), (int)(newh-1)) * neww + 2*x + 1].x, src[min((int)(2*y + 1), (int)(newh-1)) * neww + 2*x + 1].y, src[min((int)(2*y + 1), (int)(newh-1)) * neww + 2*x + 1].z);
 }
@@ -27,4 +27,5 @@ void inline downsample(float3* src, float3* dst, int width, int height, hipStrea
     int bl_x = (neww-1)/th_x + 1;
     int bl_y = (newh-1)/th_y + 1;
     downsamplekernel<<<dim3(bl_x, bl_y), dim3(th_x, th_y), 0, stream>>>(src, dst, width, height);
+    GPU_CHECK(hipGetLastError());
 }

@@ -11,4 +11,4 @@ Current status: (with fps for feature and above on my laptop with RTX 4050 mobil
 - ssim map = complete (92 fps)
 - edge diff map = complete (92 fps)
 - use the matrix to get final score = complete (91 fps)
-- enjoy (debug + quality_check) = x
+- enjoy (debug + quality_check) = complete (91 fps)
