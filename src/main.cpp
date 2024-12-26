@@ -59,7 +59,6 @@ if (errhip != hipSuccess)\
 #define GAUSSIANSIZE 10
 #define SIGMA 1.5f
 #define PI 3.14159265359
-#define Gfactor 0.265962
 
 #include "float3operations.hpp"
 #include "downsample.hpp"
@@ -105,7 +104,6 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     float3* temps12_d = mem_d + 5*totalscalesize;
     float3* tempb1_d = mem_d + 6*totalscalesize;
     float3* tempb2_d = mem_d + 7*totalscalesize;
-
 
     hipEvent_t event_d, startevent_d;
     hipEventCreate(&event_d);
@@ -172,9 +170,9 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
         }
     }
 
-    for (int i = 0; i < 108; i++){
-        printf("measure[%d] = %f\n", i, measure_vec[i]);
-    }
+    //for (int i = 0; i < 108; i++){
+    //    printf("measure[%d] = %f\n", i, measure_vec[i]);
+    //}
 
     //step 7 : enjoy !
     const float ssim = final_score(measure_vec);
@@ -300,7 +298,7 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
 
     float gaussiankernel[2*GAUSSIANSIZE+1];
     for (int i = 0; i < 2*GAUSSIANSIZE+1; i++){
-        gaussiankernel[i] = std::exp(-(GAUSSIANSIZE-i)*(GAUSSIANSIZE-i)/(2*SIGMA*SIGMA))*Gfactor;
+        gaussiankernel[i] = std::exp(-(GAUSSIANSIZE-i)*(GAUSSIANSIZE-i)/(2*SIGMA*SIGMA))/(std::sqrt(2*PI*SIGMA*SIGMA));
     }
 
     hipDeviceSetCacheConfig(hipFuncCachePreferNone);

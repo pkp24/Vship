@@ -54,7 +54,7 @@ __device__ inline void linear_rgb_to_xyb(float3& a, const float matrix[9], const
 
 __device__ inline void make_positive_xyb(float3& a){
     a.z = (a.z - a.y) + 0.55;
-    a.x = a.x * 1.40 + 0.42;
+    a.x = a.x * 14 + 0.42;
     a.y += 0.01;
 }
 
