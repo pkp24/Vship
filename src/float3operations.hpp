@@ -134,4 +134,5 @@ void multarray(float3* src1, float3* src2, float3* dst, int width, hipStream_t s
     int th_x = std::min(256, width);
     int bl_x = (width-1)/th_x + 1;
     multarray_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(src1, src2, dst, width);
+    GPU_CHECK(hipGetLastError());
 }

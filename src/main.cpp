@@ -46,6 +46,7 @@
     #define hipFuncCachePreferEqual cudaFuncCachePreferEqual
 #endif
 
+
 hipError_t errhip;
 
 #define GPU_CHECK(x)\
@@ -92,9 +93,17 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
         }
     }
 
+    //big memory allocation, we will try it multiple time if failed to save when too much threads are used
+    hipError_t erralloc;
+
     float3* mem_d;
-    hipMalloc(&mem_d, sizeof(float3)*totalscalesize*(2 + 6)); //2 base image and 6 working buffers
-    
+    erralloc = hipMalloc(&mem_d, sizeof(float3)*totalscalesize*(2 + 6)); //2 base image and 6 working buffers
+    if (erralloc != 0){
+        printf("ERROR, could not allocate VRAM for a frame, try lowering the number of vapoursynth threads\n");
+        return -10000.;
+    }
+    GPU_CHECK(hipGetLastError());
+
     float3* src1_d = mem_d; //length totalscalesize
     float3* src2_d = mem_d + totalscalesize;
 
@@ -110,8 +119,8 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     hipEventCreate(&startevent_d);
     hipEventRecord(startevent_d, stream);
 
-    hipMemcpyHtoDAsync((hipDeviceptr_t)src1_d, (void*)srcs, sizeof(float3)*wh, stream);
-    hipMemcpyHtoDAsync((hipDeviceptr_t)src2_d, (void*)(srcs+wh), sizeof(float3)*wh, stream);
+    GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)src1_d, (void*)srcs, sizeof(float3)*wh, stream));
+    GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)src2_d, (void*)(srcs+wh), sizeof(float3)*wh, stream));
     
     //step 1 : fill the downsample part
     int nw = width;
@@ -285,6 +294,21 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
         return;
     }
 
+    int count;
+    if (hipGetDeviceCount(&count) != 0){
+        vsapi->mapSetError(out, "could not detect devices, check gpu permissions\n");
+    };
+    if (count == 0){
+        vsapi->mapSetError(out, "No GPU was found on the system for a given compilation type. Try switch nvidia/amd binary\n");
+    }
+
+    hipDeviceSetCacheConfig(hipFuncCachePreferNone);
+    int device;
+    hipDeviceProp_t devattr;
+    hipGetDevice(&device);
+    hipGetDeviceProperties(&devattr, device);
+
+
     for (int i = 0; i < STREAMNUM; i++){
         hipStreamCreate(d.streams + i);
     }
@@ -301,11 +325,6 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
         gaussiankernel[i] = std::exp(-(GAUSSIANSIZE-i)*(GAUSSIANSIZE-i)/(2*SIGMA*SIGMA))/(std::sqrt(2*PI*SIGMA*SIGMA));
     }
 
-    hipDeviceSetCacheConfig(hipFuncCachePreferNone);
-    int device;
-    hipDeviceProp_t devattr;
-    hipGetDevice(&device);
-    hipGetDeviceProperties(&devattr, device);
     data->maxshared = devattr.sharedMemPerBlock;    
 
     hipMalloc(&(data->gaussiankernel_d), sizeof(float)*(2*GAUSSIANSIZE+1));

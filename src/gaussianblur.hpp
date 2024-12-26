@@ -38,7 +38,9 @@ void gaussianBlur(float3* src, float3* dst, float3* temp, int basewidth, int bas
         th_x = std::min(256, w*h);
         bl_x = (w*h-1)/th_x + 1;
         horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(src+index, temp, w, h, gaussiankernel_d);
+        GPU_CHECK(hipGetLastError());
         verticalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp, dst+index, w, h, gaussiankernel_d);
+        GPU_CHECK(hipGetLastError());
 
         index += w*h;
         w = (w-1)/2+1;
