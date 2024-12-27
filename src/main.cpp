@@ -100,6 +100,7 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     erralloc = hipMalloc(&mem_d, sizeof(float3)*totalscalesize*(2 + 6)); //2 base image and 6 working buffers
     if (erralloc != 0){
         printf("ERROR, could not allocate VRAM for a frame, try lowering the number of vapoursynth threads\n");
+        free(srcs);
         return -10000.;
     }
     GPU_CHECK(hipGetLastError());
@@ -114,10 +115,8 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     float3* tempb1_d = mem_d + 6*totalscalesize;
     float3* tempb2_d = mem_d + 7*totalscalesize;
 
-    hipEvent_t event_d, startevent_d;
+    hipEvent_t event_d;
     hipEventCreate(&event_d);
-    hipEventCreate(&startevent_d);
-    hipEventRecord(startevent_d, stream);
 
     GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)src1_d, (void*)srcs, sizeof(float3)*wh, stream));
     GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)src2_d, (void*)(srcs+wh), sizeof(float3)*wh, stream));
@@ -156,12 +155,8 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     gaussianBlur(src2_d, tempb2_d, temp_d, width, height, gaussiankernel, stream);
 
     //step 4 : ssim map
-    //std::vector<float3> ssim_res = ssim_map(temps11_d, temps22_d, temps12_d, tempb1_d, tempb2_d, temp_d, width, height, event_d, stream);
-    //printf("ssim vector get %f, %f, %f in pos 0\n", ssim_res[0].x, ssim_res[0].y, ssim_res[0].z);
-
-    //step 5 : edge diff map    
-    //std::vector<float3> edgediff_res = edgediff_map(src1_d, src2_d, tempb1_d, tempb2_d, temp_d, width, height, event_d, stream);
     
+    //step 5 : edge diff map    
     std::vector<float3> allscore_res = allscore_map(src1_d, src2_d, tempb1_d, tempb2_d, temps11_d, temps22_d, temps12_d, temp_d, width, height, maxshared, event_d, stream);
 
     //step 6 : format the vector
@@ -179,26 +174,15 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
         }
     }
 
-    //for (int i = 0; i < 108; i++){
-    //    printf("measure[%d] = %f\n", i, measure_vec[i]);
-    //}
-
     //step 7 : enjoy !
     const float ssim = final_score(measure_vec);
-
 
     hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
     hipEventSynchronize(event_d); //when the event is complete, we know our gpu result is ready!
 
-    float time;
-    hipEventElapsedTime (&time, startevent_d, event_d);
-
-    //printf("I took %f ms\n", time);
-
     free(srcs);
     hipFree(mem_d);
     hipEventDestroy(event_d);
-    hipEventDestroy(startevent_d);
 
     return ssim;
 }
