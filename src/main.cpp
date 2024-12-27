@@ -47,13 +47,13 @@
 #endif
 
 
-hipError_t errhip;
+hipError_t err_hip;
 
 #define GPU_CHECK(x)\
-errhip = (x);\
-if (errhip != hipSuccess)\
+err_hip = (x);\
+if (err_hip != hipSuccess)\
 {\
-   	printf("%s in %s at %d\n", hipGetErrorString(errhip),  __FILE__, __LINE__);\
+   	printf("%s in %s at %d\n", hipGetErrorString(err_hip),  __FILE__, __LINE__);\
 }
 
 #define STREAMNUM 30
