@@ -4,6 +4,9 @@
 #include "VapourSynth4.h"
 #include "VSHelper4.h"
 #include<vector>
+#include <chrono>
+#include <thread>
+
 
 #ifdef __HIPCC__
     #include<hip/hip_runtime.h>
@@ -100,13 +103,19 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
 
     //big memory allocation, we will try it multiple time if failed to save when too much threads are used
     hipError_t erralloc;
+    int tries = 10;
 
     float3* mem_d;
     erralloc = hipMalloc(&mem_d, sizeof(float3)*totalscalesize*(2 + 6)); //2 base image and 6 working buffers
-    if (erralloc != hipSuccess){
-        printf("ERROR, could not allocate VRAM for a frame, try lowering the number of vapoursynth threads\n");
-        free(srcs);
-        return -10000.;
+    while (erralloc != hipSuccess){
+        std::this_thread::sleep_for(std::chrono::milliseconds(500)); //0.5s with 10 tries -> shut down after 5 seconds of failing
+        erralloc = hipMalloc(&mem_d, sizeof(float3)*totalscalesize*(2 + 6)); //2 base image and 6 working buffers
+        tries--;
+        if (tries <= 0){
+            printf("ERROR, could not allocate VRAM for a frame, try lowering the number of vapoursynth threads\n");
+            free(srcs);
+            return -10000.;
+        }
     }
     GPU_CHECK(hipGetLastError());
 
