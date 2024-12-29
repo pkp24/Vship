@@ -265,7 +265,7 @@ static void VS_CC ssimulacra2Free(void *instanceData, VSCore *core, const VSAPI 
         hipStreamDestroy(d->streams[i]);
     }
     hipFree(d->gaussiankernel_d);
-    vsapi->setThreadCount(d->oldthreadnum, core);
+    //vsapi->setThreadCount(d->oldthreadnum, core);
 
     free(d);
 }
@@ -309,16 +309,16 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
     hipGetDevice(&device);
     hipGetDeviceProperties(&devattr, device);
 
-    int videowidth = viref->width;
-    int videoheight = viref->height;
+    //int videowidth = viref->width;
+    //int videoheight = viref->height;
     //put optimal thread number
-    VSCoreInfo infos;
-    vsapi->getCoreInfo(core, &infos);
-    d.oldthreadnum = infos.numThreads;
-    size_t freemem, totalmem;
-    hipMemGetInfo (&freemem, &totalmem);
+    //VSCoreInfo infos;
+    //vsapi->getCoreInfo(core, &infos);
+    //d.oldthreadnum = infos.numThreads;
+    //size_t freemem, totalmem;
+    //hipMemGetInfo (&freemem, &totalmem);
 
-    vsapi->setThreadCount(std::min((int)((float)(freemem - 20*(1llu << 20))/(8*sizeof(float3)*videowidth*videoheight*(1.33333))), d.oldthreadnum), core);
+    //vsapi->setThreadCount(std::min((int)((float)(freemem - 20*(1llu << 20))/(8*sizeof(float3)*videowidth*videoheight*(1.33333))), d.oldthreadnum), core);
 
     for (int i = 0; i < STREAMNUM; i++){
         hipStreamCreate(d.streams + i);
