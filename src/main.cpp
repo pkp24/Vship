@@ -44,6 +44,7 @@
     #define hipFuncCachePreferNone cudaFuncCachePreferNone
     #define hipFuncCachePreferL1 cudaFuncCachePreferL1
     #define hipFuncCachePreferEqual cudaFuncCachePreferEqual
+    #define hipMemGetInfo cudaMemGetInfo
 #endif
 
 
@@ -102,7 +103,7 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
 
     float3* mem_d;
     erralloc = hipMalloc(&mem_d, sizeof(float3)*totalscalesize*(2 + 6)); //2 base image and 6 working buffers
-    if (erralloc != 0){
+    if (erralloc != hipSuccess){
         printf("ERROR, could not allocate VRAM for a frame, try lowering the number of vapoursynth threads\n");
         free(srcs);
         return -10000.;
@@ -255,7 +256,7 @@ static void VS_CC ssimulacra2Free(void *instanceData, VSCore *core, const VSAPI 
         hipStreamDestroy(d->streams[i]);
     }
     hipFree(d->gaussiankernel_d);
-    vsapi->setThreadCount(d->oldthreadnum, core);
+    //vsapi->setThreadCount(d->oldthreadnum, core);
 
     free(d);
 }
@@ -305,8 +306,10 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
     VSCoreInfo infos;
     vsapi->getCoreInfo(core, &infos);
     d.oldthreadnum = infos.numThreads;
+    //size_t freemem, totalmem;
+    //hipMemGetInfo (&freemem, &totalmem);
 
-    vsapi->setThreadCount((int)((float)(devattr.totalGlobalMem - 20*(1llu << 20))/(10*sizeof(float3)*videowidth*videoheight*(1.33333))), core);
+    //vsapi->setThreadCount((int)((float)(freemem - 20*(1llu << 20))/(10*sizeof(float3)*videowidth*videoheight*(1.33333))), core);
 
     for (int i = 0; i < STREAMNUM; i++){
         hipStreamCreate(d.streams + i);
