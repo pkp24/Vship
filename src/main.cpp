@@ -67,6 +67,10 @@ if (err_hip != hipSuccess)\
 #include "gaussianblur.hpp"
 #include "score.hpp"
 
+void freemem(hipStream_t stream, hipError_t err, void* mem){
+    free(mem);
+}
+
 double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, float* gaussiankernel, int maxshared, hipStream_t stream){
 
     int wh = width*height;
@@ -121,6 +125,8 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)src1_d, (void*)srcs, sizeof(float3)*wh, stream));
     GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)src2_d, (void*)(srcs+wh), sizeof(float3)*wh, stream));
     
+    GPU_CHECK(hipStreamAddCallback(stream, freemem, srcs, 0));
+
     //step 1 : fill the downsample part
     int nw = width;
     int nh = height;
@@ -180,7 +186,6 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
     hipEventSynchronize(event_d); //when the event is complete, we know our gpu result is ready!
 
-    free(srcs);
     hipFree(mem_d);
     hipEventDestroy(event_d);
 
