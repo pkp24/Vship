@@ -13,7 +13,7 @@ to get the resulting values (can be modified but this is an example):
 
 `res = [[ind, fr.props["_SSIMULACRA2"]] for (ind, fr) in enumerate(vclip.frames())]`
 
-vapoursynth are not longer to be tuned for speed. They are automatically chosen depending on the available VRAM
+vapoursynth no longer has to be tuned for speed. They are automatically chosen depending on the available VRAM
 
 # to build:
 Warning: it is compiled for the specific gpu used to compile by default
