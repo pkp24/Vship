@@ -117,7 +117,7 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
             return -10000.;
         }
     }
-    GPU_CHECK(hipGetLastError());
+    //GPU_CHECK(hipGetLastError());
 
     float3* src1_d = mem_d; //length totalscalesize
     float3* src2_d = mem_d + totalscalesize;
@@ -309,8 +309,8 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
     hipGetDevice(&device);
     hipGetDeviceProperties(&devattr, device);
 
-    int videowidth = viref->width;
-    int videoheight = viref->height;
+    //int videowidth = viref->width;
+    //int videoheight = viref->height;
     //put optimal thread number
     VSCoreInfo infos;
     vsapi->getCoreInfo(core, &infos);
