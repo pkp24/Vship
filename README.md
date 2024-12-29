@@ -13,7 +13,9 @@ to get the resulting values (can be modified but this is an example):
 
 `res = [[ind, fr.props["_SSIMULACRA2"]] for (ind, fr) in enumerate(vclip.frames())]`
 
-vapoursynth no longer has to be tuned for speed. They are automatically chosen depending on the available VRAM
+you can try to tune the number of vapoursynth threads
+-> more threads is faster but with more vram (for 1080p it can go up to 300 VRAM MB per threads)
+`vs.core.threads = ?`
 
 # to build:
 Warning: it is compiled for the specific gpu used to compile by default
