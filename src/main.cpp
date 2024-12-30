@@ -71,8 +71,20 @@ if (err_hip != hipSuccess)\
 #include "gaussianblur.hpp"
 #include "score.hpp"
 
-void freemem(hipStream_t stream, hipError_t err, void* mem){
-    free(mem);
+__global__ void memoryorganizer_kernel(float3* out, const uint8_t *srcp0, const uint8_t *srcp1, const uint8_t *srcp2, int stride, int width, int height){
+    size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+    if (x > width*height) return;
+    int j = x%width;
+    int i = x/width;
+    out[i*width + j].x = ((float*)(srcp0 + i*stride))[j];
+    out[i*width + j].y = ((float*)(srcp1 + i*stride))[j];
+    out[i*width + j].z = ((float*)(srcp2 + i*stride))[j];
+}
+
+void memoryorganizer(float3* out, const uint8_t *srcp0, const uint8_t *srcp1, const uint8_t *srcp2, int stride, int width, int height, hipStream_t stream){
+    int th_x = std::min(256, width*height);
+    int bl_x = (width*height-1)/th_x + 1;
+    memoryorganizer_kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(out, srcp0, srcp1, srcp2, stride, width, height);
 }
 
 double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, float* gaussiankernel, int maxshared, hipStream_t stream){
@@ -86,6 +98,7 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     }
     int totalscalesize = whs_integral[6];
 
+    /*
     float3* srcs = (float3*)malloc(sizeof(float3)*wh * 2);
 
     for (int i = 0; i < height; i++){
@@ -99,7 +112,7 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
 
             //printf("source is %f, %f, %f in %d, %d\n", srcs[i*width + j].x, srcs[i*width + j].y, srcs[i*width + j].z, j, i);
         }
-    }
+    }*/
 
     //big memory allocation, we will try it multiple time if failed to save when too much threads are used
     hipError_t erralloc;
@@ -113,7 +126,6 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
         tries--;
         if (tries <= 0){
             printf("ERROR, could not allocate VRAM for a frame, try lowering the number of vapoursynth threads\n");
-            free(srcs);
             return -10000.;
         }
     }
@@ -132,10 +144,16 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     hipEvent_t event_d;
     hipEventCreate(&event_d);
 
-    GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)src1_d, (void*)srcs, sizeof(float3)*wh, stream));
-    GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)src2_d, (void*)(srcs+wh), sizeof(float3)*wh, stream));
-    
-    GPU_CHECK(hipStreamAddCallback(stream, freemem, srcs, 0));
+    uint8_t *memory_placeholder[3] = {(uint8_t*)temp_d, (uint8_t*)temp_d+stride*height, (uint8_t*)temp_d+2*stride*height};
+    GPU_CHECK(hipMemcpyHtoDAsync(memory_placeholder[0], (void*)srcp1[0], stride * height, stream));
+    GPU_CHECK(hipMemcpyHtoDAsync(memory_placeholder[1], (void*)srcp1[1], stride * height, stream));
+    GPU_CHECK(hipMemcpyHtoDAsync(memory_placeholder[2], (void*)srcp1[2], stride * height, stream));
+    memoryorganizer(src1_d, memory_placeholder[0], memory_placeholder[1], memory_placeholder[2], stride, width, height, stream);
+
+    GPU_CHECK(hipMemcpyHtoDAsync(memory_placeholder[0], (void*)srcp2[0], stride * height, stream));
+    GPU_CHECK(hipMemcpyHtoDAsync(memory_placeholder[1], (void*)srcp2[1], stride * height, stream));
+    GPU_CHECK(hipMemcpyHtoDAsync(memory_placeholder[2], (void*)srcp2[2], stride * height, stream));
+    memoryorganizer(src2_d, memory_placeholder[0], memory_placeholder[1], memory_placeholder[2], stride, width, height, stream);
 
     //step 1 : fill the downsample part
     int nw = width;
