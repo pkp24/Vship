@@ -1,3 +1,4 @@
+__launch_bounds__(256)
 __global__ void downsamplekernel(float3* src, float3* dst, int width, int height){ //threads represents output pixels
     size_t x = threadIdx.x + blockIdx.x*blockDim.x; // < width >> 1 +1
     size_t y = threadIdx.y + blockIdx.y*blockDim.y; // < height >> 1 +1

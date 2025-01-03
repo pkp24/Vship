@@ -1,3 +1,4 @@
+__launch_bounds__(256)
 __global__ void horizontalBlur_Kernel(float3* src, float3* dst, int width, int height, float* gaussiankernel){
     int x = threadIdx.x + blockIdx.x*blockDim.x;
     int size = width*height;
@@ -20,6 +21,7 @@ __global__ void horizontalBlur_Kernel(float3* src, float3* dst, int width, int h
     dst[x] = out;
 }
 
+__launch_bounds__(256)
 __global__ void verticalBlur_Kernel(float3* src, float3* dst, int width, int height, float* gaussiankernel){
     int x = threadIdx.x + blockIdx.x*blockDim.x;
     int size = width*height;

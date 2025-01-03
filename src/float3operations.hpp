@@ -122,6 +122,7 @@ __device__ __host__ float3 inline operator*(const float3& a, const float& b){
     return out;
 }
 
+__launch_bounds__(256)
 __global__ void multarray_Kernel(float3* src1, float3* src2, float3* dst, int width){
     size_t x = threadIdx.x + blockIdx.x*blockDim.x;
 

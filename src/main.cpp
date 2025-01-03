@@ -71,6 +71,7 @@ if (err_hip != hipSuccess)\
 #include "gaussianblur.hpp"
 #include "score.hpp"
 
+__launch_bounds__(256)
 __global__ void memoryorganizer_kernel(float3* out, const uint8_t *srcp0, const uint8_t *srcp1, const uint8_t *srcp2, int stride, int width, int height){
     size_t x = threadIdx.x + blockIdx.x*blockDim.x;
     if (x > width*height) return;

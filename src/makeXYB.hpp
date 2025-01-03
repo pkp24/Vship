@@ -63,6 +63,7 @@ __device__ inline void rgb_to_positive_xyb_d(float3& a, const float matrix[9], c
     make_positive_xyb(a);
 }
 
+__launch_bounds__(256)
 __global__ void rgb_to_positive_xyb_Kernel(float3* array, int width, const float M_00, const float M_01, const float M_02, const float M_10, const float M_11, const float M_12, const float M_20, const float M_21, const float M_22, const float opsin_bias, const float abs_bias){
     size_t x = threadIdx.x + blockIdx.x*blockDim.x;
     if (x >= width) return;
