@@ -191,7 +191,15 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     //step 4 : ssim map
     
     //step 5 : edge diff map    
-    std::vector<float3> allscore_res = allscore_map(src1_d, src2_d, tempb1_d, tempb2_d, temps11_d, temps22_d, temps12_d, temp_d, width, height, maxshared, event_d, stream);
+    std::vector<float3> allscore_res;
+    try{
+        allscore_res = allscore_map(src1_d, src2_d, tempb1_d, tempb2_d, temps11_d, temps22_d, temps12_d, temp_d, width, height, maxshared, event_d, stream);
+    } catch (const std::bad_alloc& e){
+        hipFree(mem_d);
+        hipEventDestroy(event_d);
+        printf("ERROR, could not allocate RAM for a result return, try lowering the number of vapoursynth threads\n");
+        return -10000.;
+    }
 
     //step 6 : format the vector
     std::vector<float> measure_vec(108);

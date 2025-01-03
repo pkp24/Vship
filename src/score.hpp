@@ -190,6 +190,7 @@ std::vector<float3> allscore_map(float3* im1, float3* im2, float3* mu1, float3* 
         h = (h-1)/2+1;
     }
     float3* hostback = (float3*)malloc(sizeof(float3)*scaleoutdone[6]);
+    if (!hostback) throw std::bad_alloc();
     GPU_CHECK(hipMemcpyDtoHAsync(hostback, (hipDeviceptr_t)temp, sizeof(float3)*scaleoutdone[6], stream));
     //the data as already been reduced by a factor of 512 which can now be reasonably retrieved from GPU
 
