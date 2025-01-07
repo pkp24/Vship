@@ -14,7 +14,7 @@ double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     erralloc = hipMalloc(&mem_d, sizeof(float3)*totalscalesize*(2 + 6)); //2 base image and 6 working buffers
     while (erralloc != hipSuccess){
         std::this_thread::sleep_for(std::chrono::milliseconds(500)); //0.5s with 10 tries -> shut down after 5 seconds of failing
-        erralloc = hipMalloc(&mem_d, sizeof(float3)*totalscalesize*(2 + 6)); //2 base image and 6 working buffers
+        erralloc = hipMalloc(&mem_d, sizeof(float3)*totalscalesize*(2 + 6) + sizeof(float)*BUTTERMAXGAUSSIANSIZE); //2 base image and 6 working buffers
         tries--;
         if (tries <= 0){
             printf("ERROR, could not allocate VRAM for a frame, try lowering the number of vapoursynth threads\n");
@@ -33,6 +33,15 @@ double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     float3* tempb1_d = mem_d + 6*totalscalesize;
     float3* tempb2_d = mem_d + 7*totalscalesize;
 
+    float* gaussiankernel_dmem = (float*)(mem_d + 8*totalscalesize); //of size BUTTERMAXGAUSSIANSIZE floats
+
+    float* gaussiankernel_mem = (float*)malloc(sizeof(float)*BUTTERMAXGAUSSIANSIZE);
+    if (!gaussiankernel_mem){
+        printf("Not enought RAM, try lowering vapoursynth threads\n");
+        hipFree(mem_d);
+        throw std::bad_alloc();
+    }
+
     hipEvent_t event_d;
     hipEventCreate(&event_d);
 
@@ -48,6 +57,7 @@ double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     memoryorganizer(src2_d, memory_placeholder[0], memory_placeholder[1], memory_placeholder[2], stride, width, height, stream);
 
     hipFree(mem_d);
+    free(gaussiankernel_mem);
     
     return 0.;
 }

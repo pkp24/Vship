@@ -68,4 +68,6 @@ if (err_hip != hipSuccess)\
 #define SIGMA 1.5f
 #define PI 3.14159265359
 
+#define BUTTERMAXGAUSSIANSIZE 200
+
 #endif
