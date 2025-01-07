@@ -1,6 +1,8 @@
 #include "../util/preprocessor.hpp"
 #include "../util/float3operations.hpp"
 
+namespace butter{
+
 double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, int maxshared, hipStream_t stream){
     
     int wh = width*height;
@@ -193,4 +195,6 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
     VSFilterDependency deps[] = {{d.reference, rpStrictSpatial}, {d.distorted, rpStrictSpatial}};
 
     vsapi->createVideoFilter(out, "vship", viref, butterGetFrame, butterFree, fmParallel, deps, 2, data, core);
+}
+
 }

@@ -1,6 +1,8 @@
 #ifndef DOWNSAMPLEHPP
 #define DOWNSAMPLEHPP
 
+namespace ssimu2{
+
 __launch_bounds__(256)
 __global__ void downsamplekernel(float3* src, float3* dst, int width, int height){ //threads represents output pixels
     size_t x = threadIdx.x + blockIdx.x*blockDim.x; // < width >> 1 +1
@@ -32,6 +34,8 @@ void inline downsample(float3* src, float3* dst, int width, int height, hipStrea
     int bl_y = (newh-1)/th_y + 1;
     downsamplekernel<<<dim3(bl_x, bl_y), dim3(th_x, th_y), 0, stream>>>(src, dst, width, height);
     GPU_CHECK(hipGetLastError());
+}
+
 }
 
 #endif

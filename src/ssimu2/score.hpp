@@ -1,12 +1,4 @@
-__device__ __host__ float tothe4th(float x){
-    float y = x*x;
-    return y*y;
-}
-
-__device__ __host__ float3 tothe4th(float3 x){
-    float3 y = x*x;
-    return y*y;
-}
+namespace ssimu2{
 
 __global__ void sumreduce(float3* dst, float3* src, int bl_x){
     //dst must be of size 6*sizeof(float3)*blocknum at least
@@ -357,4 +349,6 @@ float final_score(std::vector<float> scores){
     }
 
     return ssim;
+}
+
 }

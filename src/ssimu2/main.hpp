@@ -1,9 +1,11 @@
 #include "../util/preprocessor.hpp"
 #include "../util/float3operations.hpp"
-#include "../util/downsample.hpp"
 #include "../util/makeXYB.hpp"
-#include "../util/gaussianblur.hpp"
+#include "downsample.hpp"
+#include "gaussianblur.hpp"
 #include "score.hpp"
+
+namespace ssimu2{
 
 double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, float* gaussiankernel, int maxshared, hipStream_t stream){
 
@@ -272,4 +274,6 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
     VSFilterDependency deps[] = {{d.reference, rpStrictSpatial}, {d.distorted, rpStrictSpatial}};
 
     vsapi->createVideoFilter(out, "vship", viref, ssimulacra2GetFrame, ssimulacra2Free, fmParallel, deps, 2, data, core);
+}
+
 }
