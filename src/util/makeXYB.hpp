@@ -1,3 +1,6 @@
+#ifndef MAKEXYBHPP
+#define MAKEXYBHPP
+
 const float K_D0 = 0.0037930734;
 const float K_D1 = std::cbrt(K_D0);
 
@@ -79,3 +82,5 @@ __host__ inline void rgb_to_positive_xyb(float3* array, int width, hipStream_t s
     rgb_to_positive_xyb_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(array, width, K_M00, K_M01, K_M02, K_M10, K_M11, K_M12, K_M20, K_M21, K_M22, OPSIN_ABSORBANCE_BIAS, ABSORBANCE_BIAS);
     GPU_CHECK(hipGetLastError());
 }
+
+#endif

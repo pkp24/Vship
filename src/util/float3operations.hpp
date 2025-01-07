@@ -1,3 +1,6 @@
+#ifndef FLOAT3OPHPP
+#define FLOAT3OPHPP
+
 __device__ __host__ void inline operator/=(float3& a, float3& b){
     a.x /= b.x;
     a.y /= b.y;
@@ -137,3 +140,22 @@ void multarray(float3* src1, float3* src2, float3* dst, int width, hipStream_t s
     multarray_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(src1, src2, dst, width);
     GPU_CHECK(hipGetLastError());
 }
+
+__launch_bounds__(256)
+__global__ void memoryorganizer_kernel(float3* out, const uint8_t *srcp0, const uint8_t *srcp1, const uint8_t *srcp2, int stride, int width, int height){
+    size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+    if (x > width*height) return;
+    int j = x%width;
+    int i = x/width;
+    out[i*width + j].x = ((float*)(srcp0 + i*stride))[j];
+    out[i*width + j].y = ((float*)(srcp1 + i*stride))[j];
+    out[i*width + j].z = ((float*)(srcp2 + i*stride))[j];
+}
+
+void memoryorganizer(float3* out, const uint8_t *srcp0, const uint8_t *srcp1, const uint8_t *srcp2, int stride, int width, int height, hipStream_t stream){
+    int th_x = std::min(256, width*height);
+    int bl_x = (width*height-1)/th_x + 1;
+    memoryorganizer_kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(out, srcp0, srcp1, srcp2, stride, width, height);
+}
+
+#endif

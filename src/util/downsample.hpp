@@ -1,3 +1,6 @@
+#ifndef DOWNSAMPLEHPP
+#define DOWNSAMPLEHPP
+
 __launch_bounds__(256)
 __global__ void downsamplekernel(float3* src, float3* dst, int width, int height){ //threads represents output pixels
     size_t x = threadIdx.x + blockIdx.x*blockDim.x; // < width >> 1 +1
@@ -30,3 +33,5 @@ void inline downsample(float3* src, float3* dst, int width, int height, hipStrea
     downsamplekernel<<<dim3(bl_x, bl_y), dim3(th_x, th_y), 0, stream>>>(src, dst, width, height);
     GPU_CHECK(hipGetLastError());
 }
+
+#endif

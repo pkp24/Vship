@@ -1,3 +1,6 @@
+#ifndef PREPROCESSHPP
+#define PREPROCESSHPP
+
 #include <stdlib.h>
 #include <stdio.h>
 #include<math.h>
@@ -64,3 +67,5 @@ if (err_hip != hipSuccess)\
 #define GAUSSIANSIZE 10
 #define SIGMA 1.5f
 #define PI 3.14159265359
+
+#endif

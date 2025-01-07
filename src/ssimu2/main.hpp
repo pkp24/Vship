@@ -1,25 +1,9 @@
-#include "float3operations.hpp"
-#include "downsample.hpp"
-#include "makeXYB.hpp"
-#include "gaussianblur.hpp"
+#include "../util/preprocessor.hpp"
+#include "../util/float3operations.hpp"
+#include "../util/downsample.hpp"
+#include "../util/makeXYB.hpp"
+#include "../util/gaussianblur.hpp"
 #include "score.hpp"
-
-__launch_bounds__(256)
-__global__ void memoryorganizer_kernel(float3* out, const uint8_t *srcp0, const uint8_t *srcp1, const uint8_t *srcp2, int stride, int width, int height){
-    size_t x = threadIdx.x + blockIdx.x*blockDim.x;
-    if (x > width*height) return;
-    int j = x%width;
-    int i = x/width;
-    out[i*width + j].x = ((float*)(srcp0 + i*stride))[j];
-    out[i*width + j].y = ((float*)(srcp1 + i*stride))[j];
-    out[i*width + j].z = ((float*)(srcp2 + i*stride))[j];
-}
-
-void memoryorganizer(float3* out, const uint8_t *srcp0, const uint8_t *srcp1, const uint8_t *srcp2, int stride, int width, int height, hipStream_t stream){
-    int th_x = std::min(256, width*height);
-    int bl_x = (width*height-1)/th_x + 1;
-    memoryorganizer_kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(out, srcp0, srcp1, srcp2, stride, width, height);
-}
 
 double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, float* gaussiankernel, int maxshared, hipStream_t stream){
 
