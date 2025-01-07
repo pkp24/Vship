@@ -1,5 +1,6 @@
-# Vapoursynth-HIP-SSIMU2
+# Vapoursynth-HIP
 An easy to use plugin for vapoursynth performing SSIMU2 measurments using the GPU with HIP
+The ability to compute butteraugli is being worked on
 
 # Usage:
 
