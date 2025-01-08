@@ -168,4 +168,13 @@ void memoryorganizer(float3* out, const uint8_t *srcp0, const uint8_t *srcp1, co
     memoryorganizer_kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(out, srcp0, srcp1, srcp2, stride, width, height);
 }
 
+__launch_bounds__(256)
+__global__ void strideEliminator_kernel(float* mem_d, float* src, int stride, int width, int height){
+    size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+    if (x > width*height) return;
+    int j = x%width;
+    int i = x/width;
+    mem_d[i*width+j] = src[i*stride+j];
+}
+
 #endif

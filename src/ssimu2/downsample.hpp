@@ -1,6 +1,3 @@
-#ifndef DOWNSAMPLEHPP
-#define DOWNSAMPLEHPP
-
 namespace ssimu2{
 
 __launch_bounds__(256)
@@ -37,5 +34,3 @@ void inline downsample(float3* src, float3* dst, int width, int height, hipStrea
 }
 
 }
-
-#endif
