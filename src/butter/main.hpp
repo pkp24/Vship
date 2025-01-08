@@ -1,5 +1,6 @@
 #include "../util/preprocessor.hpp"
 #include "../util/float3operations.hpp"
+#include "../util/makeXYB.hpp"
 #include "gaussianblur.hpp"
 
 namespace butter{
