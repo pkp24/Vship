@@ -22,7 +22,10 @@ public:
         stream = src.stream;
         hipMemcpyDtoDAsync(mem_d, src.mem_d, sizeof(float)*width*height, stream);
     }
-    void blur(Plane_d temp, float* gaussiankernel, int gaussiansize, float border_ratio){
+    void blur(Plane_d temp, float sigma, float border_ratio, float* gaussiankernel){
+        const int gaussiansize = (int)(sigma * 5);
+        loadGaussianKernel<<<dim3(1), dim3(2*gaussiansize+1), 0, stream>>>(gaussiankernel, gaussiansize, sigma);
+
         int wh = width*height;
         int th_x = std::min(256, wh);
         int bl_x = (wh-1)/th_x + 1;
@@ -32,6 +35,20 @@ public:
         }
         horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(mem_d, temp.mem_d, width, height, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
         horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp.mem_d, mem_d, height, width, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
+    }
+    void blur(Plane_d dst, Plane_d temp, float sigma, float border_ratio, float* gaussiankernel){
+        const int gaussiansize = (int)(sigma * 5);
+        loadGaussianKernel<<<dim3(1), dim3(2*gaussiansize+1), 0, stream>>>(gaussiankernel, gaussiansize, sigma);
+
+        int wh = width*height;
+        int th_x = std::min(256, wh);
+        int bl_x = (wh-1)/th_x + 1;
+        float weight_no_border = 0;
+        for (int i = 0; i < 2*gaussiansize+1; i++){
+            weight_no_border += gaussiankernel[i];
+        }
+        horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(mem_d, temp.mem_d, width, height, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
+        horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp.mem_d, dst.mem_d, height, width, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
     }
     void strideEliminator(float* strided, int stride){
         int wh = width*height;
@@ -50,12 +67,13 @@ double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     hipError_t erralloc;
     int tries = 10;
 
-    const int gaussiantotal = 100;
+    const int gaussiantotal = 1024;
+    const int totalplane = 24;
     float* mem_d;
-    erralloc = hipMalloc(&mem_d, sizeof(float)*3*totalscalesize*(2 + 6) + sizeof(float)*gaussiantotal); //2 base image and 6 working buffers
+    erralloc = hipMalloc(&mem_d, sizeof(float)*totalscalesize*(totalplane) + sizeof(float)*gaussiantotal); //2 base image and 6 working buffers
     while (erralloc != hipSuccess){
         std::this_thread::sleep_for(std::chrono::milliseconds(500)); //0.5s with 10 tries -> shut down after 5 seconds of failing
-        erralloc = hipMalloc(&mem_d, sizeof(float)*3*totalscalesize*(2 + 6) + sizeof(float)*100); //2 base image and 6 working buffers
+        erralloc = hipMalloc(&mem_d, sizeof(float)*totalscalesize*(totalplane) + sizeof(float)*gaussiantotal); //2 base image and 6 working buffers
         tries--;
         if (tries <= 0){
             printf("ERROR, could not allocate VRAM for a frame, try lowering the number of vapoursynth threads\n");
@@ -68,14 +86,7 @@ double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     Plane_d src2_d[3] = {Plane_d(mem_d+3*width*height, width, height, stream), Plane_d(mem_d+4*width*height, width, height, stream), Plane_d(mem_d+5*width*height, width, height, stream)};
     Plane_d temp[3] = {Plane_d(mem_d+6*width*height, width, height, stream), Plane_d(mem_d+7*width*height, width, height, stream), Plane_d(mem_d+8*width*height, width, height, stream)};
 
-    float* gaussiankernel_dmem = (mem_d + 24*totalscalesize);
-
-    float* gaussiankernel_mem = (float*)malloc(sizeof(float)*gaussiantotal);
-    if (!gaussiankernel_mem){
-        printf("Not enought RAM, try lowering vapoursynth threads\n");
-        hipFree(mem_d);
-        throw std::bad_alloc();
-    }
+    float* gaussiankernel_dmem = (mem_d + totalplane*totalscalesize);
 
     hipEvent_t event_d;
     hipEventCreate(&event_d);
@@ -98,7 +109,6 @@ double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     hipEventSynchronize(event_d); //when the event is complete, we know our gpu result is ready!
 
     hipFree(mem_d);
-    free(gaussiankernel_mem);
     
     return 0.;
 }

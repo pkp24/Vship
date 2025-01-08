@@ -1,5 +1,11 @@
 namespace butter{
 
+__global__ void loadGaussianKernel(float* gaussiankernel, int gaussiansize, float sigma){
+    int x = threadIdx.x;
+    if (x > 2*gaussiansize) return;
+    gaussiankernel[x] = exp(-(gaussiansize-x)*(gaussiansize-x)/(2*sigma*sigma))/(sqrt(2*PI*sigma*sigma));
+}
+
 //transpose the result at the end
 __launch_bounds__(256)
 __global__ void horizontalBlur_Kernel(float* src, float* dst, int w, int h, float border_ratio, float weight_no_border, float* gaussiankernel, int gaussiansize){
