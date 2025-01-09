@@ -1,16 +1,6 @@
 #ifndef FLOAT3OPHPP
 #define FLOAT3OPHPP
 
-__device__ __host__ float tothe4th(float x){
-    float y = x*x;
-    return y*y;
-}
-
-__device__ __host__ float3 tothe4th(float3 x){
-    float3 y = x*x;
-    return y*y;
-}
-
 __device__ __host__ void inline operator/=(float3& a, float3& b){
     a.x /= b.x;
     a.y /= b.y;
@@ -133,6 +123,15 @@ __device__ __host__ float3 inline operator*(const float3& a, const float& b){
     out.y = a.y*b;
     out.z = a.z*b;
     return out;
+}
+__device__ __host__ float tothe4th(float x){
+    float y = x*x;
+    return y*y;
+}
+
+__device__ __host__ float3 tothe4th(float3 x){
+    float3 y = x*x;
+    return y*y;
 }
 
 __launch_bounds__(256)
