@@ -65,4 +65,6 @@ __host__ inline void rgb_to_positive_xyb(float3* array, int width, hipStream_t s
     GPU_CHECK(hipGetLastError());
 }
 
+
+
 #endif
