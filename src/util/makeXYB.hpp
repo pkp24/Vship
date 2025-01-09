@@ -49,11 +49,26 @@ __device__ inline void rgb_to_positive_xyb_d(float3& a){
     make_positive_xyb(a);
 }
 
+__device__ inline void rgb_to_linrgbfunc(float& a){
+    if (a > 0.04045){
+        a = powf(((a+0.055)/(1+0.055)), 2.4f);
+    } else {
+        a = a/12.92;
+    }
+}
+
+__device__ inline void rgb_to_linrgb(float3& a){
+    rgb_to_linrgbfunc(a.x);
+    rgb_to_linrgbfunc(a.y);
+    rgb_to_linrgbfunc(a.z);
+}
+
 __launch_bounds__(256)
 __global__ void rgb_to_positive_xyb_Kernel(float3* array, int width){
     size_t x = threadIdx.x + blockIdx.x*blockDim.x;
     if (x >= width) return;
     //float3 old = array[x];
+    rgb_to_linrgb(array[x]);
     rgb_to_positive_xyb_d(array[x]);
     //printf("from %f, %f, %f to %f, %f, %f\n", old.x, old.y, old.z, array[x].x, array[x].y, array[x].z);
 }

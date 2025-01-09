@@ -7,7 +7,7 @@ An easy to use vapoursynth plugin to compute SSIMU2 or Butteraugli (not yet) on 
 
 to convert to RGBS:
 
-`vclip = vclip.resize.Bicubic(height=vclip.height, width=vclip.width, format=vs.RGBS, matrix_in_s="709", transfer_in_s="srgb", transfer_s="linear")`
+`vclip = vclip.resize.Bicubic(height=vclip.height, width=vclip.width, format=vs.RGBS, matrix_in_s="709")`
 
 to get the resulting values (can be modified but this is an example):
 

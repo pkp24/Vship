@@ -54,9 +54,25 @@ __device__ float gamma(float v) {
   return retval;
 }
 
+__global__ void linearrgb_kernel(float* src1, float* src2, float* src3, int width, int height){
+    size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+    if (x >= width*height) return;
+    rgb_to_linrgbfunc(src1[x]);
+    rgb_to_linrgbfunc(src2[x]);
+    rgb_to_linrgbfunc(src3[x]);
+}
+
+void linearrgb(Plane_d src[3]){
+    int width = src[0].width; int height = src[0].height;
+    int th_x = std::min(256, width*height);
+    int bl_x = (width*height-1)/th_x + 1;
+    linearrgb_kernel<<<dim3(bl_x), dim3(th_x), 0, src[0].stream>>>(src[0].mem_d, src[1].mem_d, src[2].mem_d, width, height);
+}
+
 __global__ void opsinDynamicsImage_kernel(float* src1, float* src2, float* src3, float* blurred1, float* blurred2, float* blurred3, int width, int height){
     size_t x = threadIdx.x + blockIdx.x*blockDim.x;
     if (x >= width*height) return;
+    
 
     float3 sensitivity;
     float3 src = {src1[x], src2[x], src3[x]};
@@ -71,6 +87,7 @@ __global__ void opsinDynamicsImage_kernel(float* src1, float* src2, float* src3,
 
 void opsinDynamicsImage(Plane_d src[3], Plane_d temp[3], Plane_d temp2, float* gaussiankernel){
     //change src from linear SRGB to opsin dynamic XYB
+    linearrgb(src);
     for (int i = 0; i < 3; i++){
         src[i].blur(temp[i], temp2, 1.2f, 0.0, gaussiankernel);
     }
