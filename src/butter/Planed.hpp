@@ -44,7 +44,7 @@ public:
             weight_no_border += gaussiankernel[i];
         }
         horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(mem_d, temp.mem_d, width, height, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
-        horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp.mem_d, dst.mem_d, height, width, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
+        verticalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp.mem_d, mem_d, width, height, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
     }
     void strideEliminator(float* strided, int stride){
         int wh = width*height;

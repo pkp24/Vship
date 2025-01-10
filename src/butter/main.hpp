@@ -7,7 +7,7 @@
 
 namespace butter{
 
-double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, int maxshared, hipStream_t stream){
+double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, float intensity_multiplier, int maxshared, hipStream_t stream){
     
     int wh = width*height;
     const int totalscalesize = wh;
@@ -66,6 +66,7 @@ double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
 typedef struct {
     VSNode *reference;
     VSNode *distorted;
+    float intensity_multiplier;
     int maxshared;
     hipStream_t streams[STREAMNUM];
     int oldthreadnum;
@@ -99,7 +100,7 @@ static const VSFrame *VS_CC butterGetFrame(int n, int activationReason, void *in
             vsapi->getReadPtr(src2, 2),
         };
 
-        const double val = butterprocess(srcp1, srcp2, stride, width, height, d->maxshared, d->streams[n%STREAMNUM]);
+        const double val = butterprocess(srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[n%STREAMNUM]);
 
         vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_BUTTERAUGLI", val, maReplace);
 
@@ -152,6 +153,12 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
         vsapi->freeNode(d.reference);
         vsapi->freeNode(d.distorted);
         return;
+    }
+
+    int error;
+    d.intensity_multiplier = vsapi->mapGetFloat(in, "intensity_multiplier", 0, &error);
+    if (error != peSuccess){
+        d.intensity_multiplier = 1.;
     }
 
     int count;

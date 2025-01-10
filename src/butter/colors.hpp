@@ -1,57 +1,7 @@
 namespace butter{
 
 __device__ float gamma(float v) {
-  static const float kGamma = 0.372322653176;
-  static const float limit = 37.8000499603;
-  float bright = v - limit;
-  if (bright >= 0) {
-    static const float mul = 0.0950819040934;
-    v -= bright * mul;
-  }
-  {
-    static const float limit2 = 74.6154406429;
-    float bright2 = v - limit2;
-    if (bright2 >= 0) {
-      static const float mul = 0.01;
-      v -= bright2 * mul;
-    }
-  }
-  {
-    static const float limit2 = 82.8505938033;
-    float bright2 = v - limit2;
-    if (bright2 >= 0) {
-      static const float mul = 0.0316722592629;
-      v -= bright2 * mul;
-    }
-  }
-  {
-    static const float limit2 = 92.8505938033;
-    float bright2 = v - limit2;
-    if (bright2 >= 0) {
-      static const float mul = 0.221249885752;
-      v -= bright2 * mul;
-    }
-  }
-  {
-    static const float limit2 = 102.8505938033;
-    float bright2 = v - limit2;
-    if (bright2 >= 0) {
-      static const float mul = 0.0402547853939;
-      v -= bright2 * mul;
-    }
-  }
-  {
-    static const float limit2 = 112.8505938033;
-    float bright2 = v - limit2;
-    if (bright2 >= 0) {
-      static const float mul = 0.021471798711500003;
-      v -= bright2 * mul;
-    }
-  }
-  static const float offset = 0.106544447664;
-  static const float scale = 10.7950943969;
-  float retval = scale * (offset + pow(v, kGamma));
-  return retval;
+    return fmaf(19.245013259874995f, logf(v + 9.9710635769299145), -23.16046239805755);
 }
 
 __global__ void linearrgb_kernel(float* src1, float* src2, float* src3, int width, int height){
@@ -62,14 +12,33 @@ __global__ void linearrgb_kernel(float* src1, float* src2, float* src3, int widt
     rgb_to_linrgbfunc(src3[x]);
 }
 
-void linearrgb(Plane_d src[3]){
-    int width = src[0].width; int height = src[0].height;
-    int th_x = std::min(256, width*height);
-    int bl_x = (width*height-1)/th_x + 1;
-    linearrgb_kernel<<<dim3(bl_x), dim3(th_x), 0, src[0].stream>>>(src[0].mem_d, src[1].mem_d, src[2].mem_d, width, height);
+__device__ inline void butterOpsinAbsorbance(float3& a, bool clamp = false){
+    float3 out;
+    out.x = fmaf(0.29956550340058319, a.x,
+    fmaf(0.63373087833825936, a.y,
+    fmaf(0.077705617820981968, a.z,
+    1.7557483643287353)));
+
+    out.y = fmaf(0.22158691104574774, a.x,
+    fmaf(0.69391388044116142, a.y,
+    fmaf(0.0987313588422, a.z,
+    1.7557483643287353)));
+
+    out.z = fmaf(0.02, a.x,
+    fmaf(0.2, a.y,
+    fmaf(0.20480129041026129, a.z,
+    12.226454707163354)));
+
+    if (clamp){
+        a.x = max(a.x, 1.7557483643287353);
+        a.y = max(a.y, 1.7557483643287353);
+        a.z = max(a.z, 12.226454707163354);
+    }
+
+    a = out;
 }
 
-__global__ void opsinDynamicsImage_kernel(float* src1, float* src2, float* src3, float* blurred1, float* blurred2, float* blurred3, int width, int height){
+__global__ void opsinDynamicsImage_kernel(float* src1, float* src2, float* src3, float* blurred1, float* blurred2, float* blurred3, int width, int height, float intensity_multiplier){
     size_t x = threadIdx.x + blockIdx.x*blockDim.x;
     if (x >= width*height) return;
     
@@ -77,20 +46,34 @@ __global__ void opsinDynamicsImage_kernel(float* src1, float* src2, float* src3,
     float3 sensitivity;
     float3 src = {src1[x], src2[x], src3[x]};
     float3 blurred = {blurred1[x], blurred2[x], blurred3[x]};
-    opsin_absorbance(blurred);
+    src *= intensity_multiplier;
+    blurred *= intensity_multiplier;
+    butterOpsinAbsorbance(blurred, true);
+    blurred = max(blurred, 1e-4f);
     sensitivity.x = gamma(blurred.x) / blurred.x;
     sensitivity.y = gamma(blurred.y) / blurred.y;
     sensitivity.z = gamma(blurred.z) / blurred.z;
-    opsin_absorbance(src);
-    
+    butterOpsinAbsorbance(src);
+    src *= sensitivity;
+    src.x = max(src.x, 1.7557483643287353f);
+    src.y = max(src.y, 1.7557483643287353f);
+    src.z = max(src.z, 12.226454707163354f);
+
+    //make positive
+    src.x = src.x - src.y; // x - y
+    src.y = src.x + 2*src.y; // x + y = (x-y)+2y
 }
 
-void opsinDynamicsImage(Plane_d src[3], Plane_d temp[3], Plane_d temp2, float* gaussiankernel){
-    //change src from linear SRGB to opsin dynamic XYB
-    linearrgb(src);
+void opsinDynamicsImage(Plane_d src[3], Plane_d temp[3], Plane_d temp2, float* gaussiankernel, float intensity_multiplier){
+    //change src from SRGB to opsin dynamic XYB
+    int width = src[0].width; int height = src[0].height;
+    int th_x = std::min(256, width*height);
+    int bl_x = (width*height-1)/th_x + 1;
+    linearrgb_kernel<<<dim3(bl_x), dim3(th_x), 0, src[0].stream>>>(src[0].mem_d, src[1].mem_d, src[2].mem_d, width, height);
     for (int i = 0; i < 3; i++){
         src[i].blur(temp[i], temp2, 1.2f, 0.0, gaussiankernel);
     }
+    opsinDynamicsImage_kernel<<<dim3(bl_x), dim3(th_x), 0, src[0].stream>>>(src[0].mem_d, src[1].mem_d, src[2].mem_d, temp[0].mem_d, temp[1].mem_d, temp[2].mem_d, width, height, intensity_multiplier);
 }
 
 }
