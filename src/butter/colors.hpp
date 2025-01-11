@@ -41,19 +41,19 @@ __device__ inline void butterOpsinAbsorbance(float3& a, bool clamp = false){
 __global__ void opsinDynamicsImage_kernel(float* src1, float* src2, float* src3, float* blurred1, float* blurred2, float* blurred3, int width, int height, float intensity_multiplier){
     size_t x = threadIdx.x + blockIdx.x*blockDim.x;
     if (x >= width*height) return;
-    
 
     float3 sensitivity;
     float3 src = {src1[x], src2[x], src3[x]};
     float3 blurred = {blurred1[x], blurred2[x], blurred3[x]};
+    float3 oldsrc = src; float3 oldblurred = blurred;
     src *= intensity_multiplier;
     blurred *= intensity_multiplier;
-    butterOpsinAbsorbance(blurred, true);
+    //butterOpsinAbsorbance(blurred, true);
     blurred = max(blurred, 1e-4f);
     sensitivity.x = gamma(blurred.x) / blurred.x;
     sensitivity.y = gamma(blurred.y) / blurred.y;
     sensitivity.z = gamma(blurred.z) / blurred.z;
-    butterOpsinAbsorbance(src);
+    //butterOpsinAbsorbance(src);
     src *= sensitivity;
     src.x = max(src.x, 1.7557483643287353f);
     src.y = max(src.y, 1.7557483643287353f);
@@ -62,6 +62,7 @@ __global__ void opsinDynamicsImage_kernel(float* src1, float* src2, float* src3,
     //make positive
     src.x = src.x - src.y; // x - y
     src.y = src.x + 2*src.y; // x + y = (x-y)+2y
+    //printf("%f, %f, %f and %f, %f, %f to %f, %f, %f\n", oldsrc.x, oldsrc.y, oldsrc.z, oldblurred.x, oldblurred.y, oldblurred.z, src.x, src.y, src.z);
 }
 
 void opsinDynamicsImage(Plane_d src[3], Plane_d temp[3], Plane_d temp2, float* gaussiankernel, float intensity_multiplier){
@@ -70,10 +71,12 @@ void opsinDynamicsImage(Plane_d src[3], Plane_d temp[3], Plane_d temp2, float* g
     int th_x = std::min(256, width*height);
     int bl_x = (width*height-1)/th_x + 1;
     linearrgb_kernel<<<dim3(bl_x), dim3(th_x), 0, src[0].stream>>>(src[0].mem_d, src[1].mem_d, src[2].mem_d, width, height);
+    //printf("initial adress: %llu\n", (unsigned long long)src[0].mem_d);
     for (int i = 0; i < 3; i++){
         src[i].blur(temp[i], temp2, 1.2f, 0.0, gaussiankernel);
     }
     opsinDynamicsImage_kernel<<<dim3(bl_x), dim3(th_x), 0, src[0].stream>>>(src[0].mem_d, src[1].mem_d, src[2].mem_d, temp[0].mem_d, temp[1].mem_d, temp[2].mem_d, width, height, intensity_multiplier);
+    GPU_CHECK(hipGetLastError());
 }
 
 }

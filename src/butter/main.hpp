@@ -8,7 +8,6 @@
 namespace butter{
 
 double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, float intensity_multiplier, int maxshared, hipStream_t stream){
-    
     int wh = width*height;
     const int totalscalesize = wh;
 
@@ -55,10 +54,16 @@ double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)srcp2[2], stride * height, stream));
     src2_d[2].strideEliminator(mem_d+6*width*height, stride);
 
+    opsinDynamicsImage(src1_d, temp, temp2[0], gaussiankernel_dmem, intensity_multiplier);
+    //opsinDynamicsImage(src2_d, temp, temp2[0], gaussiankernel_dmem, intensity_multiplier);
+    GPU_CHECK(hipGetLastError());
+
     hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
     hipEventSynchronize(event_d); //when the event is complete, we know our gpu result is ready!
+    GPU_CHECK(hipGetLastError());
 
     hipFree(mem_d);
+    hipEventDestroy(event_d);
     
     return 0.;
 }
@@ -99,7 +104,6 @@ static const VSFrame *VS_CC butterGetFrame(int n, int activationReason, void *in
             vsapi->getReadPtr(src2, 1),
             vsapi->getReadPtr(src2, 2),
         };
-
         const double val = butterprocess(srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[n%STREAMNUM]);
 
         vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_BUTTERAUGLI", val, maReplace);
@@ -199,7 +203,6 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
     data->maxshared = devattr.sharedMemPerBlock;    
 
     VSFilterDependency deps[] = {{d.reference, rpStrictSpatial}, {d.distorted, rpStrictSpatial}};
-
     vsapi->createVideoFilter(out, "vship", viref, butterGetFrame, butterFree, fmParallel, deps, 2, data, core);
 }
 
