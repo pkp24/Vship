@@ -45,15 +45,15 @@ __global__ void opsinDynamicsImage_kernel(float* src1, float* src2, float* src3,
     float3 sensitivity;
     float3 src = {src1[x], src2[x], src3[x]};
     float3 blurred = {blurred1[x], blurred2[x], blurred3[x]};
-    float3 oldsrc = src; float3 oldblurred = blurred;
+    //float3 oldsrc = src; float3 oldblurred = blurred;
     src *= intensity_multiplier;
     blurred *= intensity_multiplier;
-    //butterOpsinAbsorbance(blurred, true);
+    butterOpsinAbsorbance(blurred, true);
     blurred = max(blurred, 1e-4f);
     sensitivity.x = gamma(blurred.x) / blurred.x;
     sensitivity.y = gamma(blurred.y) / blurred.y;
     sensitivity.z = gamma(blurred.z) / blurred.z;
-    //butterOpsinAbsorbance(src);
+    butterOpsinAbsorbance(src);
     src *= sensitivity;
     src.x = max(src.x, 1.7557483643287353f);
     src.y = max(src.y, 1.7557483643287353f);
@@ -62,7 +62,7 @@ __global__ void opsinDynamicsImage_kernel(float* src1, float* src2, float* src3,
     //make positive
     src.x = src.x - src.y; // x - y
     src.y = src.x + 2*src.y; // x + y = (x-y)+2y
-    //printf("%f, %f, %f and %f, %f, %f to %f, %f, %f\n", oldsrc.x, oldsrc.y, oldsrc.z, oldblurred.x, oldblurred.y, oldblurred.z, src.x, src.y, src.z);
+    //printf("%f, %f, %f and %f, %f, %f to %f, %f, %f with %f, %f, %f sens\n", oldsrc.x, oldsrc.y, oldsrc.z, oldblurred.x, oldblurred.y, oldblurred.z, src.x, src.y, src.z, sensitivity.x, sensitivity.y, sensitivity.z);
 }
 
 void opsinDynamicsImage(Plane_d src[3], Plane_d temp[3], Plane_d temp2, float* gaussiankernel, float intensity_multiplier){

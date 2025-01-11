@@ -40,22 +40,22 @@ double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     hipEvent_t event_d;
     hipEventCreate(&event_d);
 
-    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)srcp1[0], stride * height, stream));
+    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, srcp1[0], stride * height, stream));
     src1_d[0].strideEliminator(mem_d+6*width*height, stride);
-    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)srcp1[1], stride * height, stream));
+    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, srcp1[1], stride * height, stream));
     src1_d[1].strideEliminator(mem_d+6*width*height, stride);
-    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)srcp1[2], stride * height, stream));
+    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, srcp1[2], stride * height, stream));
     src1_d[2].strideEliminator(mem_d+6*width*height, stride);
 
-    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)srcp2[0], stride * height, stream));
+    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, srcp2[0], stride * height, stream));
     src2_d[0].strideEliminator(mem_d+6*width*height, stride);
-    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)srcp2[1], stride * height, stream));
+    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, srcp2[1], stride * height, stream));
     src2_d[1].strideEliminator(mem_d+6*width*height, stride);
-    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)srcp2[2], stride * height, stream));
+    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, srcp2[2], stride * height, stream));
     src2_d[2].strideEliminator(mem_d+6*width*height, stride);
 
     opsinDynamicsImage(src1_d, temp, temp2[0], gaussiankernel_dmem, intensity_multiplier);
-    //opsinDynamicsImage(src2_d, temp, temp2[0], gaussiankernel_dmem, intensity_multiplier);
+    opsinDynamicsImage(src2_d, temp, temp2[0], gaussiankernel_dmem, intensity_multiplier);
     GPU_CHECK(hipGetLastError());
 
     hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations

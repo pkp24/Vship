@@ -29,8 +29,8 @@ public:
         for (int i = 0; i < 2*gaussiansize+1; i++){
             weight_no_border += gaussiankernel[i];
         }
-        horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(mem_d, temp.mem_d, width, height, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
-        verticalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp.mem_d, mem_d, width, height, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
+        horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp.mem_d, mem_d, width, height, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
+        verticalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(mem_d, temp.mem_d, width, height, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
     }
     void blur(Plane_d dst, Plane_d temp, float sigma, float border_ratio, float* gaussiankernel){
         const int gaussiansize = (int)(sigma * 5);
@@ -43,14 +43,14 @@ public:
         for (int i = 0; i < 2*gaussiansize+1; i++){
             weight_no_border += std::exp(-(gaussiansize-i)*(gaussiansize-i)/(2*sigma*sigma))/(sqrt(2*PI*sigma*sigma));
         }
-        horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(mem_d, temp.mem_d, width, height, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
-        verticalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp.mem_d, mem_d, width, height, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
+        horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp.mem_d, mem_d, width, height, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
+        verticalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(dst.mem_d, temp.mem_d, width, height, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
     }
     void strideEliminator(float* strided, int stride){
         int wh = width*height;
         int th_x = std::min(256, wh);
         int bl_x = (wh-1)/th_x + 1;
-        strideEliminator_kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(mem_d, strided, stride, width, height);
+        strideEliminator_kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(mem_d, (const uint8_t*)strided, stride, width, height);
     }
 };
 

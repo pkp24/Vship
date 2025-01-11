@@ -165,7 +165,7 @@ void multarray(float3* src1, float3* src2, float3* dst, int width, hipStream_t s
 __launch_bounds__(256)
 __global__ void memoryorganizer_kernel(float3* out, const uint8_t *srcp0, const uint8_t *srcp1, const uint8_t *srcp2, int stride, int width, int height){
     size_t x = threadIdx.x + blockIdx.x*blockDim.x;
-    if (x > width*height) return;
+    if (x >= width*height) return;
     int j = x%width;
     int i = x/width;
     out[i*width + j].x = ((float*)(srcp0 + i*stride))[j];
@@ -180,12 +180,12 @@ void memoryorganizer(float3* out, const uint8_t *srcp0, const uint8_t *srcp1, co
 }
 
 __launch_bounds__(256)
-__global__ void strideEliminator_kernel(float* mem_d, float* src, int stride, int width, int height){
+__global__ void strideEliminator_kernel(float* mem_d, const uint8_t* src, int stride, int width, int height){
     size_t x = threadIdx.x + blockIdx.x*blockDim.x;
-    if (x > width*height) return;
+    if (x >= width*height) return;
     int j = x%width;
     int i = x/width;
-    mem_d[i*width+j] = src[i*stride+j];
+    mem_d[i*width+j] = ((float*)(src + i*stride))[j];
 }
 
 #endif
