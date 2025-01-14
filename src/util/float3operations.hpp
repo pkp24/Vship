@@ -163,6 +163,22 @@ void multarray(float3* src1, float3* src2, float3* dst, int width, hipStream_t s
 }
 
 __launch_bounds__(256)
+__global__ void subarray_Kernel(float* src1, float* src2, float* dst, int width){
+    size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+
+    if (x >= width) return;
+
+    dst[x] = src1[x]-src2[x];
+}
+
+void subarray(float* src1, float* src2, float* dst, int width, hipStream_t stream){
+    int th_x = std::min(256, width);
+    int bl_x = (width-1)/th_x + 1;
+    subarray_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(src1, src2, dst, width);
+    GPU_CHECK(hipGetLastError());
+}
+
+__launch_bounds__(256)
 __global__ void memoryorganizer_kernel(float3* out, const uint8_t *srcp0, const uint8_t *srcp1, const uint8_t *srcp2, int stride, int width, int height){
     size_t x = threadIdx.x + blockIdx.x*blockDim.x;
     if (x >= width*height) return;

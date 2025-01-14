@@ -63,6 +63,7 @@ __global__ void opsinDynamicsImage_kernel(float* src1, float* src2, float* src3,
     src.x = src.x - src.y; // x - y
     src.y = src.x + 2*src.y; // x + y = (x-y)+2y
     //printf("%f, %f, %f and %f, %f, %f to %f, %f, %f with %f, %f, %f sens\n", oldsrc.x, oldsrc.y, oldsrc.z, oldblurred.x, oldblurred.y, oldblurred.z, src.x, src.y, src.z, sensitivity.x, sensitivity.y, sensitivity.z);
+    src1[x] = src.x; src2[x] = src.y; src3[x] = src.z;
 }
 
 void opsinDynamicsImage(Plane_d src[3], Plane_d temp[3], Plane_d temp2, float* gaussiankernel, float intensity_multiplier){

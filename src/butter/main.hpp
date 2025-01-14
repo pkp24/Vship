@@ -4,6 +4,7 @@
 #include "gaussianblur.hpp"
 #include "Planed.hpp"
 #include "colors.hpp"
+#include "separatefrequencies.hpp"
 
 namespace butter{
 
@@ -16,7 +17,7 @@ double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     int tries = 10;
 
     const int gaussiantotal = 1024;
-    const int totalplane = 24;
+    const int totalplane = 32;
     float* mem_d;
     erralloc = hipMalloc(&mem_d, sizeof(float)*totalscalesize*(totalplane) + sizeof(float)*gaussiantotal); //2 base image and 6 working buffers
     while (erralloc != hipSuccess){
@@ -30,16 +31,31 @@ double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     }
     //GPU_CHECK(hipGetLastError());
 
+    //initial color planes
     Plane_d src1_d[3] = {Plane_d(mem_d, width, height, stream), Plane_d(mem_d+width*height, width, height, stream), Plane_d(mem_d+2*width*height, width, height, stream)};
     Plane_d src2_d[3] = {Plane_d(mem_d+3*width*height, width, height, stream), Plane_d(mem_d+4*width*height, width, height, stream), Plane_d(mem_d+5*width*height, width, height, stream)};
+    
+    //temporary planes
     Plane_d temp[3] = {Plane_d(mem_d+6*width*height, width, height, stream), Plane_d(mem_d+7*width*height, width, height, stream), Plane_d(mem_d+8*width*height, width, height, stream)};
     Plane_d temp2[3] = {Plane_d(mem_d+9*width*height, width, height, stream), Plane_d(mem_d+10*width*height, width, height, stream), Plane_d(mem_d+11*width*height, width, height, stream)};
+
+    //Psycho Image planes
+    Plane_d lf1[3] = {Plane_d(mem_d+12*width*height, width, height, stream), Plane_d(mem_d+13*width*height, width, height, stream), Plane_d(mem_d+14*width*height, width, height, stream)};
+    Plane_d mf1[3] = {Plane_d(mem_d+15*width*height, width, height, stream), Plane_d(mem_d+16*width*height, width, height, stream), Plane_d(mem_d+17*width*height, width, height, stream)};
+    Plane_d hf1[2] = {Plane_d(mem_d+18*width*height, width, height, stream), Plane_d(mem_d+19*width*height, width, height, stream)};
+    Plane_d uhf1[2] = {Plane_d(mem_d+20*width*height, width, height, stream), Plane_d(mem_d+21*width*height, width, height, stream)};
+
+    Plane_d lf2[3] = {Plane_d(mem_d+22*width*height, width, height, stream), Plane_d(mem_d+23*width*height, width, height, stream), Plane_d(mem_d+24*width*height, width, height, stream)};
+    Plane_d mf2[3] = {Plane_d(mem_d+25*width*height, width, height, stream), Plane_d(mem_d+26*width*height, width, height, stream), Plane_d(mem_d+27*width*height, width, height, stream)};
+    Plane_d hf2[2] = {Plane_d(mem_d+28*width*height, width, height, stream), Plane_d(mem_d+29*width*height, width, height, stream)};
+    Plane_d uhf2[2] = {Plane_d(mem_d+30*width*height, width, height, stream), Plane_d(mem_d+31*width*height, width, height, stream)};
 
     float* gaussiankernel_dmem = (mem_d + totalplane*totalscalesize);
 
     hipEvent_t event_d;
     hipEventCreate(&event_d);
 
+    //we put the frame's planes on GPU
     GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp1[0]), stride * height, stream));
     src1_d[0].strideEliminator(mem_d+6*width*height, stride);
     GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp1[1]), stride * height, stream));
@@ -54,9 +70,13 @@ double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp2[2]), stride * height, stream));
     src2_d[2].strideEliminator(mem_d+6*width*height, stride);
 
+    //to XYB
     opsinDynamicsImage(src1_d, temp, temp2[0], gaussiankernel_dmem, intensity_multiplier);
     opsinDynamicsImage(src2_d, temp, temp2[0], gaussiankernel_dmem, intensity_multiplier);
     GPU_CHECK(hipGetLastError());
+
+    separateFrequencies(src1_d, temp, lf1, mf1, hf1, uhf1, gaussiankernel_dmem);
+    separateFrequencies(src2_d, temp, lf2, mf2, hf2, uhf2, gaussiankernel_dmem);
 
     hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
     hipEventSynchronize(event_d); //when the event is complete, we know our gpu result is ready!
