@@ -5,6 +5,7 @@
 #include "Planed.hpp"
 #include "colors.hpp"
 #include "separatefrequencies.hpp"
+#include "maltaDiff.hpp"
 
 namespace butter{
 
