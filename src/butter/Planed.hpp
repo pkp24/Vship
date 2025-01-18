@@ -18,6 +18,9 @@ public:
         stream = src.stream;
         hipMemcpyDtoDAsync(mem_d, src.mem_d, sizeof(float)*width*height, stream);
     }
+    void fill0(){
+        hipMemsetAsync(mem_d, 0, sizeof(float)*width*height, stream);
+    }
     void blur(Plane_d temp, float sigma, float border_ratio, float* gaussiankernel){
         const int gaussiansize = (int)(sigma * 5);
         loadGaussianKernel<<<dim3(1), dim3(2*gaussiansize+1), 0, stream>>>(gaussiankernel, gaussiansize, sigma);

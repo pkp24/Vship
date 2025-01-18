@@ -79,6 +79,42 @@ double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     separateFrequencies(src1_d, temp, lf1, mf1, hf1, uhf1, gaussiankernel_dmem);
     separateFrequencies(src2_d, temp, lf2, mf2, hf2, uhf2, gaussiankernel_dmem);
 
+    //no more needs for src1_d and src2_d so we reuse them as masks for butter
+    Plane_d* block_diff_dc = src1_d; //size 3
+    Plane_d* block_diff_ac = src2_d; //size 3
+
+    //set the accumulators to 0
+    for (int c = 0; c < 3; c++){
+        block_diff_ac[c].fill0();
+        block_diff_dc[c].fill0();
+    }
+
+    const float hf_asymmetry_ = 1.;
+
+    const float wUhfMalta = 5.1409625726;
+    const float norm1Uhf = 58.5001247061;
+    MaltaDiffMap(uhf1[1].mem_d, uhf2[1].mem_d, block_diff_ac[1].mem_d, width, height, wUhfMalta * hf_asymmetry_, wUhfMalta / hf_asymmetry_, norm1Uhf, stream);
+
+    const float wUhfMaltaX = 4.91743441556;
+    const float norm1UhfX = 687196.39002;
+    MaltaDiffMap(uhf1[0].mem_d, uhf2[0].mem_d, block_diff_ac[0].mem_d, width, height, wUhfMaltaX * hf_asymmetry_, wUhfMaltaX / hf_asymmetry_, norm1UhfX, stream);
+
+    const float wHfMalta = 153.671655716;
+    const float norm1Hf = 83150785.9592;
+    MaltaDiffMapLF(hf1[1].mem_d, hf2[1].mem_d, block_diff_ac[1].mem_d, width, height, wHfMalta * sqrt(hf_asymmetry_), wHfMalta / sqrt(hf_asymmetry_), norm1Hf, stream);
+
+    const float wHfMaltaX = 668.358918152;
+    const float norm1HfX = 0.882954368025;
+    MaltaDiffMapLF(hf1[0].mem_d, hf2[0].mem_d, block_diff_ac[0].mem_d, width, height, wHfMaltaX * sqrt(hf_asymmetry_), wHfMaltaX / sqrt(hf_asymmetry_), norm1HfX, stream);
+
+    const float wMfMalta = 6841.81248144;
+    const float norm1Mf = 0.0135134962487;
+    MaltaDiffMapLF(mf1[1].mem_d, mf2[1].mem_d, block_diff_ac[1].mem_d, width, height, wMfMalta, wMfMalta, norm1Mf, stream);
+
+    const float wMfMaltaX = 813.901703816;
+    const float norm1MfX = 16792.9322251;
+    MaltaDiffMapLF(mf1[0].mem_d, mf2[0].mem_d, block_diff_ac[0].mem_d, width, height, wMfMaltaX, wMfMaltaX, norm1MfX, stream);
+
     hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
     hipEventSynchronize(event_d); //when the event is complete, we know our gpu result is ready!
     GPU_CHECK(hipGetLastError());

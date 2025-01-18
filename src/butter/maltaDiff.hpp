@@ -579,7 +579,7 @@ __global__ void MaltaDiffMap_Kernel(const float* lum0, const float* lum1, float*
 
     float result = MaltaUnit(diffs+(threadIdx.y+4)*24 + threadIdx.x+4, 24);
     if (x < width && y < height){
-        block_diff_ac[y*width + x] = result;
+        block_diff_ac[y*width + x] += result;
     }
 }
 
@@ -651,8 +651,30 @@ __global__ void MaltaDiffMapLF_Kernel(const float* lum0, const float* lum1, floa
 
     float result = MaltaUnitLF(diffs+(threadIdx.y+4)*24 + threadIdx.x+4, 24);
     if (x < width && y < height){
-        block_diff_ac[y*width + x] = result;
+        block_diff_ac[y*width + x] += result;
     }
+}
+
+__host__ void MaltaDiffMap(const float* lum0, const float* lum1, float* block_diff_ac, const int width, const int height, const float w_0gt1, const float w_0lt1, const float norm1, hipStream_t stream){
+    const float len = 3.75;
+    const float mulli = 0.354191303559;
+
+    const int th_x = 16;
+    const int th_y = 16;
+    const int bl_x = (width - 1)/th_x + 1;
+    const int bl_y = (height - 1)/th_y + 1;
+    MaltaDiffMap_Kernel<<<dim3(bl_x, bl_y), dim3(th_x, th_y)>>>(lum0, lum1, block_diff_ac, width, height, w_0gt1, w_0lt1, norm1, len, mulli);
+}
+
+__host__ void MaltaDiffMapLF(const float* lum0, const float* lum1, float* block_diff_ac, const int width, const int height, const float w_0gt1, const float w_0lt1, const float norm1, hipStream_t stream){
+    const float len = 3.75;
+    const float mulli = 0.405371989604;
+
+    const int th_x = 16;
+    const int th_y = 16;
+    const int bl_x = (width - 1)/th_x + 1;
+    const int bl_y = (height - 1)/th_y + 1;
+    MaltaDiffMapLF_Kernel<<<dim3(bl_x, bl_y), dim3(th_x, th_y), 0, stream>>>(lum0, lum1, block_diff_ac, width, height, w_0gt1, w_0lt1, norm1, len, mulli);
 }
 
 }
