@@ -6,6 +6,7 @@
 #include "colors.hpp"
 #include "separatefrequencies.hpp"
 #include "maltaDiff.hpp"
+#include "simplerdiff.hpp"
 
 namespace butter{
 
@@ -114,6 +115,21 @@ double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     const float wMfMaltaX = 813.901703816;
     const float norm1MfX = 16792.9322251;
     MaltaDiffMapLF(mf1[0].mem_d, mf2[0].mem_d, block_diff_ac[0].mem_d, width, height, wMfMaltaX, wMfMaltaX, norm1MfX, stream);
+
+    const float wmul[9] = { 0, 32.4449876135, 0, 0, 0, 0, 1.01370836411, 0, 1.74566011615};
+
+    const float maxclamp = 85.7047444518;
+    const float kSigmaHfX = 10.6666499623;
+    const float w = 884.809801415;
+    sameNoiseLevels(hf1[1], hf2[1], block_diff_ac[1], temp[0], temp[1], kSigmaHfX, w, maxclamp, gaussiankernel_dmem);
+
+    for (int c = 0; c < 3; c++){
+        if (c < 2){
+            L2AsymDiff(hf1[c].mem_d, hf2[c].mem_d, block_diff_ac[c].mem_d, width*height, wmul[c] * hf_asymmetry_, wmul[c] / hf_asymmetry_, stream);
+        }
+        L2diff(mf1[c].mem_d, mf2[c].mem_d, block_diff_ac[c].mem_d, width*height, wmul[3 + c], stream);
+        L2diff(lf1[c].mem_d, lf2[c].mem_d, block_diff_dc[c].mem_d, width*height, wmul[6 + c], stream);
+    }
 
     hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
     hipEventSynchronize(event_d); //when the event is complete, we know our gpu result is ready!
