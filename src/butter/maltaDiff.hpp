@@ -552,7 +552,7 @@ __global__ void MaltaDiffMap_Kernel(const float* lum0, const float* lum1, float*
         const float too_small = 0.55 * fabs0;
         const float too_big = 1.05 * fabs0;
 
-        float impact;
+        float impact = 0;
 
         if (lum0[worky*width + workx] < 0){
             if (lum1[worky*width + workx] > -too_small){
@@ -576,6 +576,8 @@ __global__ void MaltaDiffMap_Kernel(const float* lum0, const float* lum1, float*
         }
     }
     __syncthreads(); //diffs is loaded
+
+    //printf("local diffs : %f at %d\n", diffs[(threadIdx.y+4)*24 + threadIdx.x+4], (threadIdx.y+4)*24 + threadIdx.x+4);
 
     float result = MaltaUnit(diffs+(threadIdx.y+4)*24 + threadIdx.x+4, 24);
     if (x < width && y < height){
