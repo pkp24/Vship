@@ -531,7 +531,7 @@ __global__ void MaltaDiffMap_Kernel(const float* lum0, const float* lum1, float*
 
     const int serialind = threadIdx.x + threadIdx.y * blockDim.x;
     const int serialstride = blockDim.x*blockDim.y;
-    for (int i = 0; i < 24*24; i += serialstride){
+    for (int i = serialind; i < 24*24; i += serialstride){
         int workx = topleftx + i%24; int worky = toplefty + i/24;
         if (workx < 0 || workx >= width || worky < 0 || worky >= height){
             diffs[i] = 0;
@@ -603,7 +603,7 @@ __global__ void MaltaDiffMapLF_Kernel(const float* lum0, const float* lum1, floa
 
     const int serialind = threadIdx.x + threadIdx.y * blockDim.x;
     const int serialstride = blockDim.x*blockDim.y;
-    for (int i = 0; i < 24*24; i += serialstride){
+    for (int i = serialind; i < 24*24; i += serialstride){
         int workx = topleftx + i%24; int worky = toplefty + i/24;
         if (workx < 0 || workx >= width || worky < 0 || worky >= height){
             diffs[i] = 0;
