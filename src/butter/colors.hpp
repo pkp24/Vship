@@ -1,7 +1,57 @@
 namespace butter{
 
 __device__ float gamma(float v) {
-    return fmaf(19.245013259874995f, logf(v + 9.9710635769299145), -23.16046239805755);
+    const float kGamma = 0.372322653176;
+    const float limit = 37.8000499603;
+    float bright = v - limit;
+    if (bright >= 0) {
+        const float mul = 0.0950819040934;
+        v -= bright * mul;
+    }
+    {
+        const float limit2 = 74.6154406429;
+        float bright2 = v - limit2;
+        if (bright2 >= 0) {
+        const float mul = 0.01;
+        v -= bright2 * mul;
+        }
+    }
+    {
+        const float limit2 = 82.8505938033;
+        float bright2 = v - limit2;
+        if (bright2 >= 0) {
+        const float mul = 0.0316722592629;
+        v -= bright2 * mul;
+        }
+    }
+    {
+        const float limit2 = 92.8505938033;
+        float bright2 = v - limit2;
+        if (bright2 >= 0) {
+        const float mul = 0.221249885752;
+        v -= bright2 * mul;
+        }
+    }
+    {
+        const float limit2 = 102.8505938033;
+        float bright2 = v - limit2;
+        if (bright2 >= 0) {
+        const float mul = 0.0402547853939;
+        v -= bright2 * mul;
+        }
+    }
+    {
+        const float limit2 = 112.8505938033;
+        float bright2 = v - limit2;
+        if (bright2 >= 0) {
+        const float mul = 0.021471798711500003;
+        v -= bright2 * mul;
+        }
+    }
+    const float offset = 0.106544447664;
+    const float scale = 10.7950943969;
+    float retval = scale * (offset + pow(v, kGamma));
+    return retval;
 }
 
 __global__ void linearrgb_kernel(float* src1, float* src2, float* src3, int width, int height){
@@ -12,28 +62,22 @@ __global__ void linearrgb_kernel(float* src1, float* src2, float* src3, int widt
     rgb_to_linrgbfunc(src3[x]);
 }
 
-__device__ inline void butterOpsinAbsorbance(float3& a, bool clamp = false){
+__device__ inline void butterOpsinAbsorbance(float3& a){
     float3 out;
-    out.x = fmaf(0.29956550340058319, a.x,
-    fmaf(0.63373087833825936, a.y,
-    fmaf(0.077705617820981968, a.z,
-    1.7557483643287353)));
+    out.x = fmaf(0.254462330846, a.x,
+    fmaf(0.488238255095, a.y,
+    fmaf(0.0635278003854, a.z,
+    1.01681026909)));
 
-    out.y = fmaf(0.22158691104574774, a.x,
-    fmaf(0.69391388044116142, a.y,
-    fmaf(0.0987313588422, a.z,
-    1.7557483643287353)));
+    out.y = fmaf(0.195214015766, a.x,
+    fmaf(0.568019861857, a.y,
+    fmaf(0.0860755536007, a.z,
+    1.1510118369)));
 
-    out.z = fmaf(0.02, a.x,
-    fmaf(0.2, a.y,
-    fmaf(0.20480129041026129, a.z,
-    12.226454707163354)));
-
-    if (clamp){
-        a.x = max(a.x, 1.7557483643287353);
-        a.y = max(a.y, 1.7557483643287353);
-        a.z = max(a.z, 12.226454707163354);
-    }
+    out.z = fmaf(0.07374607900105684, a.x,
+    fmaf(0.06142425304154509, a.y,
+    fmaf(0.24416850520714256, a.z,
+    1.20481945273)));
 
     a = out;
 }
@@ -48,7 +92,7 @@ __global__ void opsinDynamicsImage_kernel(float* src1, float* src2, float* src3,
     //float3 oldsrc = src; float3 oldblurred = blurred;
     src *= intensity_multiplier;
     blurred *= intensity_multiplier;
-    butterOpsinAbsorbance(blurred, true);
+    butterOpsinAbsorbance(blurred);
     blurred = max(blurred, 1e-4f);
     sensitivity.x = gamma(blurred.x) / blurred.x;
     sensitivity.y = gamma(blurred.y) / blurred.y;
@@ -62,7 +106,7 @@ __global__ void opsinDynamicsImage_kernel(float* src1, float* src2, float* src3,
     //make positive
     src.x = src.x - src.y; // x - y
     src.y = src.x + 2*src.y; // x + y = (x-y)+2y
-    //printf("%f, %f, %f and %f, %f, %f to %f, %f, %f with %f, %f, %f sens\n", oldsrc.x, oldsrc.y, oldsrc.z, oldblurred.x, oldblurred.y, oldblurred.z, src.x, src.y, src.z, sensitivity.x, sensitivity.y, sensitivity.z);
+    //if (x == 0) printf("%f, %f, %f and %f, %f, %f to %f, %f, %f with %f, %f, %f sens\n", oldsrc.x, oldsrc.y, oldsrc.z, oldblurred.x, oldblurred.y, oldblurred.z, src.x, src.y, src.z, sensitivity.x, sensitivity.y, sensitivity.z);
     src1[x] = src.x; src2[x] = src.y; src3[x] = src.z;
 }
 
