@@ -7,6 +7,7 @@
 #include "separatefrequencies.hpp"
 #include "maltaDiff.hpp"
 #include "simplerdiff.hpp"
+#include "maskPsycho.hpp"
 
 namespace butter{
 
@@ -130,6 +131,15 @@ double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
         L2diff(mf1[c].mem_d, mf2[c].mem_d, block_diff_ac[c].mem_d, width*height, wmul[3 + c], stream);
         L2diff(lf1[c].mem_d, lf2[c].mem_d, block_diff_dc[c].mem_d, width*height, wmul[6 + c], stream);
     }
+
+    //from now on, lf and mf are not used so we will reuse the memory
+    Plane_d* mask_xyb = lf1;
+    Plane_d* mask_xyb_dc = mf1;
+    Plane_d* temp3 = lf2;
+    Plane_d* temp4 = mf2;
+
+    MaskPsychoImage(hf1, uhf1, hf2, uhf2, temp3, temp4, mask_xyb, mask_xyb_dc, gaussiankernel_dmem);
+    //at this point hf and uhf cannot be used anymore (they have been invalidated by the function)
 
     hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
     hipEventSynchronize(event_d); //when the event is complete, we know our gpu result is ready!
