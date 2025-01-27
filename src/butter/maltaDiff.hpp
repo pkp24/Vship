@@ -626,7 +626,7 @@ __global__ void MaltaDiffMapLF_Kernel(const float* lum0, const float* lum1, floa
         const float too_small = 0.55 * fabs0;
         const float too_big = 1.05 * fabs0;
 
-        float impact;
+        float impact = 0;
 
         if (lum0[worky*width + workx] < 0){
             if (lum1[worky*width + workx] > -too_small){

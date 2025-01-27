@@ -1,13 +1,14 @@
 #include "../util/preprocessor.hpp"
 #include "../util/float3operations.hpp"
 #include "../util/makeXYB.hpp"
-#include "gaussianblur.hpp"
-#include "Planed.hpp"
-#include "colors.hpp"
+#include "gaussianblur.hpp" 
+#include "Planed.hpp" //Plane_d class
+#include "colors.hpp" //OpsinDynamicsImage
 #include "separatefrequencies.hpp"
 #include "maltaDiff.hpp"
-#include "simplerdiff.hpp"
+#include "simplerdiff.hpp" //L2 +asym diff + same noise diff
 #include "maskPsycho.hpp"
+#include "combineMasks.hpp"
 
 namespace butter{
 
@@ -140,6 +141,9 @@ double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
 
     MaskPsychoImage(hf1, uhf1, hf2, uhf2, temp3, temp4, mask_xyb, mask_xyb_dc, gaussiankernel_dmem);
     //at this point hf and uhf cannot be used anymore (they have been invalidated by the function)
+
+    Plane_d diffmap = temp4[0]; //we only need one plane
+    computeDiffmap(mask_xyb[0].mem_d, mask_xyb[1].mem_d, mask_xyb[2].mem_d, mask_xyb_dc[0].mem_d, mask_xyb_dc[1].mem_d, mask_xyb_dc[2].mem_d, block_diff_dc[0].mem_d, block_diff_dc[1].mem_d, block_diff_dc[2].mem_d, block_diff_ac[0].mem_d, block_diff_ac[1].mem_d, block_diff_ac[2].mem_d, diffmap.mem_d, width*height, stream);
 
     hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
     hipEventSynchronize(event_d); //when the event is complete, we know our gpu result is ready!
