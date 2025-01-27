@@ -561,9 +561,9 @@ __global__ void MaltaDiffMap_Kernel(const float* lum0, const float* lum1, float*
                 impact = -lum1[worky*width + workx] - too_big;
             }
         } else {
-            if (lum1[worky*width + workx] > -too_small){
+            if (lum1[worky*width + workx] < too_small){
                 impact = -lum1[worky*width + workx] + too_small;
-            } else if (lum1[worky*width + workx] < -too_big){
+            } else if (lum1[worky*width + workx] > too_big){
                 impact = lum1[worky*width + workx] - too_big;
             }
         }
@@ -635,9 +635,9 @@ __global__ void MaltaDiffMapLF_Kernel(const float* lum0, const float* lum1, floa
                 impact = -lum1[worky*width + workx] - too_big;
             }
         } else {
-            if (lum1[worky*width + workx] > -too_small){
+            if (lum1[worky*width + workx] < too_small){
                 impact = -lum1[worky*width + workx] + too_small;
-            } else if (lum1[worky*width + workx] < -too_big){
+            } else if (lum1[worky*width + workx] > too_big){
                 impact = lum1[worky*width + workx] - too_big;
             }
         }
