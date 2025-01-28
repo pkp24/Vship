@@ -1,57 +1,7 @@
 namespace butter{
 
 __device__ float gamma(float v) {
-    const float kGamma = 0.372322653176;
-    const float limit = 37.8000499603;
-    float bright = v - limit;
-    if (bright >= 0) {
-        const float mul = 0.0950819040934;
-        v -= bright * mul;
-    }
-    {
-        const float limit2 = 74.6154406429;
-        float bright2 = v - limit2;
-        if (bright2 >= 0) {
-        const float mul = 0.01;
-        v -= bright2 * mul;
-        }
-    }
-    {
-        const float limit2 = 82.8505938033;
-        float bright2 = v - limit2;
-        if (bright2 >= 0) {
-        const float mul = 0.0316722592629;
-        v -= bright2 * mul;
-        }
-    }
-    {
-        const float limit2 = 92.8505938033;
-        float bright2 = v - limit2;
-        if (bright2 >= 0) {
-        const float mul = 0.221249885752;
-        v -= bright2 * mul;
-        }
-    }
-    {
-        const float limit2 = 102.8505938033;
-        float bright2 = v - limit2;
-        if (bright2 >= 0) {
-        const float mul = 0.0402547853939;
-        v -= bright2 * mul;
-        }
-    }
-    {
-        const float limit2 = 112.8505938033;
-        float bright2 = v - limit2;
-        if (bright2 >= 0) {
-        const float mul = 0.021471798711500003;
-        v -= bright2 * mul;
-        }
-    }
-    const float offset = 0.106544447664;
-    const float scale = 10.7950943969;
-    float retval = scale * (offset + pow(v, kGamma));
-    return retval;
+    return fmaf(19.245013259874995f, logf(v + 9.9710635769299145), -23.16046239805755);
 }
 
 __global__ void linearrgb_kernel(float* src1, float* src2, float* src3, int width, int height){
@@ -62,22 +12,28 @@ __global__ void linearrgb_kernel(float* src1, float* src2, float* src3, int widt
     rgb_to_linrgbfunc(src3[x]);
 }
 
-__device__ inline void butterOpsinAbsorbance(float3& a){
+__device__ inline void butterOpsinAbsorbance(float3& a, bool clamp = false){
     float3 out;
-    out.x = fmaf(0.254462330846, a.x,
-    fmaf(0.488238255095, a.y,
-    fmaf(0.0635278003854, a.z,
-    1.01681026909)));
+    out.x = fmaf(0.29956550340058319, a.x,
+    fmaf(0.63373087833825936, a.y,
+    fmaf(0.077705617820981968, a.z,
+    1.7557483643287353)));
 
-    out.y = fmaf(0.195214015766, a.x,
-    fmaf(0.568019861857, a.y,
-    fmaf(0.0860755536007, a.z,
-    1.1510118369)));
+    out.y = fmaf(0.22158691104574774, a.x,
+    fmaf(0.69391388044116142, a.y,
+    fmaf(0.0987313588422, a.z,
+    1.7557483643287353)));
 
-    out.z = fmaf(0.07374607900105684, a.x,
-    fmaf(0.06142425304154509, a.y,
-    fmaf(0.24416850520714256, a.z,
-    1.20481945273)));
+    out.z = fmaf(0.02, a.x,
+    fmaf(0.02, a.y,
+    fmaf(0.20480129041026129, a.z,
+    12.226454707163354)));
+
+    if (clamp){
+        out.x = max(out.x, 1.7557483643287353);
+        out.y = max(out.y, 1.7557483643287353);
+        out.z = max(out.z, 12.226454707163354);
+    }
 
     a = out;
 }
@@ -92,13 +48,17 @@ __global__ void opsinDynamicsImage_kernel(float* src1, float* src2, float* src3,
     //float3 oldsrc = src; float3 oldblurred = blurred;
     src *= intensity_multiplier;
     blurred *= intensity_multiplier;
-    butterOpsinAbsorbance(blurred);
+    butterOpsinAbsorbance(blurred, true);
     blurred = max(blurred, 1e-4f);
     sensitivity.x = gamma(blurred.x) / blurred.x;
     sensitivity.y = gamma(blurred.y) / blurred.y;
     sensitivity.z = gamma(blurred.z) / blurred.z;
-    butterOpsinAbsorbance(src);
+    sensitivity = max(sensitivity, 1e-4f);
+    butterOpsinAbsorbance(src, false);
     src *= sensitivity;
+    src.x = max(src.x, 1.7557483643287353f);
+    src.y = max(src.y, 1.7557483643287353f);
+    src.z = max(src.z, 12.226454707163354f);
 
     //make positive + export
 
