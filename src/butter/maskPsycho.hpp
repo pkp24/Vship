@@ -30,7 +30,6 @@ __global__ void diffPrecompute_Kernel(float* mem1, float* mem2, float* dst, int 
     float sup1 = abs(mem2[y*width + x] - mem2[y*width + x2]) + abs(mem2[y*width + x] - mem2[y2*width + x]);
     dst[y*width + x] = 0.918416534734 * min(sup0, sup1);
     if (dst[y*width + x] >= 55.0184555849) dst[y*width + x] = 55.0184555849;
-    //if (thx == 10000) printf("diffPrecompute : %f\n", dst[y*width+x]);
     
 }
 
@@ -97,7 +96,7 @@ __launch_bounds__(256)
 __global__ void bcomponentmasking_Kernel(float* mask0, float* mask1, float* mask2, float* mask_dc0, float* mask_dc1, float* mask_dc2, int width, int height){
     size_t x = threadIdx.x + blockIdx.x*blockDim.x;
 
-    if (x >= width*height) return;
+    if (x >= width) return;
 
     const float p1 = mask1[x] * 2.1887170895 * 2.1364621982;
     const float p0 = mask0[x] * 36.4671237619 * 16.6963293877 + p1 * 0.0513061271723;
@@ -140,8 +139,8 @@ void MaskPsychoImage(Plane_d* hf1, Plane_d* uhf1, Plane_d* hf2, Plane_d* uhf2, P
     Plane_d temp4 = uhf1[1];
 
     //X component
-    diffPrecompute(mask_xyb0[0].mem_d, mask_xyb1[0].mem_d, mask[0].mem_d, width, height, stream);
-    mask[0].blur(temp2, 9.24456601467, -0.0724948220913, gaussiankernel);
+    diffPrecompute(mask_xyb0[0].mem_d, mask_xyb1[0].mem_d, temp1.mem_d, width, height, stream);
+    temp1.blur(mask[0], temp2, 9.24456601467, -0.0724948220913, gaussiankernel);
 
     //Y component
     diffPrecompute(mask_xyb0[1].mem_d, mask_xyb1[1].mem_d, temp1.mem_d, width, height, stream);

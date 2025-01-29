@@ -9,7 +9,7 @@ __global__ void computeDiffmap_Kernel(float* mask_xyb0, float* mask_xyb1, float*
     float combined = block_diff_dc0[x]*mask_xyb_dc0[x] + block_diff_dc1[x]*mask_xyb_dc1[x] + block_diff_dc2[x]*mask_xyb_dc2[x];
     combined += block_diff_ac0[x]*mask_xyb0[x] + block_diff_ac1[x]*mask_xyb1[x] + block_diff_ac2[x]*mask_xyb2[x];
 
-    if (x == 10000) printf("final result: %f with %f, %f, %f and %f, %f, %f.\n", sqrtf(combined), block_diff_dc0[x], block_diff_dc1[x], block_diff_dc2[x], mask_xyb_dc0[x], mask_xyb_dc1[x], mask_xyb_dc2[x]);
+    //if (x == 10000) printf("final result: %f with %f, %f, %f and %f, %f, %f.\n", sqrtf(combined), block_diff_ac0[x], block_diff_ac1[x], block_diff_ac2[x], mask_xyb_dc0[x], mask_xyb_dc1[x], mask_xyb_dc2[x]);
     dst[x] = sqrtf(combined);
 }
 
