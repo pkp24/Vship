@@ -4,6 +4,7 @@ An easy to use vapoursynth plugin to compute SSIMU2 or Butteraugli (not yet) on 
 # Usage:
 
 `vs.core.vship.SSIMULACRA2(original, distorded)`
+`vs.core.vship.BUTTERAUGLI(original, distorded, intensity_target=80)`
 
 to convert to RGBS:
 
@@ -12,6 +13,7 @@ to convert to RGBS:
 to get the resulting values (can be modified but this is an example):
 
 `res = [[ind, fr.props["_SSIMULACRA2"]] for (ind, fr) in enumerate(vclip.frames())]`
+for butteraugli, it is "_BUTTERAUGLI_2Norm", "_BUTTERAUGLI_3Norm", "_BUTTERAUGLI_INFNorm"
 
 you can try to tune the number of vapoursynth threads
 -> more threads can sometimes be faster but with more vram usage (for 1080p it can go up to 300 VRAM MB per threads)

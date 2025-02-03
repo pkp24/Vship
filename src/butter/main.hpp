@@ -9,10 +9,11 @@
 #include "simplerdiff.hpp" //L2 +asym diff + same noise diff
 #include "maskPsycho.hpp"
 #include "combineMasks.hpp"
+#include "diffnorms.hpp" //takes diffmap and returns norm2, norm3 and norminf
 
 namespace butter{
 
-double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, float intensity_multiplier, int maxshared, hipStream_t stream){
+std::tuple<float, float, float> butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, float intensity_multiplier, int maxshared, hipStream_t stream){
     int wh = width*height;
     const int totalscalesize = wh;
 
@@ -30,7 +31,7 @@ double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
         tries--;
         if (tries <= 0){
             printf("ERROR, could not allocate VRAM for a frame, try lowering the number of vapoursynth threads\n");
-            return -10000.;
+            return std::make_tuple<float, float, float>(-10000., -10000., -10000.);
         }
     }
     //GPU_CHECK(hipGetLastError());
@@ -92,7 +93,7 @@ double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
         block_diff_dc[c].fill0();
     }
 
-    const float hf_asymmetry_ = 1.;
+    const float hf_asymmetry_ = 0.8;
 
     const float wUhfMalta = 5.1409625726;
     const float norm1Uhf = 58.5001247061;
@@ -145,14 +146,20 @@ double butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     Plane_d diffmap = temp4[0]; //we only need one plane
     computeDiffmap(mask_xyb[0].mem_d, mask_xyb[1].mem_d, mask_xyb[2].mem_d, mask_xyb_dc[0].mem_d, mask_xyb_dc[1].mem_d, mask_xyb_dc[2].mem_d, block_diff_dc[0].mem_d, block_diff_dc[1].mem_d, block_diff_dc[2].mem_d, block_diff_ac[0].mem_d, block_diff_ac[1].mem_d, block_diff_ac[2].mem_d, diffmap.mem_d, width*height, stream);
 
+    float norm2 = diffmapnorm(diffmap.mem_d, temp3[0].mem_d, temp3[1].mem_d, width*height, 2, event_d, stream);
+    float norm3 = diffmapnorm(diffmap.mem_d, temp3[0].mem_d, temp3[1].mem_d, width*height, 3, event_d, stream);
+    float norminf = diffmapnorminf(diffmap.mem_d, temp3[0].mem_d, temp3[1].mem_d, width*height, event_d, stream);
+
     hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
     hipEventSynchronize(event_d); //when the event is complete, we know our gpu result is ready!
     GPU_CHECK(hipGetLastError());
 
     hipFree(mem_d);
     hipEventDestroy(event_d);
+
+    printf("End result: %f, %f and %f\n", norm2, norm3, norminf);
     
-    return 0.;
+    return std::make_tuple(norm2, norm3, norminf);
 }
 
 typedef struct {
@@ -191,9 +198,11 @@ static const VSFrame *VS_CC butterGetFrame(int n, int activationReason, void *in
             vsapi->getReadPtr(src2, 1),
             vsapi->getReadPtr(src2, 2),
         };
-        const double val = butterprocess(srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[n%STREAMNUM]);
+        const std::tuple<float, float, float> val = butterprocess(srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[n%STREAMNUM]);
 
-        vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_BUTTERAUGLI", val, maReplace);
+        vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_BUTTERAUGLI_2Norm", std::get<0>(val), maReplace);
+        vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_BUTTERAUGLI_3Norm", std::get<1>(val), maReplace);
+        vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_BUTTERAUGLI_INFNorm", std::get<2>(val), maReplace);
 
         // Release the source frame
         vsapi->freeFrame(src1);
