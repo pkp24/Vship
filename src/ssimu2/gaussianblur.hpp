@@ -13,11 +13,14 @@ __global__ void horizontalBlur_Kernel(float3* src, float3* dst, int width, int h
 
     int current_line = x/w;
 
+    float tot = 0;
     float3 out; out.x = 0; out.y = 0; out.z = 0;
     for (int i = max(x-GAUSSIANSIZE, current_line*w); i <= min(x+GAUSSIANSIZE, (current_line+1)*w-1); i++){
         out += src[i]*gaussiankernel[GAUSSIANSIZE+i-x];
+        tot += gaussiankernel[GAUSSIANSIZE+i-x];
         //printf("%f at %d\n", gaussiankernel[GAUSSIANSIZE+i-x], GAUSSIANSIZE+i-x);
     }
+    out /= tot;
     dst[x] = out;
 }
 
@@ -35,11 +38,15 @@ __global__ void verticalBlur_Kernel(float3* src, float3* dst, int width, int hei
     if (x >= size) return;
     int current_line = x/w;
     int current_column = x%w;
+
+    float tot = 0;
     float3 out; out.x = 0; out.y = 0; out.z = 0;
     for (int i = max(current_line-GAUSSIANSIZE, 0); i <= min(current_line+GAUSSIANSIZE, h-1); i++){
         out += src[i * w + current_column]*gaussiankernel[GAUSSIANSIZE+i-current_line];
+        tot += gaussiankernel[GAUSSIANSIZE+i-current_line];
         //printf("%f\n", gaussiankernel[GAUSSIANSIZE+i-current_line]);
     }
+    out /= tot;
     dst[x] = out;
     //printf("from %f, %f, %f to %f, %f, %f\n", src[x].x, src[x].y, src[x].z, dst[x].x, dst[x].y, dst[x].z);
 }

@@ -249,7 +249,7 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
     int error;
     d.intensity_multiplier = vsapi->mapGetFloat(in, "intensity_multiplier", 0, &error);
     if (error != peSuccess){
-        d.intensity_multiplier = 1.;
+        d.intensity_multiplier = 80.;
     }
 
     int count;
