@@ -157,7 +157,7 @@ std::tuple<float, float, float> butterprocess(const uint8_t *srcp1[3], const uin
     hipFree(mem_d);
     hipEventDestroy(event_d);
 
-    printf("End result: %f, %f and %f\n", norm2, norm3, norminf);
+    //printf("End result: %f, %f and %f\n", norm2, norm3, norminf);
     
     return std::make_tuple(norm2, norm3, norminf);
 }
