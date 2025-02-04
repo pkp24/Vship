@@ -95,36 +95,40 @@ std::tuple<float, float, float> butterprocess(const uint8_t *srcp1[3], const uin
 
     const float hf_asymmetry_ = 0.8;
 
-    const float wUhfMalta = 5.1409625726;
-    const float norm1Uhf = 58.5001247061;
+    const float wUhfMalta = 1.10039032555;
+    const float norm1Uhf = 71.7800275169;
     MaltaDiffMap(uhf1[1].mem_d, uhf2[1].mem_d, block_diff_ac[1].mem_d, width, height, wUhfMalta * hf_asymmetry_, wUhfMalta / hf_asymmetry_, norm1Uhf, stream);
 
-    const float wUhfMaltaX = 4.91743441556;
-    const float norm1UhfX = 687196.39002;
+    const float wUhfMaltaX = 173.5;
+    const float norm1UhfX = 5.0;
     MaltaDiffMap(uhf1[0].mem_d, uhf2[0].mem_d, block_diff_ac[0].mem_d, width, height, wUhfMaltaX * hf_asymmetry_, wUhfMaltaX / hf_asymmetry_, norm1UhfX, stream);
 
-    const float wHfMalta = 153.671655716;
-    const float norm1Hf = 83150785.9592;
+    const float wHfMalta = 18.7237414387;
+    const float norm1Hf = 4498534.45232;
     MaltaDiffMapLF(hf1[1].mem_d, hf2[1].mem_d, block_diff_ac[1].mem_d, width, height, wHfMalta * sqrt(hf_asymmetry_), wHfMalta / sqrt(hf_asymmetry_), norm1Hf, stream);
 
-    const float wHfMaltaX = 668.358918152;
-    const float norm1HfX = 0.882954368025;
+    const float wHfMaltaX = 6923.99476109;
+    const float norm1HfX = 8051.15833247;
     MaltaDiffMapLF(hf1[0].mem_d, hf2[0].mem_d, block_diff_ac[0].mem_d, width, height, wHfMaltaX * sqrt(hf_asymmetry_), wHfMaltaX / sqrt(hf_asymmetry_), norm1HfX, stream);
 
-    const float wMfMalta = 6841.81248144;
-    const float norm1Mf = 0.0135134962487;
+    const float wMfMalta = 37.0819870399;
+    const float norm1Mf = 130262059.556;
     MaltaDiffMapLF(mf1[1].mem_d, mf2[1].mem_d, block_diff_ac[1].mem_d, width, height, wMfMalta, wMfMalta, norm1Mf, stream);
 
-    const float wMfMaltaX = 813.901703816;
-    const float norm1MfX = 16792.9322251;
+    const float wMfMaltaX = 8246.75321353;
+    const float norm1MfX = 1009002.70582;
     MaltaDiffMapLF(mf1[0].mem_d, mf2[0].mem_d, block_diff_ac[0].mem_d, width, height, wMfMaltaX, wMfMaltaX, norm1MfX, stream);
 
-    const float wmul[9] = { 0, 32.4449876135, 0, 0, 0, 0, 1.01370836411, 0, 1.74566011615};
+    const float wmul[9] = {
+      400.0,         1.50815703118,  0,
+      2150.0,        10.6195433239,  16.2176043152,
+      29.2353797994, 0.844626970982, 0.703646627719,
+  };
 
-    const float maxclamp = 85.7047444518;
-    const float kSigmaHfX = 10.6666499623;
-    const float w = 884.809801415;
-    sameNoiseLevels(hf1[1], hf2[1], block_diff_ac[1], temp[0], temp[1], kSigmaHfX, w, maxclamp, gaussiankernel_dmem);
+    //const float maxclamp = 85.7047444518;
+    //const float kSigmaHfX = 10.6666499623;
+    //const float w = 884.809801415;
+    //sameNoiseLevels(hf1[1], hf2[1], block_diff_ac[1], temp[0], temp[1], kSigmaHfX, w, maxclamp, gaussiankernel_dmem);
 
     for (int c = 0; c < 3; c++){
         if (c < 2){
@@ -135,16 +139,15 @@ std::tuple<float, float, float> butterprocess(const uint8_t *srcp1[3], const uin
     }
 
     //from now on, lf and mf are not used so we will reuse the memory
-    Plane_d* mask_xyb = lf1;
-    Plane_d* mask_xyb_dc = mf1;
+    Plane_d mask = lf1[0];
     Plane_d* temp3 = lf2;
     Plane_d* temp4 = mf2;
 
-    MaskPsychoImage(hf1, uhf1, hf2, uhf2, temp3, temp4, mask_xyb, mask_xyb_dc, gaussiankernel_dmem);
+    MaskPsychoImage(hf1, uhf1, hf2, uhf2, temp3[0], temp4[0], mask, block_diff_ac, gaussiankernel_dmem);
     //at this point hf and uhf cannot be used anymore (they have been invalidated by the function)
 
     Plane_d diffmap = temp4[0]; //we only need one plane
-    computeDiffmap(mask_xyb[0].mem_d, mask_xyb[1].mem_d, mask_xyb[2].mem_d, mask_xyb_dc[0].mem_d, mask_xyb_dc[1].mem_d, mask_xyb_dc[2].mem_d, block_diff_dc[0].mem_d, block_diff_dc[1].mem_d, block_diff_dc[2].mem_d, block_diff_ac[0].mem_d, block_diff_ac[1].mem_d, block_diff_ac[2].mem_d, diffmap.mem_d, width*height, stream);
+    computeDiffmap(mask.mem_d, block_diff_dc[0].mem_d, block_diff_dc[1].mem_d, block_diff_dc[2].mem_d, block_diff_ac[0].mem_d, block_diff_ac[1].mem_d, block_diff_ac[2].mem_d, diffmap.mem_d, width*height, stream);
 
     float norm2 = diffmapnorm(diffmap.mem_d, temp3[0].mem_d, temp3[1].mem_d, width*height, 2, event_d, stream);
     float norm3 = diffmapnorm(diffmap.mem_d, temp3[0].mem_d, temp3[1].mem_d, width*height, 3, event_d, stream);

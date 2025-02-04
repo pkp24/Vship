@@ -53,6 +53,7 @@ __global__ void L2diff_Kernel(float* src1, float* src2, float* dst, int width, f
 
     const float diff = src1[x] - src2[x];
     dst[x] += w * diff * diff;
+    //if (x == 10000) printf("l2diff_dc : %f from %f, %f\n", dst[x], src1[x], src2[x]);
 }
 
 void L2diff(float* src1, float* src2, float* dst, int width, float w, hipStream_t stream){

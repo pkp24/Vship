@@ -1,22 +1,41 @@
 namespace butter{
 
+__device__ float MaskY(float delta) {
+    const float offset = 0.829591754942;
+    const float scaler = 0.451936922203;
+    const float mul = 2.5485944793;
+    const float c = mul / ((scaler * delta) + offset);
+    const float retval = (1.0 + c)/(0.79079917404f*17.83f);
+    return retval * retval;
+}
+
+__device__ float MaskDcY(float delta) {
+    const float offset = 0.20025578522;
+    const float scaler = 3.87449418804;
+    const float mul = 0.505054525019;
+    const float c = mul / ((scaler * delta) + offset);
+    const float retval = (1.0 + c)/(0.79079917404f*17.83f);
+    return retval * retval;
+}
+
 __launch_bounds__(256)
-__global__ void computeDiffmap_Kernel(float* mask_xyb0, float* mask_xyb1, float* mask_xyb2, float* mask_xyb_dc0, float* mask_xyb_dc1, float* mask_xyb_dc2, float* block_diff_dc0, float* block_diff_dc1, float* block_diff_dc2, float* block_diff_ac0, float* block_diff_ac1, float* block_diff_ac2, float* dst, int width){
+__global__ void computeDiffmap_Kernel(float* mask, float* block_diff_dc0, float* block_diff_dc1, float* block_diff_dc2, float* block_diff_ac0, float* block_diff_ac1, float* block_diff_ac2, float* dst, int width){
     size_t x = threadIdx.x + blockIdx.x*blockDim.x;
 
     if (x >= width) return;
 
-    float combined = block_diff_dc0[x]*mask_xyb_dc0[x] + block_diff_dc1[x]*mask_xyb_dc1[x] + block_diff_dc2[x]*mask_xyb_dc2[x];
-    combined += block_diff_ac0[x]*mask_xyb0[x] + block_diff_ac1[x]*mask_xyb1[x] + block_diff_ac2[x]*mask_xyb2[x];
+    float val = mask[x];
+    float maskval = MaskY(val);
+    float maskval_dc = MaskDcY(val);
 
-    //if (x == 10000) printf("final result: %f with %f, %f, %f and %f, %f, %f.\n", sqrtf(combined), block_diff_dc0[x], block_diff_dc1[x], block_diff_dc2[x], mask_xyb_dc0[x], mask_xyb_dc1[x], mask_xyb_dc2[x]);
-    dst[x] = sqrtf(combined);
+    dst[x] = sqrtf(maskval * (block_diff_ac0[x] + block_diff_ac1[x] + block_diff_ac2[x]) + maskval_dc * (block_diff_dc0[x] + block_diff_dc1[x] + block_diff_dc2[x]));
+    if (x == 10000) printf("final result: %f with ac: %f, %f, %f, dc: %f, %f, %f, mask: %f.\n", dst[x], block_diff_ac0[x], block_diff_ac1[x], block_diff_ac2[x], block_diff_dc0[x], block_diff_dc1[x], block_diff_dc2[x], mask[x]);
 }
 
-void computeDiffmap(float* mask_xyb0, float* mask_xyb1, float* mask_xyb2, float* mask_xyb_dc0, float* mask_xyb_dc1, float* mask_xyb_dc2, float* block_diff_dc0, float* block_diff_dc1, float* block_diff_dc2, float* block_diff_ac0, float* block_diff_ac1, float* block_diff_ac2, float* dst, int width, hipStream_t stream){
+void computeDiffmap(float* mask, float* block_diff_dc0, float* block_diff_dc1, float* block_diff_dc2, float* block_diff_ac0, float* block_diff_ac1, float* block_diff_ac2, float* dst, int width, hipStream_t stream){
     int th_x = std::min(256, width);
     int bl_x = (width-1)/th_x + 1;
-    computeDiffmap_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(mask_xyb0, mask_xyb1, mask_xyb2, mask_xyb_dc0, mask_xyb_dc1, mask_xyb_dc2, block_diff_dc0, block_diff_dc1, block_diff_dc2, block_diff_ac0, block_diff_ac1, block_diff_ac2, dst, width);
+    computeDiffmap_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(mask, block_diff_dc0, block_diff_dc1, block_diff_dc2, block_diff_ac0, block_diff_ac1, block_diff_ac2, dst, width);
     GPU_CHECK(hipGetLastError());
 }
 
