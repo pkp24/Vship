@@ -1,19 +1,22 @@
 namespace butter{
 
-//first norm usage should be the desired norm, then it should be 1 for further reduction
-__global__ void sumreduce(float* dst, float* src, int width, int norm){
-    //dst must be of size sizeof(float)*blocknum at least
-    //shared memory needed is sizeof(float)*threadnum at least
+__global__ void sumreduce(float* dst, float* src, int width){
+    //dst must be of size 3*sizeof(float)*blocknum at least
+    //shared memory needed is 3*sizeof(float)*threadnum at least
     const int x = threadIdx.x + blockIdx.x*blockDim.x;
     const int thx = threadIdx.x;
     const int threadnum = blockDim.x;
     
-    __shared__ float sharedmem[1024];
+    __shared__ float sharedmem[1024*3];
 
     if (x >= width){
         sharedmem[thx] = 0;
+        sharedmem[1024+thx] = 0;
+        sharedmem[1024*2+thx] = 0;
     } else {
-        sharedmem[thx] = powf(abs(src[x]), norm);
+        sharedmem[thx] = src[x];
+        sharedmem[1024+thx] = src[x+width];
+        sharedmem[1024*2+thx] = src[x+2*width];
     }
     __syncthreads();
     //now we need to do some pointer jumping to regroup every block sums;
@@ -21,17 +24,58 @@ __global__ void sumreduce(float* dst, float* src, int width, int norm){
     while (next < threadnum){
         if (thx + next < threadnum && (thx%(next*2) == 0)){
             sharedmem[thx] += sharedmem[thx+next];
+            sharedmem[thx + 1024] += sharedmem[thx+next + 1024];
+            sharedmem[thx + 2*1024] = max(sharedmem[thx + 2*1024], sharedmem[thx+next + 2*1024]);
         }
         next *= 2;
         __syncthreads();
     }
     if (thx == 0){
         dst[blockIdx.x] = sharedmem[0];
+        dst[blockIdx.x + gridDim.x] = sharedmem[1024];
+        dst[blockIdx.x + 2*gridDim.x] = sharedmem[2*1024];
     }
 }
 
-float diffmapnorm(float* diffmap, float* temp, float* temp2, int width, int norm, hipEvent_t event_d, hipStream_t stream){
-    int basenorm = norm;
+__global__ void sumreducenorm(float* dst, float* src, int width){
+    //dst must be of size 3*sizeof(float)*blocknum at least
+    //shared memory needed is sizeof(float)*threadnum at least
+    const int x = threadIdx.x + blockIdx.x*blockDim.x;
+    const int thx = threadIdx.x;
+    const int threadnum = blockDim.x;
+    
+    __shared__ float sharedmem[1024*3];
+
+    if (x >= width){
+        sharedmem[thx] = 0;
+        sharedmem[1024+thx] = 0;
+        sharedmem[1024*2+thx] = 0;
+    } else {
+        sharedmem[thx] = powf(abs(src[x]), 2);
+        sharedmem[1024+thx] = powf(abs(src[x]), 2);
+        sharedmem[1024*2+thx] = abs(src[x]);
+    }
+    __syncthreads();
+    //now we need to do some pointer jumping to regroup every block sums;
+    int next = 1;
+    while (next < threadnum){
+        if (thx + next < threadnum && (thx%(next*2) == 0)){
+            sharedmem[thx] += sharedmem[thx+next];
+            sharedmem[thx + 1024] += sharedmem[thx+next + 1024];
+            sharedmem[thx + 2*1024] = max(sharedmem[thx + 2*1024], sharedmem[thx+next + 2*1024]);
+        }
+        next *= 2;
+        __syncthreads();
+    }
+    if (thx == 0){
+        dst[blockIdx.x] = sharedmem[0];
+        dst[blockIdx.x + gridDim.x] = sharedmem[1024];
+        dst[blockIdx.x + 2*gridDim.x] = sharedmem[2*1024];
+    }
+}
+
+std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float* temp2, int width, hipEvent_t event_d, hipStream_t stream){
+    bool first = true;
     int basewidth = width;
     float* src = diffmap;
     float* temps[2] = {temp, temp2};
@@ -40,83 +84,41 @@ float diffmapnorm(float* diffmap, float* temp, float* temp2, int width, int norm
     while (width > 1024){
         th_x = 1024;
         bl_x = (width - 1)/th_x + 1;
-        sumreduce<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temps[oscillate], src, width, norm);
-        src = temps[oscillate];
-        oscillate ^= 1;
-        norm = 1;
-        width = bl_x;
-    }
-    float* back_to_cpu = (float*)malloc(sizeof(float)*width);
-    float res = 0;
-    hipMemcpyDtoHAsync(back_to_cpu, src, sizeof(float)*width, stream);
-
-    hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
-    hipEventSynchronize(event_d); //when the event is complete, we know our gpu result is ready!
-
-    for (int i = 0; i < width; i++){
-        res += std::powf(std::abs(back_to_cpu[i]), norm);
-    }
-
-    free(back_to_cpu);
-    res = std::powf(res/basewidth, 1./(float)basenorm);
-    return res;
-}
-
-__global__ void maxreduce(float* dst, float* src, int width){
-    //dst must be of size sizeof(float)*blocknum at least
-    //shared memory needed is sizeof(float)*threadnum at least
-    const int x = threadIdx.x + blockIdx.x*blockDim.x;
-    const int thx = threadIdx.x;
-    const int threadnum = blockDim.x;
-    
-    __shared__ float sharedmem[1024];
-
-    if (x >= width){
-        sharedmem[thx] = 0;
-    } else {
-        sharedmem[thx] = abs(src[x]);
-    }
-    __syncthreads();
-    //now we need to do some pointer jumping to regroup every block sums;
-    int next = 1;
-    while (next < threadnum){
-        if (thx + next < threadnum && (thx%(next*2) == 0)){
-            sharedmem[thx] = max(sharedmem[thx], sharedmem[thx+next]);
+        if (first){
+            sumreducenorm<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temps[oscillate], src, width);
+        } else {
+            sumreduce<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temps[oscillate], src, width);
         }
-        next *= 2;
-        __syncthreads();
-    }
-    if (thx == 0){
-        dst[blockIdx.x] = sharedmem[0];
-    }
-}
-
-float diffmapnorminf(float* diffmap, float* temp, float* temp2, int width, hipEvent_t event_d, hipStream_t stream){
-    float* src = diffmap;
-    float* temps[2] = {temp, temp2};
-    int oscillate = 0;
-    int th_x, bl_x;
-    while (width > 1024){
-        th_x = 1024;
-        bl_x = (width - 1)/th_x + 1;
-        maxreduce<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temps[oscillate], src, width);
         src = temps[oscillate];
         oscillate ^= 1;
+        first = false;
         width = bl_x;
     }
-    float* back_to_cpu = (float*)malloc(sizeof(float)*width);
-    float res = 0;
-    hipMemcpyDtoHAsync(back_to_cpu, src, sizeof(float)*width, stream);
+    float* back_to_cpu = (float*)malloc(sizeof(float)*width*3);
+    float resnorm2 = 0;
+    float resnorm3 = 0;
+    float resnorminf = 0;
+    hipMemcpyDtoHAsync(back_to_cpu, src, sizeof(float)*width*3, stream);
 
     hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
     hipEventSynchronize(event_d); //when the event is complete, we know our gpu result is ready!
 
     for (int i = 0; i < width; i++){
-        res = max(res, std::abs(back_to_cpu[i]));
+        if (first){
+            resnorm2 += std::powf(std::abs(back_to_cpu[i]), 2);
+            resnorm3 += std::powf(std::abs(back_to_cpu[i]), 3);
+            resnorminf = std::max(resnorminf, std::abs(back_to_cpu[i]));
+        } else {
+            resnorm2 += std::abs(back_to_cpu[i]);
+            resnorm3 += std::abs(back_to_cpu[i+width]);
+            resnorminf = std::max(resnorminf, std::abs(back_to_cpu[i+2*width]));
+        }
     }
 
     free(back_to_cpu);
-    return res;
+    resnorm2 = std::powf(resnorm2/basewidth, 1./2.);
+    resnorm3 = std::powf(resnorm3/basewidth, 1./3.);
+    return std::make_tuple(resnorm2, resnorm3, resnorminf);
 }
 
 }
