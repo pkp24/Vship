@@ -1,6 +1,6 @@
 # Vapoursynth-HIP
 
-An easy to use vapoursynth plugin to compute SSIMU2 or Butteraugli on GPU
+An easy to use vapoursynth plugin to compute SSIMU2 (SSIMULACRA2) or Butteraugli on GPU
 
 # Usage:
 
@@ -14,10 +14,11 @@ to convert to RGBS:
 to get the resulting values (can be modified but this is an example):
 
 `res = [[ind, fr.props["_SSIMULACRA2"]] for (ind, fr) in enumerate(vclip.frames())]`
-for butteraugli, it is "_BUTTERAUGLI_2Norm", "_BUTTERAUGLI_3Norm", "_BUTTERAUGLI_INFNorm"
+
+for butteraugli, it is "_BUTTERAUGLI_2Norm", "_BUTTERAUGLI_3Norm" or "_BUTTERAUGLI_INFNorm"
 
 you can try to tune the number of vapoursynth threads
--> more threads can sometimes be faster but with more vram usage (for 1080p it can go up to 300 VRAM MB per threads)
+-> more threads can sometimes be faster but with more vram usage (for 1080p it can go up to 300 VRAM MB per threads for ssimu2 and 500 VRAM MB for butteraugli)
 `vs.core.threads = ?`
 
 # to build:
