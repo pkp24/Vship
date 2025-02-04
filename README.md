@@ -1,5 +1,6 @@
 # Vapoursynth-HIP
-An easy to use vapoursynth plugin to compute SSIMU2 or Butteraugli (not yet) on GPU
+
+An easy to use vapoursynth plugin to compute SSIMU2 or Butteraugli on GPU
 
 # Usage:
 
