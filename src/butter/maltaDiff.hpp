@@ -659,7 +659,7 @@ __global__ void MaltaDiffMapLF_Kernel(const float* lum0, const float* lum1, floa
 
 __host__ void MaltaDiffMap(const float* lum0, const float* lum1, float* block_diff_ac, const int width, const int height, const float w_0gt1, const float w_0lt1, const float norm1, hipStream_t stream){
     const float len = 3.75;
-    const float mulli = 0.354191303559;
+    const float mulli = 0.39905817637;
 
     const int th_x = 16;
     const int th_y = 16;
@@ -670,7 +670,7 @@ __host__ void MaltaDiffMap(const float* lum0, const float* lum1, float* block_di
 
 __host__ void MaltaDiffMapLF(const float* lum0, const float* lum1, float* block_diff_ac, const int width, const int height, const float w_0gt1, const float w_0lt1, const float norm1, hipStream_t stream){
     const float len = 3.75;
-    const float mulli = 0.405371989604;
+    const float mulli = 0.611612573796;
 
     const int th_x = 16;
     const int th_y = 16;

@@ -3,14 +3,14 @@ namespace butter{
 __launch_bounds__(256)
 __global__ void diffPrecompute_Kernel(float* mem1, float* dst, int width, int height, float mul, float bias_arg){
     size_t thx = threadIdx.x + blockIdx.x*blockDim.x;
-    int x = thx%width;
+    //int x = thx%width;
     int y = thx/width;
 
     if (y >= height) return;
 
     float bias = mul*bias_arg;
-    dst[x] = sqrtf(mul * abs(mem1[x]) + bias) - sqrtf(bias);
-    //if (thx == 10000) printf("diffprecompute : %f from %f\n", dst[x], mem1[x]);
+    dst[thx] = sqrtf(mul * abs(mem1[thx]) + bias) - sqrtf(bias);
+    //if (thx == 10000) printf("diffprecompute : %f from %f\n", dst[thx], mem1[thx]);
 }
 
 void diffPrecompute(float* src, float* dst, int width, int height, float mul, float bias_arg, hipStream_t stream){
