@@ -39,4 +39,8 @@ for amd cards:
 to install: either use the dll or:
 `make install`
 
+# Performance on my laptop on some clip:
+
+![comparison](Images/vshipjxl.png)
+
 # special credits to dnjulek with the ZIG vapoursynth implementation
