@@ -105,8 +105,8 @@ std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float*
 
     for (int i = 0; i < width; i++){
         if (first){
-            resnorm2 += std::powf(std::abs(back_to_cpu[i]), 2);
-            resnorm3 += std::powf(std::abs(back_to_cpu[i]), 3);
+            resnorm2 += std::pow(std::abs(back_to_cpu[i]), 2);
+            resnorm3 += std::pow(std::abs(back_to_cpu[i]), 3);
             resnorminf = std::max(resnorminf, std::abs(back_to_cpu[i]));
         } else {
             resnorm2 += std::abs(back_to_cpu[i]);
@@ -116,8 +116,8 @@ std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float*
     }
 
     free(back_to_cpu);
-    resnorm2 = std::powf(resnorm2/basewidth, 1./2.);
-    resnorm3 = std::powf(resnorm3/basewidth, 1./3.);
+    resnorm2 = std::pow(resnorm2/basewidth, 1./2.);
+    resnorm3 = std::pow(resnorm3/basewidth, 1./3.);
     return std::make_tuple(resnorm2, resnorm3, resnorminf);
 }
 
