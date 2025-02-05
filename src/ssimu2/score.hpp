@@ -159,7 +159,7 @@ std::vector<float3> allscore_map(float3* im1, float3* im2, float3* mu1, float3* 
     std::vector<int> scaleoutdone(7);
     scaleoutdone[0] = 0;
     for (int scale = 0; scale < 6; scale++){
-        th_x = std::min((const int)(maxshared/(6*sizeof(float3)))/32*32, std::min(1024, w*h));
+        th_x = std::min((maxshared/(6*sizeof(float3)))/32*32, std::min(1024, w*h));
         bl_x = (w*h-1)/th_x + 1;
         int blr_x = bl_x;
         allscore_map_Kernel<<<dim3(bl_x), dim3(th_x), 6*sizeof(float3)*th_x, stream>>>(temp+scaleoutdone[scale]+((blr_x >= th_x) ? 6*bl_x : 0), im1+index, im2+index, mu1+index, mu2+index, s11+index, s22+index, s12+index, w, h);
