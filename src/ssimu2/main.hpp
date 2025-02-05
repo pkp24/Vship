@@ -20,20 +20,12 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
 
     //big memory allocation, we will try it multiple time if failed to save when too much threads are used
     hipError_t erralloc;
-    int tries = 10;
 
     float3* mem_d;
     erralloc = hipMalloc(&mem_d, sizeof(float3)*totalscalesize*(2 + 6)); //2 base image and 6 working buffers
-    while (erralloc != hipSuccess){
-        std::this_thread::sleep_for(std::chrono::milliseconds(500)); //0.5s with 10 tries -> shut down after 5 seconds of failing
-        erralloc = hipMalloc(&mem_d, sizeof(float3)*totalscalesize*(2 + 6)); //2 base image and 6 working buffers
-        tries--;
-        if (tries <= 0){
-            printf("ERROR, could not allocate VRAM for a frame, try lowering the number of vapoursynth threads\n");
-            return -10000.;
-        }
+    if (erralloc != hipSuccess){
+        throw std::bad_alloc();
     }
-    //GPU_CHECK(hipGetLastError());
 
     float3* src1_d = mem_d; //length totalscalesize
     float3* src2_d = mem_d + totalscalesize;
@@ -101,8 +93,7 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     } catch (const std::bad_alloc& e){
         hipFree(mem_d);
         hipEventDestroy(event_d);
-        printf("ERROR, could not allocate RAM for a result return, try lowering the number of vapoursynth threads\n");
-        return -10000.;
+        throw e;
     }
 
     //step 6 : format the vector
@@ -139,6 +130,7 @@ typedef struct {
     float* gaussiankernel_d;
     hipStream_t streams[STREAMNUM];
     int oldthreadnum;
+    VSMap* vsout;
 } Ssimulacra2Data;
 
 static const VSFrame *VS_CC ssimulacra2GetFrame(int n, int activationReason, void *instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
@@ -169,7 +161,15 @@ static const VSFrame *VS_CC ssimulacra2GetFrame(int n, int activationReason, voi
             vsapi->getReadPtr(src2, 2),
         };
 
-        const double val = ssimu2process(srcp1, srcp2, stride, width, height, d->gaussiankernel_d, d->maxshared, d->streams[n%STREAMNUM]);
+        double val;
+        try{
+            val = ssimu2process(srcp1, srcp2, stride, width, height, d->gaussiankernel_d, d->maxshared, d->streams[n%STREAMNUM]);
+        } catch (const std::bad_alloc& e){
+            vsapi->mapSetError(d->vsout, "ERROR SSIMU2,d could not allocate VRAM or RAM (unlikely) for a result return, try lowering the number of vapoursynth threads\n");
+            vsapi->freeFrame(src1);
+            vsapi->freeFrame(src2);
+            return dst;
+        }
 
         vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_SSIMULACRA2", val, maReplace);
 
@@ -266,7 +266,8 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
         gaussiankernel[i] = std::exp(-(GAUSSIANSIZE-i)*(GAUSSIANSIZE-i)/(2*SIGMA*SIGMA))/(std::sqrt(2*PI*SIGMA*SIGMA));
     }
 
-    data->maxshared = devattr.sharedMemPerBlock;    
+    data->maxshared = devattr.sharedMemPerBlock;
+    data->vsout = out;    
 
     hipMalloc(&(data->gaussiankernel_d), sizeof(float)*(2*GAUSSIANSIZE+1));
     hipMemcpyHtoD((hipDeviceptr_t)data->gaussiankernel_d, gaussiankernel, (2*GAUSSIANSIZE+1)*sizeof(float));

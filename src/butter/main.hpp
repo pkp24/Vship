@@ -119,23 +119,14 @@ std::tuple<float, float, float> butterprocess(const uint8_t *srcp1[3], const uin
 
     //big memory allocation, we will try it multiple time if failed to save when too much threads are used
     hipError_t erralloc;
-    int tries = 10;
 
     const int gaussiantotal = 1024;
     const int totalplane = 34;
     float* mem_d;
     erralloc = hipMalloc(&mem_d, sizeof(float)*totalscalesize*(totalplane) + sizeof(float)*gaussiantotal); //2 base image and 6 working buffers
-    while (erralloc != hipSuccess){
-        std::this_thread::sleep_for(std::chrono::milliseconds(500)); //0.5s with 10 tries -> shut down after 5 seconds of failing
-        erralloc = hipMalloc(&mem_d, sizeof(float)*totalscalesize*(totalplane) + sizeof(float)*gaussiantotal); //2 base image and 6 working buffers
-        tries--;
-        if (tries <= 0){
-            printf("ERROR, could not allocate VRAM for a frame, try lowering the number of vapoursynth threads\n");
-            return std::make_tuple<float, float, float>(-10000., -10000., -10000.);
-        }
+    if (erralloc != hipSuccess){
+        throw std::bad_alloc();
     }
-    //GPU_CHECK(hipGetLastError());
-
     //initial color planes
     Plane_d src1_d[3] = {Plane_d(mem_d, width, height, stream), Plane_d(mem_d+width*height, width, height, stream), Plane_d(mem_d+2*width*height, width, height, stream)};
     Plane_d src2_d[3] = {Plane_d(mem_d+3*width*height, width, height, stream), Plane_d(mem_d+4*width*height, width, height, stream), Plane_d(mem_d+5*width*height, width, height, stream)};
@@ -186,8 +177,7 @@ std::tuple<float, float, float> butterprocess(const uint8_t *srcp1[3], const uin
     } catch (const std::bad_alloc& e){
         hipFree(mem_d);
         hipEventDestroy(event_d);
-        printf("ERROR, could not allocate RAM for a result return, try lowering the number of vapoursynth threads\n");
-        return std::make_tuple<float, float, float>(-10000., -10000., -10000.);
+        throw e;
     }
 
     hipFree(mem_d);
@@ -203,6 +193,7 @@ typedef struct {
     int maxshared;
     hipStream_t streams[STREAMNUM];
     int oldthreadnum;
+    VSMap* vsout;
 } ButterData;
 
 static const VSFrame *VS_CC butterGetFrame(int n, int activationReason, void *instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
@@ -232,7 +223,16 @@ static const VSFrame *VS_CC butterGetFrame(int n, int activationReason, void *in
             vsapi->getReadPtr(src2, 1),
             vsapi->getReadPtr(src2, 2),
         };
-        const std::tuple<float, float, float> val = butterprocess(srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[n%STREAMNUM]);
+        
+        std::tuple<float, float, float> val;
+        try{
+            val = butterprocess(srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[n%STREAMNUM]);
+        } catch (const std::bad_alloc& e){
+            vsapi->mapSetError(d->vsout, "ERROR BUTTER, could not allocate VRAM or RAM (unlikely) for a result return, try lowering the number of vapoursynth threads\n");
+            vsapi->freeFrame(src1);
+            vsapi->freeFrame(src2);
+            return dst;
+        }
 
         vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_BUTTERAUGLI_2Norm", std::get<0>(val), maReplace);
         vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_BUTTERAUGLI_3Norm", std::get<1>(val), maReplace);
@@ -330,7 +330,8 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
     for (int i = 0; i < STREAMNUM; i++){
         data->streams[i] = d.streams[i];
     }
-    data->maxshared = devattr.sharedMemPerBlock;    
+    data->maxshared = devattr.sharedMemPerBlock;
+    data->vsout = out;    
 
     VSFilterDependency deps[] = {{d.reference, rpStrictSpatial}, {d.distorted, rpStrictSpatial}};
     vsapi->createVideoFilter(out, "vship", viref, butterGetFrame, butterFree, fmParallel, deps, 2, data, core);
