@@ -36,12 +36,12 @@ __global__ void addsupersample2X_kernel(float* diffmap, float* diffmapsmall, int
     size_t x = threadIdx.x + blockIdx.x*blockDim.x; // < width >> 1 +1
     size_t y = threadIdx.y + blockIdx.y*blockDim.y; // < height >> 1 +1
 
-    int newh = (height-1)/2 + 1;
+    //int newh = (height-1)/2 + 1;
     int neww = (width-1)/2 + 1;
 
-    if (x >= neww || y >= newh) return;
+    if (x >= width || y >= height) return;
 
-    //if (y*width+x == 10000) printf("small got %f and normal got %f\n", diffmapsmall[(y/2)*neww+x/2], diffmap[y*width+x]);
+    //if (y*width+x == 1841628) printf("small got %f and normal got %f\n", diffmapsmall[(y/2)*neww+x/2], diffmap[y*width+x]);
 
     diffmap[y*width+x] *= 1. - 0.3*w;
     diffmap[y*width+x] += w*diffmapsmall[(y/2)*neww+x/2];
