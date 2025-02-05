@@ -8,7 +8,7 @@ clip1 = clip1.resize.Bicubic(height=clip1.height, width=clip1.width, format=vs.R
 clip2 = clip2.resize.Bicubic(height=clip1.height, width=clip1.width, format=vs.RGBS) #resize to size of clip1 and goes to RGBS
 
 #use one or the other
-#result = clip1.vship.BUTTERAUGLI(clip2)
+#result = clip1.vship.BUTTERAUGLI(clip2, intensity_multiplier = 80) #intensity_multiplier is an optional argument
 result = clip1.vship.SSIMULACRA2(clip2)
 
 #it will contain all the ssimulacra2 values computed
