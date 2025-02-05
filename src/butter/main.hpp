@@ -94,14 +94,14 @@ Plane_d getdiffmap(Plane_d* src1_d, Plane_d* src2_d, float* mem_d, int width, in
     }
 
     //from now on, lf and mf are not used so we will reuse the memory
-    Plane_d mask = temp[0];
+    Plane_d mask = temp[1];
     Plane_d* temp3 = lf2;
     Plane_d* temp4 = mf2;
 
     MaskPsychoImage(hf1, uhf1, hf2, uhf2, temp3[0], temp4[0], mask, block_diff_ac, gaussiankernel_dmem);
     //at this point hf and uhf cannot be used anymore (they have been invalidated by the function)
 
-    Plane_d diffmap = temp4[0]; //we only need one plane
+    Plane_d diffmap = temp[0]; //we only need one plane
     computeDiffmap(mask.mem_d, block_diff_dc[0].mem_d, block_diff_dc[1].mem_d, block_diff_dc[2].mem_d, block_diff_ac[0].mem_d, block_diff_ac[1].mem_d, block_diff_ac[2].mem_d, diffmap.mem_d, width*height, stream);
 
     //hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
