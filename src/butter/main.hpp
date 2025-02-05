@@ -193,7 +193,6 @@ typedef struct {
     int maxshared;
     hipStream_t streams[STREAMNUM];
     int oldthreadnum;
-    VSMap* vsout;
 } ButterData;
 
 static const VSFrame *VS_CC butterGetFrame(int n, int activationReason, void *instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
@@ -228,7 +227,7 @@ static const VSFrame *VS_CC butterGetFrame(int n, int activationReason, void *in
         try{
             val = butterprocess(srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[n%STREAMNUM]);
         } catch (const std::bad_alloc& e){
-            vsapi->mapSetError(d->vsout, "ERROR BUTTER, could not allocate VRAM or RAM (unlikely) for a result return, try lowering the number of vapoursynth threads\n");
+            vsapi->setFilterError("ERROR BUTTER, could not allocate VRAM or RAM (unlikely) for a result return, try lowering the number of vapoursynth threads\n", frameCtx);
             vsapi->freeFrame(src1);
             vsapi->freeFrame(src2);
             return dst;
@@ -331,7 +330,6 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
         data->streams[i] = d.streams[i];
     }
     data->maxshared = devattr.sharedMemPerBlock;
-    data->vsout = out;    
 
     VSFilterDependency deps[] = {{d.reference, rpStrictSpatial}, {d.distorted, rpStrictSpatial}};
     vsapi->createVideoFilter(out, "vship", viref, butterGetFrame, butterFree, fmParallel, deps, 2, data, core);
