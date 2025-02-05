@@ -5,7 +5,7 @@ An easy to use vapoursynth plugin to compute SSIMU2 (SSIMULACRA2) or Butteraugli
 # Usage:
 
 `vs.core.vship.SSIMULACRA2(original, distorded)`
-`vs.core.vship.BUTTERAUGLI(original, distorded, intensity_target=80)`
+`vs.core.vship.BUTTERAUGLI(original, distorded, intensity_multiplier=80)`
 
 to convert to RGBS:
 
