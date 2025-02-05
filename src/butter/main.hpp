@@ -180,7 +180,15 @@ std::tuple<float, float, float> butterprocess(const uint8_t *srcp1[3], const uin
 
     addsupersample2X(diffmap.mem_d, diffmapsmall.mem_d, width, height, 0.5, stream);
 
-    std::tuple<float, float, float> finalres = diffmapscore(diffmap.mem_d, mem_d+9*width*height, mem_d+10*width*height, width*height, event_d, stream);
+    std::tuple<float, float, float> finalres;
+    try{
+        finalres = diffmapscore(diffmap.mem_d, mem_d+9*width*height, mem_d+10*width*height, width*height, event_d, stream);
+    } catch (const std::bad_alloc& e){
+        hipFree(mem_d);
+        hipEventDestroy(event_d);
+        printf("ERROR, could not allocate RAM for a result return, try lowering the number of vapoursynth threads\n");
+        return std::make_tuple<float, float, float>(-10000., -10000., -10000.);
+    }
 
     hipFree(mem_d);
     hipEventDestroy(event_d);
