@@ -10,7 +10,7 @@ you can try to tune the number of vapoursynth threads
 -> more threads can sometimes be faster but with more vram usage (for 1080p it can go up to 300 VRAM MB per threads for ssimu2 and butteraugli)
 `vs.core.num_threads = ?`
 
-the exact vram formula is:
+the exact vram formula per active vsthread is:
 ssimu2: 24 (plane buffer) * 4 (size of float) * width * height * 4/3
 butteraugli: 34 (plane buffer) * 4 (size of float) * width * height
 
