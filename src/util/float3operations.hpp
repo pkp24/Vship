@@ -204,4 +204,13 @@ __global__ void strideEliminator_kernel(float* mem_d, const uint8_t* src, int st
     mem_d[i*width+j] = ((float*)(src + i*stride))[j];
 }
 
+__launch_bounds__(256)
+__global__ void strideAdder_kernel(const uint8_t* dst, float* mem_d, int stride, int width, int height){
+    size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+    if (x >= width*height) return;
+    int j = x%width;
+    int i = x/width;
+    ((float*)(dst + i*stride))[j] = mem_d[i*width+j];
+}
+
 #endif

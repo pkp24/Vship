@@ -55,6 +55,12 @@ public:
         int bl_x = (wh-1)/th_x + 1;
         strideEliminator_kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(mem_d, (const uint8_t*)strided, stride, width, height);
     }
+    void strideAdder(float* strided, int stride){
+        int wh = width*height;
+        int th_x = std::min(256, wh);
+        int bl_x = (wh-1)/th_x + 1;
+        strideAdder_kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>((const uint8_t*)strided, mem_d, stride, width, height);
+    }
     void operator-=(const Plane_d& other){
         subarray(mem_d, other.mem_d, mem_d, width*height, stream);
     }
