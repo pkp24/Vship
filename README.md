@@ -12,6 +12,7 @@ you can try to tune the number of vapoursynth threads
 
 the exact vram formula per active vsthread is:
 ssimu2: 24 (plane buffer) * 4 (size of float) * width * height * 4/3
+
 butteraugli: 34 (plane buffer) * 4 (size of float) * width * height
 
 # to build:
