@@ -113,79 +113,6 @@ Plane_d getdiffmap(Plane_d* src1_d, Plane_d* src2_d, float* mem_d, int width, in
     return diffmap;
 }
 
-std::tuple<float, float, float> butterprocess(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, float intensity_multiplier, int maxshared, hipStream_t stream){
-    int wh = width*height;
-    const int totalscalesize = wh;
-
-    //big memory allocation, we will try it multiple time if failed to save when too much threads are used
-    hipError_t erralloc;
-
-    const int gaussiantotal = 1024;
-    const int totalplane = 34;
-    float* mem_d;
-    erralloc = hipMalloc(&mem_d, sizeof(float)*totalscalesize*(totalplane) + sizeof(float)*gaussiantotal); //2 base image and 6 working buffers
-    if (erralloc != hipSuccess){
-        throw std::bad_alloc();
-    }
-    //initial color planes
-    Plane_d src1_d[3] = {Plane_d(mem_d, width, height, stream), Plane_d(mem_d+width*height, width, height, stream), Plane_d(mem_d+2*width*height, width, height, stream)};
-    Plane_d src2_d[3] = {Plane_d(mem_d+3*width*height, width, height, stream), Plane_d(mem_d+4*width*height, width, height, stream), Plane_d(mem_d+5*width*height, width, height, stream)};
-
-    float* gaussiankernel_dmem = (mem_d + totalplane*totalscalesize);
-
-    hipEvent_t event_d;
-    hipEventCreate(&event_d);
-
-    //we put the frame's planes on GPU
-    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp1[0]), stride * height, stream));
-    src1_d[0].strideEliminator(mem_d+6*width*height, stride);
-    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp1[1]), stride * height, stream));
-    src1_d[1].strideEliminator(mem_d+6*width*height, stride);
-    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp1[2]), stride * height, stream));
-    src1_d[2].strideEliminator(mem_d+6*width*height, stride);
-
-    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp2[0]), stride * height, stream));
-    src2_d[0].strideEliminator(mem_d+6*width*height, stride);
-    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp2[1]), stride * height, stream));
-    src2_d[1].strideEliminator(mem_d+6*width*height, stride);
-    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp2[2]), stride * height, stream));
-    src2_d[2].strideEliminator(mem_d+6*width*height, stride);
-
-    //computing downscaled before we overwrite src in getdiffmap (it s better for memory)
-    int nwidth = (width-1)/2+1;
-    int nheight = (height-1)/2+1;
-    float* nmem_d = mem_d+6*width*height; //allow usage up to mem_d+8*width*height;
-    Plane_d nsrc1_d[3] = {Plane_d(nmem_d, nwidth, nheight, stream), Plane_d(nmem_d+nwidth*nheight, nwidth, nheight, stream), Plane_d(nmem_d+2*nwidth*nheight, nwidth, nheight, stream)};
-    Plane_d nsrc2_d[3] = {Plane_d(nmem_d+3*nwidth*nheight, nwidth, nheight, stream), Plane_d(nmem_d+4*nwidth*nheight, nwidth, nheight, stream), Plane_d(nmem_d+5*nwidth*nheight, nwidth, nheight, stream)};
-    //using 6 smaller planes is equivalent to 1.5 standard planes, so it fits within the 2 planes given here!)
-    for (int i = 0; i < 3; i++){
-        downsample(src1_d[i].mem_d, nsrc1_d[i].mem_d, width, height, stream);
-        downsample(src2_d[i].mem_d, nsrc2_d[i].mem_d, width, height, stream);
-    }
-
-    Plane_d diffmap = getdiffmap(src1_d, src2_d, mem_d+8*width*height, width, height, intensity_multiplier, maxshared, gaussiankernel_dmem, stream);
-    //diffmap is stored at mem_d+8*width*height so we can build after that the second smaller scale
-    //smaller scale now
-    nmem_d = mem_d+9*width*height;
-    Plane_d diffmapsmall = getdiffmap(nsrc1_d, nsrc2_d, nmem_d+6*nwidth*nheight, nwidth, nheight, intensity_multiplier, maxshared, gaussiankernel_dmem, stream);
-
-    addsupersample2X(diffmap.mem_d, diffmapsmall.mem_d, width, height, 0.5, stream);
-
-    std::tuple<float, float, float> finalres;
-    try{
-        finalres = diffmapscore(diffmap.mem_d, mem_d+9*width*height, mem_d+10*width*height, width*height, event_d, stream);
-    } catch (const std::bad_alloc& e){
-        hipFree(mem_d);
-        hipEventDestroy(event_d);
-        throw e;
-    }
-
-    hipFree(mem_d);
-    hipEventDestroy(event_d);
-
-    return finalres;
-}
-
 std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride, const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, float intensity_multiplier, int maxshared, hipStream_t stream){
     int wh = width*height;
     const int totalscalesize = wh;
@@ -245,8 +172,10 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride
     addsupersample2X(diffmap.mem_d, diffmapsmall.mem_d, width, height, 0.5, stream);
 
     //diffmap is in its final form
-    diffmap.strideAdder(nmem_d, dststride);
-    GPU_CHECK(hipMemcpyDtoHAsync((void*)(dstp), nmem_d, dststride * height, stream));
+    if (dstp != NULL){
+        diffmap.strideAdder(nmem_d, dststride);
+        GPU_CHECK(hipMemcpyDtoHAsync((void*)(dstp), nmem_d, dststride * height, stream));
+    }
 
     std::tuple<float, float, float> finalres;
     try{
@@ -314,7 +243,7 @@ static const VSFrame *VS_CC butterGetFrame(int n, int activationReason, void *in
             if (d->diffmap){
                 val = butterprocess(vsapi->getWritePtr(dst, 0), vsapi->getStride(dst, 0), srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[n%STREAMNUM]);
             } else {
-                val = butterprocess(srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[n%STREAMNUM]);
+                val = butterprocess(NULL, 0, srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[n%STREAMNUM]);
             }
         } catch (const std::bad_alloc& e){
             vsapi->setFilterError("ERROR BUTTER, could not allocate VRAM or RAM (unlikely) for a result return, try lowering the number of vapoursynth threads\n", frameCtx);
