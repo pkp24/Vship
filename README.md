@@ -1,6 +1,7 @@
 # Vapoursynth-HIP
 
-An easy to use vapoursynth plugin to compute SSIMU2 (SSIMULACRA2) or Butteraugli on GPU
+An easy to use vapoursynth plugin to compute SSIMU2 (SSIMULACRA2) from libjxl or Butteraugli from libjxl on GPU
+with the exception that it uses a real gaussian blur and not a recursive gaussian blur.
 
 # Usage:
 
