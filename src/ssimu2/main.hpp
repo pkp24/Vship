@@ -51,6 +51,9 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     GPU_CHECK(hipMemcpyHtoDAsync(memory_placeholder[2], (void*)srcp2[2], stride * height, stream));
     memoryorganizer(src2_d, memory_placeholder[0], memory_placeholder[1], memory_placeholder[2], stride, width, height, stream);
 
+    rgb_to_linear(src1_d, totalscalesize, stream);
+    rgb_to_linear(src2_d, totalscalesize, stream);
+
     //step 1 : fill the downsample part
     int nw = width;
     int nh = height;

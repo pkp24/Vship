@@ -10,10 +10,7 @@ __global__ void downsamplekernel(float3* src, float3* dst, int width, int height
 
     if (x >= neww || y >= newh) return;
 
-    dst[y * neww + x].x = 0;
-    dst[y * neww + x].y = 0;
-    dst[y * neww + x].z = 0;
-    dst[y * neww + x] += src[min((int)(2*y), (int)(height-1)) * width + min((int)(2*x), (int)(width-1))];
+    dst[y * neww + x] = src[min((int)(2*y), (int)(height-1)) * width + min((int)(2*x), (int)(width-1))];
     dst[y * neww + x] += src[min((int)(2*y + 1), (int)(height-1)) * width + min((int)(2*x), (int)(width-1))];
     dst[y * neww + x] += src[min((int)(2*y), (int)(height-1)) * width + min((int)(2*x+1), (int)(width-1))];
     dst[y * neww + x] += src[min((int)(2*y + 1), (int)(height-1)) * width + min((int)(2*x+1), (int)(width-1))];
