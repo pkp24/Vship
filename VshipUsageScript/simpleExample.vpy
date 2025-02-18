@@ -4,8 +4,7 @@ import vapoursynth as vs
 clip1 = vs.core.bs.VideoSource("MyVideoPath")
 clip2 = vs.core.bs.VideoSource("MyVideoPath2")
 
-clip1 = clip1.resize.Bicubic(height=clip1.height, width=clip1.width, format=vs.RGBS)
-clip2 = clip2.resize.Bicubic(height=clip1.height, width=clip1.width, format=vs.RGBS) #resize to size of clip1 and goes to RGBS
+#make sure that the 2 have the same height and width or resize them
 
 #use one or the other
 #result = clip1.vship.BUTTERAUGLI(clip2, intensity_multiplier = 80, distmap = 0)
