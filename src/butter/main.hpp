@@ -1,4 +1,5 @@
 #include "../util/preprocessor.hpp"
+#include "../util/torgbs.hpp"
 #include "../util/float3operations.hpp"
 #include "../util/makeXYB.hpp"
 #include "gaussianblur.hpp" 
@@ -288,8 +289,8 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
     ButterData *data;
 
     // Get a clip reference from the input arguments. This must be freed later.
-    d.reference = vsapi->mapGetNode(in, "reference", 0, 0);
-    d.distorted = vsapi->mapGetNode(in, "distorted", 0, 0);
+    d.reference = toRGBS(vsapi->mapGetNode(in, "reference", 0, 0), core, vsapi);
+    d.distorted = toRGBS(vsapi->mapGetNode(in, "distorted", 0, 0), core, vsapi);
     const VSVideoInfo *viref = vsapi->getVideoInfo(d.reference);
     const VSVideoInfo *vidis = vsapi->getVideoInfo(d.distorted);
     VSVideoFormat formatout;
