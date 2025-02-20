@@ -4,6 +4,14 @@ __device__ float gamma(float v) {
     return fmaf(19.245013259874995f, logf(v + 9.9710635769299145), -23.16046239805755);
 }
 
+__device__ inline void rgb_to_linrgbfunc(float& a){
+    if (a > 0.04045){
+        a = powf(((a+0.055)/(1+0.055)), 2.4f);
+    } else {
+        a = a/12.92;
+    }
+}
+
 __global__ void linearrgb_kernel(float* src1, float* src2, float* src3, int width, int height){
     size_t x = threadIdx.x + blockIdx.x*blockDim.x;
     if (x >= width*height) return;

@@ -1,7 +1,7 @@
 #include "../util/preprocessor.hpp"
 #include "../util/torgbs.hpp"
 #include "../util/float3operations.hpp"
-#include "../util/makeXYB.hpp"
+#include "makeXYB.hpp"
 #include "downsample.hpp"
 #include "gaussianblur.hpp"
 #include "score.hpp"
