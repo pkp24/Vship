@@ -3,13 +3,24 @@
 An easy to use vapoursynth plugin to compute SSIMU2 (SSIMULACRA2) from libjxl or Butteraugli from libjxl on GPU
 with the exception that it uses a real gaussian blur and not a recursive gaussian blur.
 
+Butteraugli Source Code : https://github.com/libjxl/libjxl/tree/main/lib/jxl/butteraugli
+Ssimulacra2 Source Code : https://github.com/cloudinary/ssimulacra2
+
 # Usage:
 
-you can check "simpleExample.vpy" inside VshipUsageScript to learn how to use Vship
+To retrieve ssimu2 score between two video Nodes
 
-you can try to tune the number of vapoursynth threads
--> more threads can sometimes be faster but with more vram usage (for 1080p it can go up to 300 VRAM MB per threads for ssimu2 and butteraugli)
-`vs.core.num_threads = ?`
+`result = clip1.vship.SSIMULACRA2(clip2)`
+`res = [fr.props["_SSIMULACRA2"] for fr in result.frames()]`
+
+To retrieve Butteraugli score
+
+`result = clip1.vship.BUTTERAUGLI(clip2)`
+`res = [[fr.props["_BUTTERAUGLI_2Norm"], fr.props["_BUTTERAUGLI_3Norm"], fr.props["_BUTTERAUGLI_INFNorm"]] for fr in result.frames()]`
+
+you can check "simpleExample.vpy" inside VshipUsageScript to get more details about how to use Vship
+
+If you encounter VRAM issue, set a lower vs.core.num_threads (4 is usually the good compromise for speed)
 
 the exact vram formula per active vsthread is:
 ssimu2: 24 (plane buffer) * 4 (size of float) * width * height * 4/3
