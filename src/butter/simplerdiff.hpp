@@ -82,15 +82,15 @@ __global__ void L2AsymDiff_Kernel(float* src1, float* src2, float* dst, int widt
             float v = src2[x] + too_small;
             dst[x] += w_0lt1 * v * v;
         } else if (src2[x] < -too_big) {
-            double v = -src2[x] - too_big;
+            float v = -src2[x] - too_big;
             dst[x] += w_0lt1 * v * v;
         }
     } else {
         if (src2[x] < too_small) {
-            double v = too_small - src2[x];
+            float v = too_small - src2[x];
             dst[x] += w_0lt1 * v * v;
         } else if (src2[x] > too_big) {
-            double v = src2[x] - too_big;
+            float v = src2[x] - too_big;
             dst[x] += w_0lt1 * v * v;
         }
     }
