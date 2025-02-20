@@ -304,7 +304,7 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
         return;
     }
 
-    if ((viref->format.colorFamily != cfRGB) || viref->format.sampleType != stFloat){
+    if ((viref->format.bitsPerSample != 32) || (viref->format.colorFamily != cfRGB) || viref->format.sampleType != stFloat){
         vsapi->mapSetError(out, "BUTTERAUGLI: only works with RGBS format");
         vsapi->freeNode(d.reference);
         vsapi->freeNode(d.distorted);

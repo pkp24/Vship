@@ -8,7 +8,7 @@
 VSNode * toRGBS(VSNode * source, VSCore *core, const VSAPI *vsapi){
     const VSVideoInfo *vi = vsapi->getVideoInfo(source);
 
-    if ((vi->format.colorFamily == cfRGB) && vi->format.sampleType == stFloat){
+    if ((vi->format.bitsPerSample != 32) && (vi->format.colorFamily == cfRGB) && vi->format.sampleType == stFloat){
         return source;
     }
 

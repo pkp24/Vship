@@ -221,7 +221,7 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
         return;
     }
 
-    if ((viref->format.colorFamily != cfRGB) || viref->format.sampleType != stFloat){
+    if ((viref->format.bitsPerSample != 32) || (viref->format.colorFamily != cfRGB) || viref->format.sampleType != stFloat){
         vsapi->mapSetError(out, "SSIMULACRA2: only works with RGBS format");
         vsapi->freeNode(d.reference);
         vsapi->freeNode(d.distorted);
