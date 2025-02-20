@@ -11,11 +11,13 @@ Ssimulacra2 Source Code : https://github.com/cloudinary/ssimulacra2
 To retrieve ssimu2 score between two video Nodes
 
 `result = clip1.vship.SSIMULACRA2(clip2)`
+
 `res = [fr.props["_SSIMULACRA2"] for fr in result.frames()]`
 
 To retrieve Butteraugli score
 
 `result = clip1.vship.BUTTERAUGLI(clip2)`
+
 `res = [[fr.props["_BUTTERAUGLI_2Norm"], fr.props["_BUTTERAUGLI_3Norm"], fr.props["_BUTTERAUGLI_INFNorm"]] for fr in result.frames()]`
 
 you can check "simpleExample.vpy" inside VshipUsageScript to get more details about how to use Vship
