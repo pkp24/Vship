@@ -1,5 +1,7 @@
 import vapoursynth as vs
 
+vs.core.num_threads = 4 #can be increased/tuned for better performance and lowered to reduce VRAM
+
 #using bestsource to open video
 clip1 = vs.core.bs.VideoSource("MyVideoPath")
 clip2 = vs.core.bs.VideoSource("MyVideoPath2")
