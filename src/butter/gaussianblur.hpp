@@ -3,7 +3,7 @@ namespace butter{
 __global__ void loadGaussianKernel(float* gaussiankernel, int gaussiansize, float sigma){
     int x = threadIdx.x;
     if (x > 2*gaussiansize) return;
-    gaussiankernel[x] = exp(-(gaussiansize-x)*(gaussiansize-x)/(2*sigma*sigma))/(sqrt(TAU*sigma*sigma));
+    gaussiankernel[x] = expf(-(gaussiansize-x)*(gaussiansize-x)/(2*sigma*sigma))/(sqrtf(TAU*sigma*sigma));
 }
 
 //transpose the result at the end
