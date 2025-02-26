@@ -23,7 +23,7 @@ __device__ inline void opsin_absorbance(float3& a){
 }
 
 __device__ inline void mixed_to_xyb(float3& a){
-    a.x = 0.5 * (a.x - a.y);
+    a.x = 0.5f * (a.x - a.y);
     a.y = a.x + a.y;
 }
 
@@ -40,7 +40,7 @@ __device__ inline void linear_rgb_to_xyb(float3& a){
 
 __device__ inline void make_positive_xyb(float3& a){
     a.z = (a.z - a.y) + 0.55f;
-    a.x = a.x * 14.f + 0.42f;
+    a.x = a.x * 14.0f + 0.42f;
     a.y += 0.01f;
 }
 
@@ -53,7 +53,7 @@ __device__ inline void rgb_to_linrgbfunc(float& a){
     if (a > 0.04045f){
         a = powf(((a+0.055f)/(1.055f)), 2.4f);
     } else {
-        a = a/12.92;
+        a = a/12.92f;
     }
 }
 

@@ -23,8 +23,8 @@ __global__ void diffclamp_Kernel(float* src1, float* src2, float* dst, int width
 
     if (x >= width) return;
 
-    float v0 = fabs(src1[x]);
-    float v1 = fabs(src2[x]);
+    float v0 = abs(src1[x]);
+    float v1 = abs(src2[x]);
 
     if (v0 > maxclamp) v0 = maxclamp;
     if (v1 > maxclamp) v1 = maxclamp;
@@ -73,7 +73,7 @@ __global__ void L2AsymDiff_Kernel(float* src1, float* src2, float* dst, int widt
     const float diff = src1[x] - src2[x];
     dst[x] += w_0gt1 * diff * diff;
 
-    const float fabs0 = fabs(src1[x]);
+    const float fabs0 = abs(src1[x]);
     const float too_small = 0.4f * fabs0;
     const float too_big = 1.0f * fabs0;
 

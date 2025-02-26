@@ -51,9 +51,9 @@ __global__ void sumreducenorm(float* dst, float* src, int width){
         sharedmem[1024+thx] = 0.0f;
         sharedmem[1024*2+thx] = 0.0f;
     } else {
-        sharedmem[thx] = powf(fabs(src[x]), 2);
-        sharedmem[1024+thx] = powf(fabs(src[x]), 2);
-        sharedmem[1024*2+thx] = fabs(src[x]);
+        sharedmem[thx] = powf(abs(src[x]), 2);
+        sharedmem[1024+thx] = powf(abs(src[x]), 2);
+        sharedmem[1024*2+thx] = abs(src[x]);
     }
     __syncthreads();
     //now we need to do some pointer jumping to regroup every block sums;

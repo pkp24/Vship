@@ -9,7 +9,7 @@ __global__ void diffPrecompute_Kernel(float* mem1, float* dst, int width, int he
     if (y >= height) return;
 
     float bias = mul*bias_arg;
-    dst[thx] = sqrtf(mul * fabs(mem1[thx]) + bias) - sqrtf(bias);
+    dst[thx] = sqrtf(mul * abs(mem1[thx]) + bias) - sqrtf(bias);
     //if (thx == 10000) printf("diffprecompute : %f from %f\n", dst[thx], mem1[thx]);
 }
 
