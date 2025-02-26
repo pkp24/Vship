@@ -23,7 +23,7 @@ __global__ void horizontalBlur_Kernel(float* dst, float* src, int w, int h, floa
         out += src[i]*gauss;
         weight += gauss;
     }
-    dst[x] = out*(1.f/((1.f-border_ratio)*weight + border_ratio*weight_no_border));
+    dst[x] = out*(1.0f/((1.0f-border_ratio)*weight + border_ratio*weight_no_border));
 }
 
 __launch_bounds__(256)
