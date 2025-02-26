@@ -23,8 +23,8 @@ __global__ void diffclamp_Kernel(float* src1, float* src2, float* dst, int width
 
     if (x >= width) return;
 
-    float v0 = abs(src1[x]);
-    float v1 = abs(src2[x]);
+    float v0 = fabs(src1[x]);
+    float v1 = fabs(src2[x]);
 
     if (v0 > maxclamp) v0 = maxclamp;
     if (v1 > maxclamp) v1 = maxclamp;
@@ -74,8 +74,8 @@ __global__ void L2AsymDiff_Kernel(float* src1, float* src2, float* dst, int widt
     dst[x] += w_0gt1 * diff * diff;
 
     const float fabs0 = fabs(src1[x]);
-    const float too_small = 0.4 * fabs0;
-    const float too_big = 1.0 * fabs0;
+    const float too_small = 0.4f * fabs0;
+    const float too_big = 1.0f * fabs0;
 
     if (src1[x] < 0) {
         if (src2[x] > -too_small) {
@@ -97,9 +97,9 @@ __global__ void L2AsymDiff_Kernel(float* src1, float* src2, float* dst, int widt
 }
 
 void L2AsymDiff(float* src1, float* src2, float* dst, int width, float w_0gt1, float w_0lt1, hipStream_t stream){
-    if (w_0gt1 == 0 && w_0lt1 == 0) return;
-    w_0gt1 *= 0.8;
-    w_0lt1 *= 0.8;
+    if (w_0gt1 == 0.0f && w_0lt1 == 0.0f) return;
+    w_0gt1 *= 0.8f;
+    w_0lt1 *= 0.8f;
     int th_x = std::min(256, width);
     int bl_x = (width-1)/th_x + 1;
     L2AsymDiff_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(src1, src2, dst, width, w_0gt1, w_0lt1);

@@ -10,9 +10,9 @@ __global__ void sumreduce(float* dst, float* src, int width){
     __shared__ float sharedmem[1024*3];
 
     if (x >= width){
-        sharedmem[thx] = 0;
-        sharedmem[1024+thx] = 0;
-        sharedmem[1024*2+thx] = 0;
+        sharedmem[thx] = 0.0f;
+        sharedmem[1024+thx] = 0.0f;
+        sharedmem[1024*2+thx] = 0.0f;
     } else {
         sharedmem[thx] = src[x];
         sharedmem[1024+thx] = src[x+width];
@@ -47,13 +47,13 @@ __global__ void sumreducenorm(float* dst, float* src, int width){
     __shared__ float sharedmem[1024*3];
 
     if (x >= width){
-        sharedmem[thx] = 0;
-        sharedmem[1024+thx] = 0;
-        sharedmem[1024*2+thx] = 0;
+        sharedmem[thx] = 0.0f;
+        sharedmem[1024+thx] = 0.0f;
+        sharedmem[1024*2+thx] = 0.0f;
     } else {
-        sharedmem[thx] = powf(abs(src[x]), 2);
-        sharedmem[1024+thx] = powf(abs(src[x]), 2);
-        sharedmem[1024*2+thx] = abs(src[x]);
+        sharedmem[thx] = powf(fabs(src[x]), 2);
+        sharedmem[1024+thx] = powf(fabs(src[x]), 2);
+        sharedmem[1024*2+thx] = fabs(src[x]);
     }
     __syncthreads();
     //now we need to do some pointer jumping to regroup every block sums;
@@ -106,19 +106,19 @@ std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float*
 
     for (int i = 0; i < width; i++){
         if (first){
-            resnorm2 += std::pow(std::abs(back_to_cpu[i]), 2);
-            resnorm3 += std::pow(std::abs(back_to_cpu[i]), 3);
-            resnorminf = std::max(resnorminf, std::abs(back_to_cpu[i]));
+            resnorm2 += std::powf(std::fabsf(back_to_cpu[i]), 2);
+            resnorm3 += std::powf(std::fabsf(back_to_cpu[i]), 3);
+            resnorminf = std::max(resnorminf, std::fabsf(back_to_cpu[i]));
         } else {
-            resnorm2 += std::abs(back_to_cpu[i]);
-            resnorm3 += std::abs(back_to_cpu[i+width]);
-            resnorminf = std::max(resnorminf, std::abs(back_to_cpu[i+2*width]));
+            resnorm2 += std::fabsf(back_to_cpu[i]);
+            resnorm3 += std::fabsf(back_to_cpu[i+width]);
+            resnorminf = std::max(resnorminf, std::fabsf(back_to_cpu[i+2*width]));
         }
     }
 
     free(back_to_cpu);
-    resnorm2 = std::pow(resnorm2/basewidth, 1./2.);
-    resnorm3 = std::pow(resnorm3/basewidth, 1./3.);
+    resnorm2 = std::powf(resnorm2/basewidth, 1.0f/2.0f);
+    resnorm3 = std::powf(resnorm3/basewidth, 1.0f/3.0f);
     return std::make_tuple(resnorm2, resnorm3, resnorminf);
 }
 

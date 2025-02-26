@@ -8,7 +8,7 @@
 
 namespace ssimu2{
 
-double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, float* gaussiankernel, int maxshared, hipStream_t stream){
+float ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, float* gaussiankernel, int maxshared, hipStream_t stream){
 
     int wh = width*height;
     int whs[6] = {wh, ((height-1)/2 + 1)*((width-1)/2 + 1), ((height-1)/4 + 1)*((width-1)/4 + 1), ((height-1)/8 + 1)*((width-1)/8 + 1), ((height-1)/16 + 1)*((width-1)/16 + 1), ((height-1)/32 + 1)*((width-1)/32 + 1)};
@@ -164,7 +164,7 @@ static const VSFrame *VS_CC ssimulacra2GetFrame(int n, int activationReason, voi
             vsapi->getReadPtr(src2, 2),
         };
 
-        double val;
+        float val;
         try{
             val = ssimu2process(srcp1, srcp2, stride, width, height, d->gaussiankernel_d, d->maxshared, d->streams[n%STREAMNUM]);
         } catch (const std::bad_alloc& e){

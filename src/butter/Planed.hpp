@@ -30,7 +30,7 @@ public:
         int bl_x = (wh-1)/th_x + 1;
         float weight_no_border = 0;
         for (int i = 0; i < 2*gaussiansize+1; i++){
-            weight_no_border += std::exp(-(gaussiansize-i)*(gaussiansize-i)/(2*sigma*sigma))/(sqrt(2*PI*sigma*sigma));
+            weight_no_border += std::expf(-(gaussiansize-i)*(gaussiansize-i)/(2*sigma*sigma))/(sqrtf(TAU*sigma*sigma));
         }
         horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp.mem_d, mem_d, width, height, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
         verticalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(mem_d, temp.mem_d, width, height, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
@@ -44,7 +44,7 @@ public:
         int bl_x = (wh-1)/th_x + 1;
         float weight_no_border = 0;
         for (int i = 0; i < 2*gaussiansize+1; i++){
-            weight_no_border += std::exp(-(gaussiansize-i)*(gaussiansize-i)/(2*sigma*sigma))/(sqrt(2*PI*sigma*sigma));
+            weight_no_border += std::expf(-(gaussiansize-i)*(gaussiansize-i)/(2*sigma*sigma))/(sqrtf(TAU*sigma*sigma));
         }
         horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp.mem_d, mem_d, width, height, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
         verticalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(dst.mem_d, temp.mem_d, width, height, border_ratio, weight_no_border, gaussiankernel, gaussiansize);

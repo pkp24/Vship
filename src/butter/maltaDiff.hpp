@@ -516,11 +516,11 @@ __global__ void MaltaDiffMap_Kernel(const float* lum0, const float* lum1, float*
     const int x = threadIdx.x + blockIdx.x*blockDim.x;
     const int y = threadIdx.y + blockIdx.y*blockDim.y;
 
-    const float kWeight0 = 0.5;
-    const float kWeight1 = 0.33;
+    const float kWeight0 = 0.5f;
+    const float kWeight1 = 0.33f;
 
-    const float w_pre0gt1 = mulli * sqrtf(kWeight0 * w_0gt1) / (len * 2 + 1);
-    const float w_pre0lt1 = mulli * sqrtf(kWeight1 * w_0lt1) / (len * 2 + 1);
+    const float w_pre0gt1 = mulli * sqrtf(kWeight0 * w_0gt1) / (len * 2.0f + 1.0f);
+    const float w_pre0lt1 = mulli * sqrtf(kWeight1 * w_0lt1) / (len * 2.0f + 1.0f);
     const float norm2_0gt1 = w_pre0gt1 * norm1;
     const float norm2_0lt1 = w_pre0lt1 * norm1;
 
@@ -538,7 +538,7 @@ __global__ void MaltaDiffMap_Kernel(const float* lum0, const float* lum1, float*
             continue;
         }
 
-        const float absval = 0.5 * abs(lum0[worky*width + workx]) + 0.5 * abs(lum1[worky*width + workx]);
+        const float absval = 0.5f * fabs(lum0[worky*width + workx]) + 0.5f * fabs(lum1[worky*width + workx]);
         const float diff = lum0[worky*width + workx] - lum1[worky*width + workx];
         const float scaler = norm2_0gt1 / (norm1 + absval);
 
@@ -546,11 +546,11 @@ __global__ void MaltaDiffMap_Kernel(const float* lum0, const float* lum1, float*
         diffs[i] = scaler * diff;
 
         const float scaler2 = norm2_0lt1 / (static_cast<float>(norm1) + absval);
-        const float fabs0 = abs(lum0[worky*width + workx]);
+        const float fabs0 = fabs(lum0[worky*width + workx]);
 
         // Secondary half-open quadratic objectives.
-        const float too_small = 0.55 * fabs0;
-        const float too_big = 1.05 * fabs0;
+        const float too_small = 0.55f * fabs0;
+        const float too_big = 1.05f * fabs0;
 
         float impact = 0;
 
@@ -590,8 +590,8 @@ __global__ void MaltaDiffMapLF_Kernel(const float* lum0, const float* lum1, floa
     const int x = threadIdx.x + blockIdx.x*blockDim.x;
     const int y = threadIdx.y + blockIdx.y*blockDim.y;
 
-    const float kWeight0 = 0.5;
-    const float kWeight1 = 0.33;
+    const float kWeight0 = 0.5f;
+    const float kWeight1 = 0.33f;
 
     const float w_pre0gt1 = mulli * sqrtf(kWeight0 * w_0gt1) / (len * 2 + 1);
     const float w_pre0lt1 = mulli * sqrtf(kWeight1 * w_0lt1) / (len * 2 + 1);
@@ -612,7 +612,7 @@ __global__ void MaltaDiffMapLF_Kernel(const float* lum0, const float* lum1, floa
             continue;
         }
 
-        const float absval = 0.5 * abs(lum0[worky*width + workx]) + 0.5 * abs(lum1[worky*width + workx]);
+        const float absval = 0.5f * fabs(lum0[worky*width + workx]) + 0.5f * fabs(lum1[worky*width + workx]);
         const float diff = lum0[worky*width + workx] - lum1[worky*width + workx];
         const float scaler = norm2_0gt1 / (norm1 + absval);
 
@@ -620,11 +620,11 @@ __global__ void MaltaDiffMapLF_Kernel(const float* lum0, const float* lum1, floa
         diffs[i] = scaler * diff;
 
         const float scaler2 = norm2_0lt1 / (static_cast<float>(norm1) + absval);
-        const float fabs0 = abs(lum0[worky*width + workx]);
+        const float fabs0 = fabs(lum0[worky*width + workx]);
 
         // Secondary half-open quadratic objectives.
-        const float too_small = 0.55 * fabs0;
-        const float too_big = 1.05 * fabs0;
+        const float too_small = 0.55f * fabs0;
+        const float too_big = 1.05f * fabs0;
 
         float impact = 0;
 

@@ -43,7 +43,7 @@ __global__ void addsupersample2X_kernel(float* diffmap, float* diffmapsmall, int
 
     //if (y*width+x == 1841628) printf("small got %f and normal got %f\n", diffmapsmall[(y/2)*neww+x/2], diffmap[y*width+x]);
 
-    diffmap[y*width+x] *= 1. - 0.3*w;
+    diffmap[y*width+x] *= 1.0f - 0.3f*w;
     diffmap[y*width+x] += w*diffmapsmall[(y/2)*neww+x/2];
 }
 
