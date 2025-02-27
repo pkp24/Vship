@@ -31,17 +31,17 @@ __device__ inline void linear_rgb_to_xyb(float3& a){
     const float abs_bias = -0.1559542025327239f;
     opsin_absorbance(a);
     //printf("from %f to %f\n", a.x, cbrtf(a.x*((int)(a.x >= 0))));
-    a.x = cbrtf(a.x * ((int)(a.x >= 0.0f))) + abs_bias;
-    a.y = cbrtf(a.y * ((int)(a.y >= 0.0f))) + abs_bias;
-    a.z = cbrtf(a.z * ((int)(a.z >= 0.0f))) + abs_bias;
+    a.x = cbrtf(a.x * ((int)(a.x >= 0))) + abs_bias;
+    a.y = cbrtf(a.y * ((int)(a.y >= 0))) + abs_bias;
+    a.z = cbrtf(a.z * ((int)(a.z >= 0))) + abs_bias;
     //printf("got %f, %f, %f\n", a.x, a.y, a.z);
     mixed_to_xyb(a);
 }
 
-__device__ inline void make_positive_xyb(float3& a){
-    a.z = (a.z - a.y) + 0.55f;
-    a.x = a.x * 14.0f + 0.42f;
-    a.y += 0.01f;
+__device__ inline void make_positive_xyb(float3& a) {
+    a.z = (a.z - a.y) + 0.55;
+    a.x = a.x * 14.0f + 0.42;  
+    a.y += 0.01;
 }
 
 __device__ inline void rgb_to_positive_xyb_d(float3& a){
@@ -49,11 +49,11 @@ __device__ inline void rgb_to_positive_xyb_d(float3& a){
     make_positive_xyb(a);
 }
 
-__device__ inline void rgb_to_linrgbfunc(float& a){
-    if (a > 0.04045f){
-        a = powf(((a+0.055f)/(1.055f)), 2.4f);
+__device__ inline void rgb_to_linrgbfunc(float& a) {
+    if (a > 0.04045f) {
+        a = powf((a + 0.055) * (1.0 / 1.055), 2.4f);
     } else {
-        a = a/12.92f;
+        a *= (1.0 / 12.92);
     }
 }
 

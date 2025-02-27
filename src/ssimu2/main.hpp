@@ -8,7 +8,7 @@
 
 namespace ssimu2{
 
-float ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, float* gaussiankernel, int maxshared, hipStream_t stream){
+double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, float* gaussiankernel, int maxshared, hipStream_t stream){
 
     int wh = width*height;
     int whs[6] = {wh, ((height-1)/2 + 1)*((width-1)/2 + 1), ((height-1)/4 + 1)*((width-1)/4 + 1), ((height-1)/8 + 1)*((width-1)/8 + 1), ((height-1)/16 + 1)*((width-1)/16 + 1), ((height-1)/32 + 1)*((width-1)/32 + 1)};
@@ -116,7 +116,7 @@ float ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride
     }
 
     //step 7 : enjoy !
-    const float ssim = final_score(measure_vec);
+    const double ssim = final_score(measure_vec);
 
     hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
     hipEventSynchronize(event_d); //when the event is complete, we know our gpu result is ready!
@@ -266,7 +266,7 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
 
     float gaussiankernel[2*GAUSSIANSIZE+1];
     for (int i = 0; i < 2*GAUSSIANSIZE+1; i++){
-        gaussiankernel[i] = std::exp(-(GAUSSIANSIZE-i)*(GAUSSIANSIZE-i)/(2*SIGMA*SIGMA))/(std::sqrt(2*PI*SIGMA*SIGMA));
+        gaussiankernel[i] = std::exp(-(GAUSSIANSIZE-i)*(GAUSSIANSIZE-i)/(2*SIGMA*SIGMA))/(std::sqrt(TAU*SIGMA*SIGMA));
     }
 
     data->maxshared = devattr.sharedMemPerBlock;

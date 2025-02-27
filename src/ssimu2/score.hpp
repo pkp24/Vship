@@ -337,13 +337,13 @@ float final_score(std::vector<float> scores){
     for (int i = 0; i < 108; i++){
         ssim = fmaf(weights[i], scores[i], ssim);
     }
-    ssim *= 0.9562382616834844f;
-    ssim = (6.248496625763138e-5f * ssim * ssim) * ssim +
-        2.326765642916932f * ssim -
-        0.020884521182843837f * ssim * ssim;
+    ssim *= 0.9562382616834844;
+    ssim = (6.248496625763138e-5 * ssim * ssim) * ssim +
+        2.326765642916932 * ssim -
+        0.020884521182843837 * ssim * ssim;
     
     if (ssim > 0.0) {
-        ssim = std::powf(ssim, 0.6276336467831387f) * -10.0f + 100.0f;
+        ssim = std::pow(ssim, 0.6276336467831387) * -10.0 + 100.0;
     } else {
         ssim = 100.0f;
     }
