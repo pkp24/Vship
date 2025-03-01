@@ -36,7 +36,7 @@ namespace butter{
 
     __device__ inline void supressXbyY(float& x, float yval, float yw){
         const float s = 0.653020556257f;
-        const float scaler = s + (yw * (1.0f - s)) / (yw + yval * yval);
+        const float scaler = s + (yw * (1.0 - s)) / (yw + yval * yval);
         x *= scaler;
     }
 
@@ -125,8 +125,8 @@ namespace butter{
         MaximumClamp(hf[x], kMaxclampHf);
         uhf[x] -= hf[x];
         MaximumClamp(uhf[x], kMaxclampUhf);
-        uhf[x] *= 2.69313763794f;
-        hf[x] *= 2.155f;
+        uhf[x] *= 2.69313763794;
+        hf[x] *= 2.155;
         AmplifyRangeAroundZero(hf[x], 0.132f);
 
         //printf("res : %f and %f\n", first[x], second[x]);
@@ -161,12 +161,12 @@ namespace butter{
         
         for (int i = 0; i < 3; i++){
             //we separate lf to get mf BUT we put mf on hf if i != 2 for later reasons
-            src[i].blur(lf[i], temp[i], 7.15593339443f, 0, gaussiankernel);
+            src[i].blur(lf[i], temp[i], 7.15593339443f, 0.0f, gaussiankernel);
 
             if (i == 2){
                 //mf = blur(xyb-lf)
                 subarray(src[i].mem_d, lf[i].mem_d, mf[i].mem_d, width*height, stream);
-                mf[i].blur(temp[i], 3.22489901262f, 0, gaussiankernel);
+                mf[i].blur(temp[i], 3.22489901262f, 0.0f, gaussiankernel);
                 break;
             }
             //mf (hf (uhf)) = xyb-lf //mf is stored on hf which is stored in uhf
@@ -174,7 +174,7 @@ namespace butter{
             subarray(src[i].mem_d, lf[i].mem_d, uhf[i].mem_d, width*height, stream);
             //mf = blur(mf (hf (uhf))) //we blur mf BUT mf is on hf which is on uhf. After this, mf is stored in mf but hf is on uhf
             //the real mf is blurred and we avoid the need to copy the unblurred mf to hf (uhf)
-            uhf[i].blur(mf[i], temp[i], 3.22489901262f, 0, gaussiankernel);
+            uhf[i].blur(mf[i], temp[i], 3.22489901262f, 0.0f, gaussiankernel);
 
             //hf (uhf) = op(mf, hf (uhf))
             if (i == 0){
@@ -190,7 +190,7 @@ namespace butter{
         for (int i = 0; i < 2; i++){
             //original does uhf = hf but hf is already in uhf.
             //next is hf = blur(hf (uhf)) -> hf is now at its place and uhf has the old hf copy
-            uhf[i].blur(hf[i], temp[i], 1.56416327805f, 0, gaussiankernel);
+            uhf[i].blur(hf[i], temp[i], 1.56416327805f, 0.0f, gaussiankernel);
 
             if (i == 0){
                 subarray_removerangearound0(hf[i].mem_d, uhf[i].mem_d, width*height, 1.5f, stream);

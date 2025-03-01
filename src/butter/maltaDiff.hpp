@@ -3,7 +3,7 @@ namespace butter{
 //maltaUnit functions are copy pasted from google butteraugli
 __device__ float MaltaUnitLF(float* d, const int xs) {
     const int xs3 = 3 * xs;
-    float retval = 0;
+    float retval = 0.0f;
     {
         // x grows, y constant
         float sum =
@@ -234,7 +234,7 @@ __device__ float MaltaUnitLF(float* d, const int xs) {
 
 __device__ float MaltaUnit(float* d, const int xs) {
     const int xs3 = 3 * xs;
-    float retval = 0;
+    float retval = 0.0f;
     {
         // x grows, y constant
         float sum =
@@ -519,8 +519,9 @@ __global__ void MaltaDiffMap_Kernel(const float* lum0, const float* lum1, float*
     const float kWeight0 = 0.5f;
     const float kWeight1 = 0.33f;
 
-    const float w_pre0gt1 = mulli * sqrtf(kWeight0 * w_0gt1) / (len * 2.0f + 1.0f);
-    const float w_pre0lt1 = mulli * sqrtf(kWeight1 * w_0lt1) / (len * 2.0f + 1.0f);
+    const float len2 = len * 2.0f + 1.0f;
+    const float w_pre0gt1 = mulli * sqrtf(kWeight0 * w_0gt1) / len2;
+    const float w_pre0lt1 = mulli * sqrtf(kWeight1 * w_0lt1) / len2;
     const float norm2_0gt1 = w_pre0gt1 * norm1;
     const float norm2_0lt1 = w_pre0lt1 * norm1;
 
@@ -534,7 +535,7 @@ __global__ void MaltaDiffMap_Kernel(const float* lum0, const float* lum1, float*
     for (int i = serialind; i < 24*24; i += serialstride){
         int workx = topleftx + i%24; int worky = toplefty + i/24;
         if (workx < 0 || workx >= width || worky < 0 || worky >= height){
-            diffs[i] = 0;
+            diffs[i] = 0.0f;
             continue;
         }
 
@@ -549,12 +550,12 @@ __global__ void MaltaDiffMap_Kernel(const float* lum0, const float* lum1, float*
         const float fabs0 = abs(lum0[worky*width + workx]);
 
         // Secondary half-open quadratic objectives.
-        const float too_small = 0.55f * fabs0;
-        const float too_big = 1.05f * fabs0;
+        const float too_small = 0.55 * fabs0;
+        const float too_big = 1.05 * fabs0;
 
-        float impact = 0;
+        float impact = 0.0f;
 
-        if (lum0[worky*width + workx] < 0){
+        if (lum0[worky*width + workx] < 0.0f){
             if (lum1[worky*width + workx] > -too_small){
                 impact = lum1[worky*width + workx] + too_small;
             } else if (lum1[worky*width + workx] < -too_big){
@@ -569,7 +570,7 @@ __global__ void MaltaDiffMap_Kernel(const float* lum0, const float* lum1, float*
         }
         impact *= scaler2;
 
-        if (diff < 0){
+        if (diff < 0.0f){
             diffs[i] -= impact;
         } else {
             diffs[i] += impact;
@@ -593,8 +594,9 @@ __global__ void MaltaDiffMapLF_Kernel(const float* lum0, const float* lum1, floa
     const float kWeight0 = 0.5f;
     const float kWeight1 = 0.33f;
 
-    const float w_pre0gt1 = mulli * sqrtf(kWeight0 * w_0gt1) / (len * 2 + 1);
-    const float w_pre0lt1 = mulli * sqrtf(kWeight1 * w_0lt1) / (len * 2 + 1);
+    const float len2 = len * 2.0f + 1.0f;
+    const float w_pre0gt1 = mulli * sqrtf(kWeight0 * w_0gt1) / len2;
+    const float w_pre0lt1 = mulli * sqrtf(kWeight1 * w_0lt1) / len2;
     const float norm2_0gt1 = w_pre0gt1 * norm1;
     const float norm2_0lt1 = w_pre0lt1 * norm1;
 
@@ -608,7 +610,7 @@ __global__ void MaltaDiffMapLF_Kernel(const float* lum0, const float* lum1, floa
     for (int i = serialind; i < 24*24; i += serialstride){
         int workx = topleftx + i%24; int worky = toplefty + i/24;
         if (workx < 0 || workx >= width || worky < 0 || worky >= height){
-            diffs[i] = 0;
+            diffs[i] = 0.0f;
             continue;
         }
 
@@ -623,12 +625,12 @@ __global__ void MaltaDiffMapLF_Kernel(const float* lum0, const float* lum1, floa
         const float fabs0 = abs(lum0[worky*width + workx]);
 
         // Secondary half-open quadratic objectives.
-        const float too_small = 0.55f * fabs0;
-        const float too_big = 1.05f * fabs0;
+        const float too_small = 0.55 * fabs0;
+        const float too_big = 1.05 * fabs0;
 
-        float impact = 0;
+        float impact = 0.0f;
 
-        if (lum0[worky*width + workx] < 0){
+        if (lum0[worky*width + workx] < 0.0f){
             if (lum1[worky*width + workx] > -too_small){
                 impact = lum1[worky*width + workx] + too_small;
             } else if (lum1[worky*width + workx] < -too_big){
@@ -643,7 +645,7 @@ __global__ void MaltaDiffMapLF_Kernel(const float* lum0, const float* lum1, floa
         }
         impact *= scaler2;
 
-        if (diff < 0){
+        if (diff < 0.0f){
             diffs[i] -= impact;
         } else {
             diffs[i] += impact;

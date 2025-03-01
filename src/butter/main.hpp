@@ -60,11 +60,11 @@ Plane_d getdiffmap(Plane_d* src1_d, Plane_d* src2_d, float* mem_d, int width, in
 
     const float wHfMalta = 18.7237414387f;
     const float norm1Hf = 4498534.45232f;
-    MaltaDiffMapLF(hf1[1].mem_d, hf2[1].mem_d, block_diff_ac[1].mem_d, width, height, wHfMalta * sqrt(hf_asymmetry_), wHfMalta / sqrt(hf_asymmetry_), norm1Hf, stream);
+    MaltaDiffMapLF(hf1[1].mem_d, hf2[1].mem_d, block_diff_ac[1].mem_d, width, height, wHfMalta * std::sqrt(hf_asymmetry_), wHfMalta / std::sqrt(hf_asymmetry_), norm1Hf, stream);
 
     const float wHfMaltaX = 6923.99476109f;
     const float norm1HfX = 8051.15833247f;
-    MaltaDiffMapLF(hf1[0].mem_d, hf2[0].mem_d, block_diff_ac[0].mem_d, width, height, wHfMaltaX * sqrt(hf_asymmetry_), wHfMaltaX / sqrt(hf_asymmetry_), norm1HfX, stream);
+    MaltaDiffMapLF(hf1[0].mem_d, hf2[0].mem_d, block_diff_ac[0].mem_d, width, height, wHfMaltaX * std::sqrt(hf_asymmetry_), wHfMaltaX / std::sqrt(hf_asymmetry_), norm1HfX, stream);
 
     const float wMfMalta = 37.0819870399f;
     const float norm1Mf = 130262059.556f;
@@ -78,7 +78,7 @@ Plane_d getdiffmap(Plane_d* src1_d, Plane_d* src2_d, float* mem_d, int width, in
       400.0f,         1.50815703118f,  0.0f,
       2150.0f,        10.6195433239f,  16.2176043152f,
       29.2353797994f, 0.844626970982f, 0.703646627719f,
-  };
+    };
 
     //const float maxclamp = 85.7047444518;
     //const float kSigmaHfX = 10.6666499623;
@@ -169,7 +169,7 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride
     nmem_d = mem_d+9*width*height;
     Plane_d diffmapsmall = getdiffmap(nsrc1_d, nsrc2_d, nmem_d+6*nwidth*nheight, nwidth, nheight, intensity_multiplier, maxshared, gaussiankernel_dmem, stream);
 
-    addsupersample2X(diffmap.mem_d, diffmapsmall.mem_d, width, height, 0.5, stream);
+    addsupersample2X(diffmap.mem_d, diffmapsmall.mem_d, width, height, 0.5f, stream);
 
     //diffmap is in its final form
     if (dstp != NULL){

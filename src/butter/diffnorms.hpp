@@ -96,9 +96,9 @@ std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float*
     }
     float* back_to_cpu = (float*)malloc(sizeof(float)*width*3);
     if (!back_to_cpu) throw std::bad_alloc();
-    float resnorm2 = 0;
-    float resnorm3 = 0;
-    float resnorminf = 0;
+    float resnorm2 = 0.0f;
+    float resnorm3 = 0.0f;
+    float resnorminf = 0.0f;
     hipMemcpyDtoHAsync(back_to_cpu, src, sizeof(float)*width*3, stream);
 
     hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
@@ -106,19 +106,19 @@ std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float*
 
     for (int i = 0; i < width; i++){
         if (first){
-            resnorm2 += std::powf(std::fabsf(back_to_cpu[i]), 2);
-            resnorm3 += std::powf(std::fabsf(back_to_cpu[i]), 3);
-            resnorminf = std::max(resnorminf, std::fabsf(back_to_cpu[i]));
+            resnorm2 += std::pow(std::abs(back_to_cpu[i]), 2);
+            resnorm3 += std::pow(std::abs(back_to_cpu[i]), 3);
+            resnorminf = std::max(resnorminf, std::abs(back_to_cpu[i]));
         } else {
-            resnorm2 += std::fabsf(back_to_cpu[i]);
-            resnorm3 += std::fabsf(back_to_cpu[i+width]);
-            resnorminf = std::max(resnorminf, std::fabsf(back_to_cpu[i+2*width]));
+            resnorm2 += std::abs(back_to_cpu[i]);
+            resnorm3 += std::abs(back_to_cpu[i+width]);
+            resnorminf = std::max(resnorminf, std::abs(back_to_cpu[i+2*width]));
         }
     }
 
     free(back_to_cpu);
-    resnorm2 = std::powf(resnorm2/basewidth, 1.0f/2.0f);
-    resnorm3 = std::powf(resnorm3/basewidth, 1.0f/3.0f);
+    resnorm2 = std::powf(resnorm2/basewidth, 1.0/2.0);
+    resnorm3 = std::pow(resnorm3/basewidth, 1.0/3.0);
     return std::make_tuple(resnorm2, resnorm3, resnorminf);
 }
 

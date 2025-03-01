@@ -1,14 +1,14 @@
 namespace butter{
 
 __device__ float gamma(float v) {
-    return fmaf(19.245013259874995f, logf(v + 9.9710635769299145f), -23.16046239805755f);
+    return fmaf(19.245013259874995f, logf(v + 9.9710635769299145), -23.16046239805755f);
 }
 
 __device__ inline void rgb_to_linrgbfunc(float& a){
     if (a > 0.04045f){
-        a = powf(((a+0.055f)/(1.055f)), 2.4f);
+        a = powf(((a+0.055)*(1.0/1.055)), 2.4f);
     } else {
-        a = a/12.92f;
+        a *= 1.0/12.92;
     }
 }
 
