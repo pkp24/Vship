@@ -116,7 +116,7 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     }
 
     //step 7 : enjoy !
-    const double ssim = final_score(measure_vec);
+    const float ssim = final_score(measure_vec);
 
     hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
     hipEventSynchronize(event_d); //when the event is complete, we know our gpu result is ready!
@@ -164,7 +164,7 @@ static const VSFrame *VS_CC ssimulacra2GetFrame(int n, int activationReason, voi
             vsapi->getReadPtr(src2, 2),
         };
 
-        float val;
+        double val;
         try{
             val = ssimu2process(srcp1, srcp2, stride, width, height, d->gaussiankernel_d, d->maxshared, d->streams[n%STREAMNUM]);
         } catch (const std::bad_alloc& e){
