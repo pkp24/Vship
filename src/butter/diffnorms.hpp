@@ -52,7 +52,7 @@ __global__ void sumreducenorm(float* dst, float* src, int width){
         sharedmem[1024*2+thx] = 0;
     } else {
         sharedmem[thx] = powf(abs(src[x]), 2);
-        sharedmem[1024+thx] = powf(abs(src[x]), 2);
+        sharedmem[1024+thx] = powf(abs(src[x]), 3);
         sharedmem[1024*2+thx] = abs(src[x]);
     }
     __syncthreads();
