@@ -227,6 +227,12 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
         return;
     }
 
+    int error;
+    int gpuid = vsapi->mapGetInt(in, "gpu_id", 0, &error);
+    if (error != peSuccess){
+        gpuid = 0;
+    }
+
     int count;
     if (hipGetDeviceCount(&count) != 0){
         vsapi->mapSetError(out, "could not detect devices, check gpu permissions\n");
@@ -234,6 +240,13 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
     if (count == 0){
         vsapi->mapSetError(out, "No GPU was found on the system for a given compilation type. Try switch nvidia/amd binary\n");
     }
+    if (count <= gpuid){
+        std::stringstream ss;
+        ss << "Gpu ID " << gpuid << " is higher than the maximum possible ID : " << count-1 << std::endl;
+        vsapi->mapSetError(out, ss.str().data());
+    }
+
+    hipSetDevice(gpuid);
 
     hipDeviceSetCacheConfig(hipFuncCachePreferNone);
     int device;

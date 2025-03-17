@@ -1,3 +1,5 @@
+#include <string>
+
 #include "../util/preprocessor.hpp"
 #include "../util/torgbs.hpp"
 #include "../util/float3operations.hpp"
@@ -315,6 +317,10 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
     if (error != peSuccess){
         d.intensity_multiplier = 80;
     }
+    int gpuid = vsapi->mapGetInt(in, "gpu_id", 0, &error);
+    if (error != peSuccess){
+        gpuid = 0;
+    }
     d.diffmap = vsapi->mapGetInt(in, "distmap", 0, &error);
     if (error != peSuccess){
         d.diffmap = 0.;
@@ -331,6 +337,13 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
     if (count == 0){
         vsapi->mapSetError(out, "No GPU was found on the system for a given compilation type. Try switch nvidia/amd binary\n");
     }
+    if (count <= gpuid){
+        std::stringstream ss;
+        ss << "Gpu ID " << gpuid << " is higher than the maximum possible ID : " << count-1 << std::endl;
+        vsapi->mapSetError(out, ss.str().data());
+    }
+
+    hipSetDevice(gpuid);
 
     hipDeviceSetCacheConfig(hipFuncCachePreferNone);
     int device;
