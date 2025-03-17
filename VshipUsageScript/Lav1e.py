@@ -41,8 +41,8 @@ class SSIMU2Score:
 		self.type = "SSIMU2"
 
 	def compute(self, originalFile : str, distordedFile : str, skip : int = 5, begin : int = 0, end : int = None, method:str="vship") -> None:
-		src = vs.core.bs.VideoSource(originalFile, threads=24)[begin:end:skip]
-		dis = vs.core.bs.VideoSource(distordedFile, threads=24)[begin:end:skip]
+		src =  (vs.core.bs.VideoSource(originalFile) if (type(originalFile) == str) else originalFile)[begin:end:skip]
+		dis = (vs.core.bs.VideoSource(distordedFile) if (type(distordedFile) == str) else distordedFile)[begin:end:skip]
 
 		dis = vs.core.resize.Bicubic(dis, format=vs.RGBS, matrix_in=1)
 		if (src.width == dis.width and src.height == dis.height):
@@ -60,16 +60,16 @@ class SSIMU2Score:
 			print("invalid method")
 
 		res = [[begin + ind*skip, fr.props["_SSIMULACRA2"]] for (ind, fr) in enumerate(result.frames())]
-		res = [k for k in res if k[1] > 0]
+		#res = [k for k in res if k[1] > 0]
 
 		self.scores = res
 		self.source = originalFile
 		self.distorded = distordedFile
 		self.type = "SSIMU2"
 
-	def compute_butter(self, originalFile : str, distordedFile : str, skip : int = 5, begin : int = 0, end : int = None, method:str="vship") -> None:
-		src = vs.core.bs.VideoSource(originalFile, threads=24)[begin:end:skip]
-		dis = vs.core.bs.VideoSource(distordedFile, threads=24)[begin:end:skip]
+	def compute_butter(self, originalFile, distordedFile, skip : int = 5, begin : int = 0, end : int = None, method:str="vship") -> None:
+		src =  (vs.core.bs.VideoSource(originalFile) if (type(originalFile) == str) else originalFile)[begin:end:skip]
+		dis = (vs.core.bs.VideoSource(distordedFile) if (type(distordedFile) == str) else distordedFile)[begin:end:skip]
 
 		dis = vs.core.resize.Bicubic(dis, format=vs.RGBS, matrix_in=1)
 		if (src.width == dis.width and src.height == dis.height):
