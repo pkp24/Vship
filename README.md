@@ -47,7 +47,7 @@ for amd cards:
 to install: either use the dll or:
 `make install`
 
-# Performance on my laptop on some clip:
+# Performance on my desktop on some clip:
 
 ![comparison](Images/vshipjxl.png)
 
