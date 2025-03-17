@@ -249,7 +249,7 @@ static const VSFrame *VS_CC butterGetFrame(int n, int activationReason, void *in
             vsapi->setFilterError("ERROR BUTTER, could not allocate VRAM or RAM (unlikely) for a result return, try lowering the number of vapoursynth threads\n", frameCtx);
             vsapi->freeFrame(src1);
             vsapi->freeFrame(src2);
-            return dst;
+            return NULL;
         }
 
         vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_BUTTERAUGLI_2Norm", std::get<0>(val), maReplace);

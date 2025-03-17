@@ -171,7 +171,6 @@ static const VSFrame *VS_CC ssimulacra2GetFrame(int n, int activationReason, voi
             vsapi->setFilterError("ERROR SSIMU2,d could not allocate VRAM or RAM (unlikely) for a result return, try lowering the number of vapoursynth threads\n", frameCtx);
             vsapi->freeFrame(src1);
             vsapi->freeFrame(src2);
-            return dst;
         }
 
         vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_SSIMULACRA2", val, maReplace);
