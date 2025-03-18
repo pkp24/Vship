@@ -1,7 +1,7 @@
 #ifndef GPUHELPERHPP
 #define GPUHELPERHPP
 
-#include <string>
+#include "preprocessor.hpp"
 
 namespace helper{
 
