@@ -34,7 +34,7 @@ namespace helper{
                 hipGetDeviceProperties(&devattr, device);
                 ss << "gpu_id : " << gpuid << " selected" << std::endl;
                 ss << devattr.name << std::endl << std::endl;
-                ss << "Global memory: " << (devattr.totalGlobalMem >> 30) << " GB" << std::endl;
+                ss << "Global memory: " << ((float)devattr.totalGlobalMem / (1<<30)) << " GiB" << std::endl;
             } else if (gpuid >= count){ 
                 ss << "Bad gpu_id selected" << std::endl;
             }
