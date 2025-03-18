@@ -4,7 +4,13 @@ from matplotlib import pyplot
 import os
 from subprocess import call
 
-if (not os.path.isfile("sample.y4m")): call("wget https://media.xiph.org/video/derf/y4m/factory_1080p30.y4m -O sample.y4m", shell=True)
+if (not os.path.isfile("sample.y4m")): 
+    try:
+        import wget
+        wget.download("https://media.xiph.org/video/derf/y4m/factory_1080p30.y4m", out="sample.y4m")
+    except:
+        print("wget api not found, let s try your shell")
+        call("wget https://media.xiph.org/video/derf/y4m/factory_1080p30.y4m -O sample.y4m", shell=True)
 if (not os.path.isfile("testscores.mkv")): call("ffmpeg -i sample.y4m -crf 25 -an -sn testscores.mkv", shell=True)
 
 score = SSIMU2Score()
