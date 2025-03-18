@@ -1,8 +1,24 @@
 //launch in 16*16
 __launch_bounds__(256)
 __global__ void GaussianBlur_Kernel(float3* src, float3* dst, int width, int height, float* gaussiankernel){
-    const int x = threadIdx.x + blockIdx.x*blockDim.x;
-    const int y = threadIdx.y + blockIdx.y*blockDim.y;
+    int originalBl_X = blockIdx.x;
+    //let's determine which scale our block is in and adjust our input parameters accordingly
+    for (int scale = 0; scale <= 5; scale++){
+        if (originalBl_X < ((width-1)/16+1)*((height-1)/16+1)){
+            break;
+        } else {
+            src += width*height;
+            dst += width*height;
+            originalBl_X -= ((width-1)/16+1)*((height-1)/16+1);
+            width = (width-1)/2+1;
+            height = (height-1)/2+1;
+        }
+    }
+
+    const int blockwidth = (width-1)/16+1;
+
+    const int x = threadIdx.x + 16*(originalBl_X%blockwidth);
+    const int y = threadIdx.y + 16*(originalBl_X/blockwidth);
     const int thx = threadIdx.x;
     const int thy = threadIdx.y;
 
@@ -61,16 +77,13 @@ __global__ void GaussianBlur_Kernel(float3* src, float3* dst, int width, int hei
 void gaussianBlur(float3* src, float3* dst, int totalscalesize, int basewidth, int baseheight, float* gaussiankernel_d, hipStream_t stream){
     int w = basewidth;
     int h = baseheight;
-    int bl_x, bl_y;
 
-    int cumulate = 0;
+    int bl_x = 0;
     for (int scale = 0; scale <= 5; scale++){
-        bl_x = (w-1)/16 + 1;
-        bl_y = (h-1)/16 + 1;
-        GaussianBlur_Kernel<<<dim3(bl_x, bl_y), dim3(16, 16), 0, stream>>>(src+cumulate, dst+cumulate, w, h, gaussiankernel_d);
-        GPU_CHECK(hipGetLastError());
-        cumulate += w*h;
+        bl_x += ((w-1)/16+1)*((h-1)/16+1);
         w = (w-1)/2+1;
         h = (h-1)/2+1;
     }
+    GaussianBlur_Kernel<<<dim3(bl_x), dim3(16, 16), 0, stream>>>(src, dst, basewidth, baseheight, gaussiankernel_d);
+    GPU_CHECK(hipGetLastError());
 }
