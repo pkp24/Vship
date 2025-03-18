@@ -73,6 +73,14 @@ __device__ __host__ float3 inline abs(const float3& a){
     return out;
 }
 
+__device__ __host__ float3 makeFloat3(const float& a, const float& b, const float& c){
+    float3 ret;
+    ret.x = a;
+    ret.y = b;
+    ret.z = c;
+    return ret;
+}
+
 #ifndef __HIPCC__
 
 __device__ __host__ void inline operator*=(float3& a, const float3& b){
