@@ -76,17 +76,17 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     rgb_to_positive_xyb(src2_d, totalscalesize, stream);
 
     //step 3 : fill buffer s11 s22 and s12 and blur everything
-    multarray(src1_d, src1_d, temps11_d, totalscalesize, stream);
-    gaussianBlur(temps11_d, temps11_d, temp_d, totalscalesize, width, height, gaussiankernel, stream);
+    multarray(src1_d, src1_d, temp_d, totalscalesize, stream);
+    gaussianBlur(temp_d, temps11_d, totalscalesize, width, height, gaussiankernel, stream);
 
-    multarray(src1_d, src2_d, temps12_d, totalscalesize, stream);
-    gaussianBlur(temps12_d, temps12_d, temp_d, totalscalesize, width, height, gaussiankernel, stream);
+    multarray(src1_d, src2_d, temp_d, totalscalesize, stream);
+    gaussianBlur(temp_d, temps12_d, totalscalesize, width, height, gaussiankernel, stream);
 
-    multarray(src2_d, src2_d, temps22_d, totalscalesize, stream);
-    gaussianBlur(temps22_d, temps22_d, temp_d, totalscalesize, width, height, gaussiankernel, stream);
+    multarray(src2_d, src2_d, temp_d, totalscalesize, stream);
+    gaussianBlur(temp_d, temps22_d, totalscalesize, width, height, gaussiankernel, stream);
 
-    gaussianBlur(src1_d, tempb1_d, temp_d, totalscalesize, width, height, gaussiankernel, stream);
-    gaussianBlur(src2_d, tempb2_d, temp_d, totalscalesize, width, height, gaussiankernel, stream);
+    gaussianBlur(src1_d, tempb1_d, totalscalesize, width, height, gaussiankernel, stream);
+    gaussianBlur(src2_d, tempb2_d, totalscalesize, width, height, gaussiankernel, stream);
 
     //step 4 : ssim map
     
