@@ -20,6 +20,14 @@ __device__ __host__ float3 inline operator/(const float3&a, const int b){
     return out;
 }
 
+__device__ __host__ float3 inline operator/(const float3&a, const float b){
+    float3 out;
+    out.x = a.x/b;
+    out.y = a.y/b;
+    out.z = a.z/b;
+    return out;
+}
+
 __device__ __host__ float3 inline operator-(const float a, const float3& b){
     float3 out;
     out.x = a - b.x;
