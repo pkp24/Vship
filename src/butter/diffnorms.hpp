@@ -95,7 +95,7 @@ std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float*
         width = bl_x;
     }
     float* back_to_cpu = (float*)malloc(sizeof(float)*width*3);
-    if (!back_to_cpu) throw std::bad_alloc();
+    if (!back_to_cpu) throw VshipError(OutOfRAM, __FILE__, __LINE__);
     float resnorm2 = 0;
     float resnorm3 = 0;
     float resnorminf = 0;

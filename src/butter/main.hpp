@@ -1,6 +1,7 @@
 #include <string>
 
 #include "../util/preprocessor.hpp"
+#include "../util/VshipExceptions.hpp"
 #include "../util/torgbs.hpp"
 #include "../util/float3operations.hpp"
 #include "gaussianblur.hpp" 
@@ -127,7 +128,7 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride
     float* mem_d;
     erralloc = hipMalloc(&mem_d, sizeof(float)*totalscalesize*(totalplane) + sizeof(float)*gaussiantotal); //2 base image and 6 working buffers
     if (erralloc != hipSuccess){
-        throw std::bad_alloc();
+        throw VshipError(OutOfVRAM, __FILE__, __LINE__);
     }
     //initial color planes
     Plane_d src1_d[3] = {Plane_d(mem_d, width, height, stream), Plane_d(mem_d+width*height, width, height, stream), Plane_d(mem_d+2*width*height, width, height, stream)};
@@ -182,7 +183,7 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride
     std::tuple<float, float, float> finalres;
     try{
         finalres = diffmapscore(diffmap.mem_d, mem_d+9*width*height, mem_d+10*width*height, width*height, event_d, stream);
-    } catch (const std::bad_alloc& e){
+    } catch (const VshipError& e){
         hipFree(mem_d);
         hipEventDestroy(event_d);
         throw e;
@@ -247,8 +248,8 @@ static const VSFrame *VS_CC butterGetFrame(int n, int activationReason, void *in
             } else {
                 val = butterprocess(NULL, 0, srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[n%STREAMNUM]);
             }
-        } catch (const std::bad_alloc& e){
-            vsapi->setFilterError("ERROR BUTTER, could not allocate VRAM or RAM (unlikely) for a result return, try lowering the number of vapoursynth threads\n", frameCtx);
+        } catch (const VshipError& e){
+            vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);
             vsapi->freeFrame(src1);
             vsapi->freeFrame(src2);
             return NULL;
@@ -299,14 +300,14 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
     VSVideoInfo viout = *viref;
 
     if (!(vsh::isSameVideoInfo(viref, vidis))){
-        vsapi->mapSetError(out, "BUTTERAUGLI: both clips must have the same format and dimensions");
+        vsapi->mapSetError(out, VshipError(DifferingInputType, __FILE__, __LINE__).getErrorMessage().c_str());
         vsapi->freeNode(d.reference);
         vsapi->freeNode(d.distorted);
         return;
     }
 
     if ((viref->format.bitsPerSample != 32) || (viref->format.colorFamily != cfRGB) || viref->format.sampleType != stFloat){
-        vsapi->mapSetError(out, "BUTTERAUGLI: only works with RGBS format");
+        vsapi->mapSetError(out, VshipError(NonRGBSInput, __FILE__, __LINE__).getErrorMessage().c_str());
         vsapi->freeNode(d.reference);
         vsapi->freeNode(d.distorted);
         return;
@@ -332,15 +333,16 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
 
     int count;
     if (hipGetDeviceCount(&count) != 0){
-        vsapi->mapSetError(out, "could not detect devices, check gpu permissions\n");
+        vsapi->mapSetError(out, VshipError(DeviceCountError, __FILE__, __LINE__).getErrorMessage().c_str());
+        return;
     };
     if (count == 0){
-        vsapi->mapSetError(out, "No GPU was found on the system for a given compilation type. Try switch nvidia/amd binary\n");
+        vsapi->mapSetError(out, VshipError(NoDeviceDetected, __FILE__, __LINE__).getErrorMessage().c_str());
+        return;
     }
-    if (count <= gpuid){
-        std::stringstream ss;
-        ss << "Gpu ID " << gpuid << " is higher than the maximum possible ID : " << count-1 << std::endl;
-        vsapi->mapSetError(out, ss.str().data());
+    if (count <= gpuid || gpuid < 0){
+        vsapi->mapSetError(out, VshipError(BadDeviceArgument, __FILE__, __LINE__).getErrorMessage().c_str());
+        return;
     }
 
     hipSetDevice(gpuid);

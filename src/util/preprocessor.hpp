@@ -12,6 +12,7 @@
 #include<vector>
 #include <chrono>
 #include <thread>
+#include<exception>
 
 
 #ifdef __HIPCC__

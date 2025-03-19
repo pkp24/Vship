@@ -1,4 +1,5 @@
 #include "../util/preprocessor.hpp"
+#include "../util/VshipExceptions.hpp"
 #include "../util/torgbs.hpp"
 #include "../util/float3operations.hpp"
 #include "makeXYB.hpp"
@@ -25,7 +26,7 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     float3* mem_d;
     erralloc = hipMalloc(&mem_d, sizeof(float3)*totalscalesize*(2 + 6)); //2 base image and 6 working buffers
     if (erralloc != hipSuccess){
-        throw std::bad_alloc();
+        throw VshipError(OutOfVRAM, __FILE__, __LINE__);
     }
 
     float3* src1_d = mem_d; //length totalscalesize
@@ -94,7 +95,7 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     std::vector<float3> allscore_res;
     try{
         allscore_res = allscore_map(src1_d, src2_d, tempb1_d, tempb2_d, temps11_d, temps22_d, temps12_d, temp_d, width, height, maxshared, event_d, stream);
-    } catch (const std::bad_alloc& e){
+    } catch (const VshipError& e){
         hipFree(mem_d);
         hipEventDestroy(event_d);
         throw e;
@@ -167,8 +168,8 @@ static const VSFrame *VS_CC ssimulacra2GetFrame(int n, int activationReason, voi
         double val;
         try{
             val = ssimu2process(srcp1, srcp2, stride, width, height, d->gaussiankernel_d, d->maxshared, d->streams[n%STREAMNUM]);
-        } catch (const std::bad_alloc& e){
-            vsapi->setFilterError("ERROR SSIMU2,d could not allocate VRAM or RAM (unlikely) for a result return, try lowering the number of vapoursynth threads\n", frameCtx);
+        } catch (const VshipError& e){
+            vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);
             vsapi->freeFrame(src1);
             vsapi->freeFrame(src2);
         }
@@ -214,14 +215,14 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
     const VSVideoInfo *vidis = vsapi->getVideoInfo(d.distorted);
 
     if (!(vsh::isSameVideoInfo(viref, vidis))){
-        vsapi->mapSetError(out, "SSIMULACRA2: both clips must have the same format and dimensions");
+        vsapi->mapSetError(out, VshipError(DifferingInputType, __FILE__, __LINE__).getErrorMessage().c_str());
         vsapi->freeNode(d.reference);
         vsapi->freeNode(d.distorted);
         return;
     }
 
     if ((viref->format.bitsPerSample != 32) || (viref->format.colorFamily != cfRGB) || viref->format.sampleType != stFloat){
-        vsapi->mapSetError(out, "SSIMULACRA2: only works with RGBS format");
+        vsapi->mapSetError(out, VshipError(NonRGBSInput, __FILE__, __LINE__).getErrorMessage().c_str());
         vsapi->freeNode(d.reference);
         vsapi->freeNode(d.distorted);
         return;
@@ -235,15 +236,16 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
 
     int count;
     if (hipGetDeviceCount(&count) != 0){
-        vsapi->mapSetError(out, "could not detect devices, check gpu permissions\n");
+        vsapi->mapSetError(out, VshipError(DeviceCountError, __FILE__, __LINE__).getErrorMessage().c_str());
+        return;
     };
     if (count == 0){
-        vsapi->mapSetError(out, "No GPU was found on the system for a given compilation type. Try switch nvidia/amd binary\n");
+        vsapi->mapSetError(out, VshipError(NoDeviceDetected, __FILE__, __LINE__).getErrorMessage().c_str());
+        return;
     }
-    if (count <= gpuid){
-        std::stringstream ss;
-        ss << "Gpu ID " << gpuid << " is higher than the maximum possible ID : " << count-1 << std::endl;
-        vsapi->mapSetError(out, ss.str().data());
+    if (count <= gpuid || gpuid < 0){
+        vsapi->mapSetError(out, VshipError(BadDeviceArgument, __FILE__, __LINE__).getErrorMessage().c_str());
+        return;
     }
 
     hipSetDevice(gpuid);
