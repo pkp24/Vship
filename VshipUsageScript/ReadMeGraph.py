@@ -20,6 +20,8 @@ dis = r"testscores.mkv" #for distorded file
 begin = 100
 end = 1100
 
+gpu_id = 0
+
 print("starting compute")
 init = time.time()
 vs.core.num_threads = 24
@@ -31,7 +33,7 @@ yjxl = [el[1] for el in score.scores]
 print("---------------------------------------")
 init = time.time()
 vs.core.num_threads = 8
-score.compute_butter(source, dis, 1, begin, end, "vship")
+score.compute_butter(source, dis, 1, begin, end, "vship", gpu_id=gpu_id)
 print(score)
 print("vship butter had ", (end-begin)/(time.time()-init), "fps")
 vshipbutterfps = (end-begin)/(time.time()-init)//0.1 * 0.1
@@ -49,7 +51,7 @@ yjxls = [el[1] for el in score.scores]
 print("---------------------------------------")
 init = time.time()
 vs.core.num_threads = 8
-score.compute(source, dis, 1, begin, end, "vship")
+score.compute(source, dis, 1, begin, end, "vship", gpu_id=gpu_id)
 print(score)
 print("vship ssimu2 had ", (end-begin)/(time.time()-init), "fps")
 vshipssimu2fps = (end-begin)/(time.time()-init)//0.1 * 0.1
