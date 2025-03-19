@@ -2,6 +2,26 @@
 #define GPUHELPERHPP
 
 #include "preprocessor.hpp"
+#include "VshipExceptions.hpp"
+
+//here is the format of the answer:
+
+//case where gpu_id is not specified:
+
+//GPU 0: {GPU Name}
+//...
+
+//case where gpu_id is specified:
+
+//Name: {GPU Name string}
+//MultiProcessorCount: {multiprocessor count integer}
+//ClockRate: {clockRate float} Ghz
+//MaxSharedMemoryPerBlock: {Max Shared Memory Per Block integer} bytes
+//WarpSize: {Warp Size integer}
+//VRAMCapacity: {GPU VRAM Capacity float} GB
+//MemoryBusWidth: {memory bus width integer} bits
+//MemoryClockRate: {memory clock rate float} Ghz
+//Integrated: {0|1}
 
 namespace helper{
 
@@ -10,34 +30,47 @@ namespace helper{
         int count, device;
         hipDeviceProp_t devattr;
 
+        if (hipGetDeviceCount(&count) != 0){
+            vsapi->mapSetError(out, VshipError(DeviceCountError, __FILE__, __LINE__).getErrorMessage().c_str());
+            return;
+        };
+        if (count == 0){
+            vsapi->mapSetError(out, VshipError(NoDeviceDetected, __FILE__, __LINE__).getErrorMessage().c_str());
+            return;
+        }
+
         int error;
         int gpuid = vsapi->mapGetInt(in, "gpu_id", 0, &error);
         if (error != peSuccess){
             gpuid = 0;
         }
+        
+        if (count <= gpuid || gpuid < 0){
+            vsapi->mapSetError(out, VshipError(BadDeviceArgument, __FILE__, __LINE__).getErrorMessage().c_str());
+            return;
+        }
 
-        if (hipGetDeviceCount(&count) != 0){
-            ss << "Devices could not be detected, check permissions" << std::endl;
-        } else if (count == 0) {
-            ss << "We detected 0 devices" << std::endl;
-        } else {
+        if (error != peSuccess){
+            //no gpu_id was selected
             for (int i = 0; i < count; i++){
                 hipSetDevice(i);
                 hipGetDevice(&device);
                 hipGetDeviceProperties(&devattr, device);
-                ss << "GPU " << i << " : " << devattr.name << std::endl;
+                ss << "GPU " << i << ": " << devattr.name << std::endl;
             }
-            if (error == peSuccess && gpuid < count){
-                ss << "---------------------" << std::endl;
-                hipSetDevice(gpuid);
-                hipGetDevice(&device);
-                hipGetDeviceProperties(&devattr, device);
-                ss << "gpu_id : " << gpuid << " selected" << std::endl;
-                ss << devattr.name << std::endl << std::endl;
-                ss << "Global memory: " << ((float)devattr.totalGlobalMem / (1<<30)) << " GiB" << std::endl;
-            } else if (gpuid >= count){ 
-                ss << "Bad gpu_id selected" << std::endl;
-            }
+        } else {
+            hipSetDevice(gpuid);
+            hipGetDevice(&device);
+            hipGetDeviceProperties(&devattr, device);
+            ss << "Name: " << devattr.name << std::endl;
+            ss << "MultiProcessorCount: " << devattr.multiProcessorCount << std::endl;
+            ss << "ClockRate: " << ((float)devattr.clockRate)/1000000 << " Ghz" << std::endl;
+            ss << "MaxSharedMemoryPerBlock: " << devattr.sharedMemPerBlock << " bytes" << std::endl;
+            ss << "WarpSize: " << devattr.warpSize << std::endl;
+            ss << "VRAMCapacity: " << ((float)devattr.totalGlobalMem)/1000000000 << " GB" << std::endl;
+            ss << "MemoryBusWidth: " << devattr.memoryBusWidth << " bits" << std::endl;
+            ss << "MemoryClockRate: " << ((float)devattr.memoryClockRate)/1000000 << " Ghz" << std::endl;
+            ss << "Integrated: " << devattr.integrated << std::endl;
         }
         vsapi->mapSetData(out, "gpu_human_data", ss.str().data(), ss.str().size(), dtUtf8, maReplace);
     }
