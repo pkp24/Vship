@@ -22,6 +22,9 @@ enum VSHIPEXCEPTTYPE{
     DeviceCountError,
     NoDeviceDetected,
     BadDeviceArgument,
+
+    //should not be used
+    BadErrorType,
 };
 
 std::string errorMessage(VSHIPEXCEPTTYPE type){
@@ -46,7 +49,11 @@ std::string errorMessage(VSHIPEXCEPTTYPE type){
         
         case BadDeviceArgument:
         return "BadDeviceArgument: Vship received a bad gpu_id argument either you specified a number >= to your gpu count, either it was negative";
+    
+        case BadErrorType:
+        return "BadErrorType: There was an unknown error";
     }
+    return "BadErrorType: There was an unknown error"; //this will not happen but the compiler will be happy
 }
 
 class VshipError : public std::exception
