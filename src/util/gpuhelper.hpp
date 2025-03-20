@@ -22,6 +22,7 @@
 //MemoryBusWidth: {memory bus width integer} bits
 //MemoryClockRate: {memory clock rate float} Ghz
 //Integrated: {0|1}
+//PassKernelCheck : {0|1}
 
 namespace helper{
 
@@ -34,6 +35,33 @@ namespace helper{
             throw VshipError(NoDeviceDetected, __FILE__, __LINE__);
         }
         return count;
+    }
+
+    __global__ void kernelTest(int* inputtest){
+        inputtest[0] = 4320984;
+    }
+
+    bool gpuKernelCheck(){
+        int inputtest = 0;
+        int* inputtest_d;
+        hipMalloc(&inputtest_d, sizeof(int)*1);
+        hipMemset(inputtest_d, 0, sizeof(int)*1);
+        kernelTest<<<dim3(1), dim3(1), 0, 0>>>(inputtest_d);
+        hipMemcpyDtoH(&inputtest, inputtest_d, sizeof(int));
+        hipFree(inputtest_d);
+        return (inputtest == 4320984);
+    }
+
+    void gpuFullCheck(int gpuid = 0){
+        int count = checkGpuCount();
+
+        if (count <= gpuid || gpuid < 0){
+            throw VshipError(BadDeviceArgument, __FILE__, __LINE__);
+        }
+        hipSetDevice(gpuid);
+        if (!gpuKernelCheck()){
+            throw VshipError(BadDeviceCode, __FILE__, __LINE__);
+        }
     }
 
     static void VS_CC GpuInfo(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
@@ -81,35 +109,9 @@ namespace helper{
             ss << "MemoryBusWidth: " << devattr.memoryBusWidth << " bits" << std::endl;
             ss << "MemoryClockRate: " << ((float)devattr.memoryClockRate)/1000000 << " Ghz" << std::endl;
             ss << "Integrated: " << devattr.integrated << std::endl;
+            ss << "PassKernelCheck : " << (int)gpuKernelCheck() << std::endl;
         }
         vsapi->mapSetData(out, "gpu_human_data", ss.str().data(), ss.str().size(), dtUtf8, maReplace);
-    }
-
-    __global__ void kernelTest(int* inputtest){
-        inputtest[0] = 4320984;
-    }
-
-    bool gpuKernelCheck(){
-        int inputtest = 0;
-        int* inputtest_d;
-        hipMalloc(&inputtest_d, sizeof(int)*1);
-        hipMemset(inputtest_d, 0, sizeof(int)*1);
-        kernelTest<<<dim3(1), dim3(1), 0, 0>>>(inputtest_d);
-        hipMemcpyDtoH(&inputtest, inputtest_d, sizeof(int));
-        hipFree(inputtest_d);
-        return (inputtest == 4320984);
-    }
-
-    void gpuFullCheck(int gpuid = 0){
-        int count = checkGpuCount();
-
-        if (count <= gpuid || gpuid < 0){
-            throw VshipError(BadDeviceArgument, __FILE__, __LINE__);
-        }
-        hipSetDevice(gpuid);
-        if (!gpuKernelCheck()){
-            throw VshipError(BadDeviceCode, __FILE__, __LINE__);
-        }
     }
 
 }
