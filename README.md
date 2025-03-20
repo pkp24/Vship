@@ -1,54 +1,160 @@
-# Vapoursynth-HIP
+# Vapoursynth-HIP (vship)
 
-An easy to use vapoursynth plugin to compute SSIMU2 (SSIMULACRA2) from libjxl or Butteraugli from libjxl on GPU
-with the exception that it uses a real gaussian blur and not a recursive gaussian blur.
+A high-performance VapourSynth plugin for GPU-accelerated visual fidelity
+metrics, focusing on SSIMULACRA2 & Butteraugli.
 
-Butteraugli Source Code : https://github.com/libjxl/libjxl/tree/main/lib/jxl/butteraugli
-Ssimulacra2 Source Code : https://github.com/cloudinary/ssimulacra2
+## Overview
 
-# Usage:
+`vship` provides hardware-accelerated implementations of:
 
-To retrieve ssimu2 score between two video Nodes
+- **SSIMULACRA2**: A perceptual image quality metric from Cloudinary's
+  SSIMULACRA2
+- **Butteraugli**: Google's psychovisual image difference metric from libjxl
 
-`result = clip1.vship.SSIMULACRA2(clip2)`
+The plugin uses HIP/CUDA for GPU acceleration, providing significant performance
+improvements over CPU implementations.
 
-`res = [fr.props["_SSIMULACRA2"] for fr in result.frames()]`
+## Projects Featuring Vship
 
-To retrieve Butteraugli score
+If you want to use Vship with a pre-defined workflow, here are some projects
+featuring Vship:
 
-`result = clip1.vship.BUTTERAUGLI(clip2)`
+- [SSIMULACRApy](https://codeberg.org/Kosaka/ssimulacrapy): A Python script to
+  compare videos and output their SSIMU2 scores using various metrics (by
+  [Kosaka](https://codeberg.org/Kosaka))
+- [`metrics`](https://github.com/psy-ex/metrics): A perceptual video metrics
+  toolkit for video encoder developers (by the
+  [Psychovisual Experts Group](https://github.com/psy-ex/metrics))
 
-`res = [[fr.props["_BUTTERAUGLI_2Norm"], fr.props["_BUTTERAUGLI_3Norm"], fr.props["_BUTTERAUGLI_INFNorm"]] for fr in result.frames()]`
+## Installation
 
-you can check "simpleExample.vpy" inside VshipUsageScript to get more details about how to use Vship
+The steps to build `vship` from source are provided below.
 
-If you encounter VRAM issue, set a lower vs.core.num_threads (4 is usually the good compromise for speed)
+### Prerequisites
 
-the exact vram formula per active vsthread is:
-ssimu2: 24 (plane buffer) * 4 (size of float) * width * height * 4/3
+- `make`
+- `hipcc` (AMD) or `nvcc` (NVIDIA)
+- VapourSynth
 
-butteraugli: 34 (plane buffer) * 4 (size of float) * width * height
+### Build Instructions
 
-# to build:
-Warning: it is compiled for the specific gpu used to compile by default
+0. Ensure you have all of the dependencies properly installed.
 
-(same for windows and linux)
-you need 
-- make
-- hipcc or nvcc 
-- vapoursynth
+1. Use the appropriate `make` command to build on your GPU
 
-for nvidia cards:
-`make buildcuda`
+```bash
+make buildcuda # for NVIDIA GPUs
+make build     # for AMD GPUs
+```
 
-for amd cards:
-`make build`
+2. Install the `vship` library:
 
-to install: either use the dll or:
-`make install`
+```bash
+make install
+```
 
-# Performance on my desktop on some clip:
+> Note: By default, the build is optimized for the specific GPU used during
+> compilation.
 
-![comparison](Images/vshipjxl.png)
+## Library Usage
 
-# special credits to dnjulek with the ZIG vapoursynth implementation
+### Threads
+
+In order to control the performance-to-VRAM trade-off, you may set
+`vs.core.num_threads`. 4 is typically a good compromise between both.
+
+```python
+import vapoursynth as vs
+core = vs.core
+core.num_threads = 4  # Adjust based on your GPU's VRAM
+```
+
+VRAM requirements per active VapourSynth thread:
+
+- **SSIMULACRA2**: `24 * 4 * width * height * 4/3` bytes
+- **Butteraugli**: `34 * 4 * width * height` bytes
+
+### SSIMULACRA2
+
+```python
+import vapoursynth as vs
+core = vs.core
+
+# Load reference and distorted clips
+ref = core.bs.VideoSource("reference.mp4")
+dist = core.bs.VideoSource("distorted.mp4")
+
+# Calculate SSIMULACRA2 scores
+result = ref.vship.SSIMULACRA2(dist)
+
+# Extract scores from frame properties
+scores = [frame.props["_SSIMULACRA2"] for frame in result.frames()]
+
+# Print average score
+print(f"Average SSIMULACRA2 score: {sum(scores) / len(scores)}")
+```
+
+### Butteraugli
+
+```python
+import vapoursynth as vs
+core = vs.core
+
+# Load reference and distorted clips
+ref = core.bs.VideoSource("reference.mp4")
+dist = core.bs.VideoSource("distorted.mp4")
+
+# Calculate Butteraugli scores
+# intensity_multiplier controls sensitivity
+result = ref.vship.BUTTERAUGLI(dist, intensity_multiplier=80, distmap=0)
+
+# Extract scores from frame properties (three different norms available)
+scores_2norm = [frame.props["_BUTTERAUGLI_2Norm"] for frame in result.frames()]
+scores_3norm = [frame.props["_BUTTERAUGLI_3Norm"] for frame in result.frames()]
+scores_infnorm = [frame.props["_BUTTERAUGLI_INFNorm"] for frame in result.frames()]
+
+# Get all scores in one pass
+all_scores = [[frame.props["_BUTTERAUGLI_2Norm"],
+               frame.props["_BUTTERAUGLI_3Norm"],
+               frame.props["_BUTTERAUGLI_INFNorm"]]
+              for frame in result.frames()]
+
+# Print average scores
+print(f"Average Butteraugli 3Norm distance: {sum(scores_3norm) / len(scores_3norm)})
+print(f"Average Butteraugli 2Norm distance: {sum(scores_2norm) / len(scores_2norm)})
+print(f"Average Butteraugli MaxNorm distance: {sum(scores_infnorm) / len(scores_infnorm)})
+```
+
+You are also able to generate visual distortion maps with Butteraugli:
+
+```python
+# Set distmap=1 to visualize distortion
+distmap_result = ref.vship.BUTTERAUGLI(dist, intensity_multiplier=80, distmap=1)
+
+# The resulting clip is a grayscale visualization of distortions
+distmap_result.set_output()
+```
+
+## Performance
+
+![Performance Comparison](Images/vshipjxl.webp)
+
+`vship` dramatically outperforms CPU-based implementations of these metrics
+while preserving a high degree of accuracy.
+
+## References
+
+- Butteraugli Source Code:
+  [libjxl/libjxl](https://github.com/libjxl/libjxl/tree/main/lib/jxl/butteraugli)
+- SSIMULACRA2 Source Code:
+  [cloudinary/ssimulacra2](https://github.com/cloudinary/ssimulacra2)
+
+## Credits
+
+Special thanks to dnjulek for the Zig-based SSIMULACRA2 implementation in
+[vszip](https://github.com/dnjulek/vapoursynth-zip).
+
+## License
+
+This project is licensed under the MIT license. License information is provided
+by the [LICENSE](LICENSE).
