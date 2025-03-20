@@ -25,6 +25,8 @@ featuring Vship:
 - [`metrics`](https://github.com/psy-ex/metrics): A perceptual video metrics
   toolkit for video encoder developers (by the
   [Psychovisual Experts Group](https://github.com/psy-ex/metrics))
+- [`vs_align`](https://github.com/pifroggi/vs_align): A vapoursynth plugin
+  measuring temporal offset between two videos
 
 ## Installation
 
