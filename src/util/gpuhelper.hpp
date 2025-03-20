@@ -97,7 +97,7 @@ namespace helper{
         kernelTest<<<dim3(1), dim3(1), 0, 0>>>(inputtest_d);
         hipMemcpyDtoH(&inputtest, inputtest_d, sizeof(int));
         hipFree(inputtest_d);
-        return (inputtest == 4320984) ? true : false;
+        return (inputtest == 4320984);
     }
 
     void gpuFullCheck(int gpuid = 0){
