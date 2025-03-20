@@ -57,6 +57,7 @@
     #define hipFuncCachePreferEqual cudaFuncCachePreferEqual
     #define hipMemGetInfo cudaMemGetInfo
     #define hipMemsetAsync cudaMemsetAsync
+    #define hipMemset cudaMemset
 #endif
 
 

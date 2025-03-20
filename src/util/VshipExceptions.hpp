@@ -22,6 +22,7 @@ enum VSHIPEXCEPTTYPE{
     DeviceCountError,
     NoDeviceDetected,
     BadDeviceArgument,
+    BadDeviceCode,
 
     //should not be used
     BadErrorType,
@@ -49,6 +50,9 @@ std::string errorMessage(VSHIPEXCEPTTYPE type){
         
         case BadDeviceArgument:
         return "BadDeviceArgument: Vship received a bad gpu_id argument either you specified a number >= to your gpu count, either it was negative";
+
+        case BadDeviceCode:
+        return "BadDeviceCode: Vship was unable to run a simple GPU Kernel. This usually indicate that the code was compiled for the wrong architecture. (Advice) Try to compile vship yourself, eventually replace --offload-arch=native to your arch";
     
         case BadErrorType:
         return "BadErrorType: There was an unknown error";

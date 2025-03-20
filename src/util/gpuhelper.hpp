@@ -25,17 +25,27 @@
 
 namespace helper{
 
+    int checkGpuCount(){
+        int count;
+        if (hipGetDeviceCount(&count) != 0){
+            throw VshipError(DeviceCountError, __FILE__, __LINE__);
+        };
+        if (count == 0){
+            throw VshipError(NoDeviceDetected, __FILE__, __LINE__);
+        }
+        return count;
+    }
+
     static void VS_CC GpuInfo(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
         std::stringstream ss;
         int count, device;
         hipDeviceProp_t devattr;
 
-        if (hipGetDeviceCount(&count) != 0){
-            vsapi->mapSetError(out, VshipError(DeviceCountError, __FILE__, __LINE__).getErrorMessage().c_str());
-            return;
-        };
-        if (count == 0){
-            vsapi->mapSetError(out, VshipError(NoDeviceDetected, __FILE__, __LINE__).getErrorMessage().c_str());
+        //we don't need a full check at that point
+        try{
+            count = checkGpuCount();
+        } catch (const VshipError& e){
+            vsapi->mapSetError(out, e.getErrorMessage().c_str());
             return;
         }
 
@@ -74,6 +84,34 @@ namespace helper{
         }
         vsapi->mapSetData(out, "gpu_human_data", ss.str().data(), ss.str().size(), dtUtf8, maReplace);
     }
+
+    __global__ void kernelTest(int* inputtest){
+        inputtest[0] = 4320984;
+    }
+
+    bool gpuKernelCheck(){
+        int inputtest = 0;
+        int* inputtest_d;
+        hipMalloc(&inputtest_d, sizeof(int)*1);
+        hipMemset(inputtest_d, 0, sizeof(int)*1);
+        kernelTest<<<dim3(1), dim3(1), 0, 0>>>(inputtest_d);
+        hipMemcpyDtoH(&inputtest, inputtest_d, sizeof(int));
+        hipFree(inputtest_d);
+        return (inputtest == 4320984) ? true : false;
+    }
+
+    void gpuFullCheck(int gpuid = 0){
+        int count = checkGpuCount();
+
+        if (count <= gpuid || gpuid < 0){
+            throw VshipError(BadDeviceArgument, __FILE__, __LINE__);
+        }
+        hipSetDevice(gpuid);
+        if (!gpuKernelCheck()){
+            throw VshipError(BadDeviceCode, __FILE__, __LINE__);
+        }
+    }
+
 }
 
 #endif

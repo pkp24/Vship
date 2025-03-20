@@ -2,6 +2,7 @@
 
 #include "../util/preprocessor.hpp"
 #include "../util/VshipExceptions.hpp"
+#include "../util/gpuhelper.hpp"
 #include "../util/torgbs.hpp"
 #include "../util/float3operations.hpp"
 #include "gaussianblur.hpp" 
@@ -331,21 +332,15 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
         viout.format = formatout;
     }
 
-    int count;
-    if (hipGetDeviceCount(&count) != 0){
-        vsapi->mapSetError(out, VshipError(DeviceCountError, __FILE__, __LINE__).getErrorMessage().c_str());
-        return;
-    };
-    if (count == 0){
-        vsapi->mapSetError(out, VshipError(NoDeviceDetected, __FILE__, __LINE__).getErrorMessage().c_str());
-        return;
-    }
-    if (count <= gpuid || gpuid < 0){
-        vsapi->mapSetError(out, VshipError(BadDeviceArgument, __FILE__, __LINE__).getErrorMessage().c_str());
+    try{
+        //if succeed, this function also does hipSetDevice
+        helper::gpuFullCheck(gpuid);
+    } catch (const VshipError& e){
+        vsapi->mapSetError(out, e.getErrorMessage().c_str());
         return;
     }
 
-    hipSetDevice(gpuid);
+    //hipSetDevice(gpuid);
 
     hipDeviceSetCacheConfig(hipFuncCachePreferNone);
     int device;
