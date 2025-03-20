@@ -102,6 +102,10 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
         throw e;
     }
 
+    //we are done with the gpu at that point and the synchronization has already been done in allscore_map
+    hipFree(mem_d);
+    hipEventDestroy(event_d);
+
     //step 6 : format the vector
     std::vector<float> measure_vec(108);
 
@@ -120,11 +124,8 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     //step 7 : enjoy !
     const float ssim = final_score(measure_vec);
 
-    hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
-    hipEventSynchronize(event_d); //when the event is complete, we know our gpu result is ready!
-
-    hipFree(mem_d);
-    hipEventDestroy(event_d);
+    //hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
+    //hipEventSynchronize(event_d); //when the event is complete, we know our gpu result is ready!
 
     return ssim;
 }
