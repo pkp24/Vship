@@ -27,6 +27,8 @@ featuring Vship:
   [Psychovisual Experts Group](https://github.com/psy-ex/metrics))
 - [`vs_align`](https://github.com/pifroggi/vs_align): A vapoursynth plugin
   measuring temporal offset between two videos
+- [`chunknorris`](https://github.com/Boulder08/chunknorris): A python script
+  to adjust encoding parameters at each scene of a video base on objective metrics
 
 ## Installation
 
