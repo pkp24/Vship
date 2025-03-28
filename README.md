@@ -28,7 +28,9 @@ featuring Vship:
 - [`vs_align`](https://github.com/pifroggi/vs_align): A vapoursynth plugin
   measuring temporal offset between two videos
 - [`chunknorris`](https://github.com/Boulder08/chunknorris): A python script
-  to adjust encoding parameters at each scene of a video base on objective metrics
+  to adjust the quality encoding parameters at each scene of a video base on objective metrics
+- [Media-Metrologist](https://github.com/Av1ation-Association/Media-Metrologist): Media-Metrologist is a library for measuring video quality using a suite of metrics on a per-scene and per-frame basis.
+- [`lvsfunc`](https://github.com/Jaded-Encoding-Thaumaturgy/lvsfunc): JET project containing various functions to help with video processing.
 
 ## Installation
 
