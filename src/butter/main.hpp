@@ -127,7 +127,7 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride
     const int gaussiantotal = 1024;
     const int totalplane = 34;
     float* mem_d;
-    erralloc = hipMalloc(&mem_d, sizeof(float)*totalscalesize*(totalplane) + sizeof(float)*gaussiantotal); //2 base image and 6 working buffers
+    erralloc = hipMallocAsync(&mem_d, sizeof(float)*totalscalesize*(totalplane) + sizeof(float)*gaussiantotal, stream); //2 base image and 6 working buffers
     if (erralloc != hipSuccess){
         throw VshipError(OutOfVRAM, __FILE__, __LINE__);
     }
@@ -190,7 +190,7 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride
         throw e;
     }
 
-    hipFree(mem_d);
+    hipFreeAsync(mem_d, stream);
     hipEventDestroy(event_d);
 
     return finalres;

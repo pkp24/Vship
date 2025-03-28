@@ -25,7 +25,7 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     hipError_t erralloc;
 
     float3* mem_d;
-    erralloc = hipMalloc(&mem_d, sizeof(float3)*totalscalesize*(2 + 6)); //2 base image and 6 working buffers
+    erralloc = hipMallocAsync(&mem_d, sizeof(float3)*totalscalesize*(2 + 6), stream); //2 base image and 6 working buffers
     if (erralloc != hipSuccess){
         throw VshipError(OutOfVRAM, __FILE__, __LINE__);
     }
@@ -103,7 +103,7 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     }
 
     //we are done with the gpu at that point and the synchronization has already been done in allscore_map
-    hipFree(mem_d);
+    hipFreeAsync(mem_d, stream);
     hipEventDestroy(event_d);
 
     //step 6 : format the vector
@@ -174,6 +174,7 @@ static const VSFrame *VS_CC ssimulacra2GetFrame(int n, int activationReason, voi
             vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);
             vsapi->freeFrame(src1);
             vsapi->freeFrame(src2);
+            return NULL;
         }
 
         vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_SSIMULACRA2", val, maReplace);

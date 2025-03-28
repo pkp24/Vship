@@ -58,6 +58,8 @@
     #define hipMemGetInfo cudaMemGetInfo
     #define hipMemsetAsync cudaMemsetAsync
     #define hipMemset cudaMemset
+    #define hipMallocAsync cudaMallocAsync
+    #define hipFreeAsync cudaFreeAsync
 #endif
 
 
