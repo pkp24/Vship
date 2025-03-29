@@ -3,6 +3,7 @@
 #include "../util/gpuhelper.hpp"
 #include "../util/torgbs.hpp"
 #include "../util/float3operations.hpp"
+#include "../util/threadsafeset.hpp"
 #include "makeXYB.hpp"
 #include "downsample.hpp"
 #include "gaussianblur.hpp"
@@ -137,7 +138,7 @@ typedef struct Ssimulacra2Data{
     float* gaussiankernel_d;
     hipStream_t* streams;
     int streamnum = 0;
-    int oldthreadnum;
+    threadSet* streamSet;
 } Ssimulacra2Data;
 
 static const VSFrame *VS_CC ssimulacra2GetFrame(int n, int activationReason, void *instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
@@ -169,14 +170,17 @@ static const VSFrame *VS_CC ssimulacra2GetFrame(int n, int activationReason, voi
         };
 
         double val;
+        const int stream = d->streamSet->pop();
         try{
-            val = ssimu2process(srcp1, srcp2, stride, width, height, d->gaussiankernel_d, d->maxshared, d->streams[n%d->streamnum]);
+            val = ssimu2process(srcp1, srcp2, stride, width, height, d->gaussiankernel_d, d->maxshared, d->streams[stream]);
         } catch (const VshipError& e){
             vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);
+            d->streamSet->insert(stream);
             vsapi->freeFrame(src1);
             vsapi->freeFrame(src2);
             return NULL;
         }
+        d->streamSet->insert(stream);
 
         vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_SSIMULACRA2", val, maReplace);
 
@@ -203,6 +207,7 @@ static void VS_CC ssimulacra2Free(void *instanceData, VSCore *core, const VSAPI 
     }
     hipFree(d->gaussiankernel_d);
     free(d->streams);
+    delete d->streamSet;
     //vsapi->setThreadCount(d->oldthreadnum, core);
 
     free(d);
@@ -271,6 +276,12 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
     for (int i = 0; i < d.streamnum; i++){
         hipStreamCreate(d.streams + i);
     }
+
+    std::set<int> newstreamset;
+    for (int i = 0; i < d.streamnum; i++){
+        newstreamset.insert(i);
+    }
+    d.streamSet = new threadSet(newstreamset);
 
     data = (Ssimulacra2Data *)malloc(sizeof(d));
     *data = d;

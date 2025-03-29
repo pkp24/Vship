@@ -5,6 +5,7 @@
 #include "../util/gpuhelper.hpp"
 #include "../util/torgbs.hpp"
 #include "../util/float3operations.hpp"
+#include "../util/threadsafeset.hpp"
 #include "gaussianblur.hpp" 
 #include "downupsample.hpp"
 #include "Planed.hpp" //Plane_d class
@@ -204,7 +205,7 @@ typedef struct ButterData{
     int diffmap;
     hipStream_t* streams;
     int streamnum = 0;
-    int oldthreadnum;
+    threadSet* streamSet;
 } ButterData;
 
 static const VSFrame *VS_CC butterGetFrame(int n, int activationReason, void *instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
@@ -244,18 +245,21 @@ static const VSFrame *VS_CC butterGetFrame(int n, int activationReason, void *in
         
         std::tuple<float, float, float> val;
         
+        const int stream = d->streamSet->pop();
         try{
             if (d->diffmap){
-                val = butterprocess(vsapi->getWritePtr(dst, 0), vsapi->getStride(dst, 0), srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[n%d->streamnum]);
+                val = butterprocess(vsapi->getWritePtr(dst, 0), vsapi->getStride(dst, 0), srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[stream]);
             } else {
-                val = butterprocess(NULL, 0, srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[n%d->streamnum]);
+                val = butterprocess(NULL, 0, srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[stream]);
             }
         } catch (const VshipError& e){
             vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);
+            d->streamSet->insert(stream);
             vsapi->freeFrame(src1);
             vsapi->freeFrame(src2);
             return NULL;
         }
+        d->streamSet->insert(stream);
 
         vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_BUTTERAUGLI_2Norm", std::get<0>(val), maReplace);
         vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_BUTTERAUGLI_3Norm", std::get<1>(val), maReplace);
@@ -283,6 +287,7 @@ static void VS_CC butterFree(void *instanceData, VSCore *core, const VSAPI *vsap
         hipStreamDestroy(d->streams[i]);
     }
     free(d->streams);
+    delete d->streamSet;
     //vsapi->setThreadCount(d->oldthreadnum, core);
 
     free(d);
@@ -366,6 +371,12 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
     for (int i = 0; i < d.streamnum; i++){
         hipStreamCreate(d.streams + i);
     }
+
+    std::set<int> newstreamset;
+    for (int i = 0; i < d.streamnum; i++){
+        newstreamset.insert(i);
+    }
+    d.streamSet = new threadSet(newstreamset);
 
     data = (ButterData *)malloc(sizeof(d));
     *data = d;
