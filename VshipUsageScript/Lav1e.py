@@ -40,7 +40,7 @@ class SSIMU2Score:
 		self.distorded = "None"
 		self.type = "SSIMU2"
 
-	def compute(self, originalFile : str, distordedFile : str, skip : int = 5, begin : int = 0, end : int = None, method:str="vship", gpu_id=0) -> None:
+	def compute(self, originalFile : str, distordedFile : str, skip : int = 5, begin : int = 0, end : int = None, method:str="vship", numStream = 4, gpu_id=0) -> None:
 		src =  (vs.core.bs.VideoSource(originalFile) if (type(originalFile) == str) else originalFile)[begin:end:skip]
 		dis = (vs.core.bs.VideoSource(distordedFile) if (type(distordedFile) == str) else distordedFile)[begin:end:skip]
 
@@ -51,7 +51,7 @@ class SSIMU2Score:
 			src = vs.core.resize.Bicubic(src, format=vs.RGBS, matrix_in=1, width=dis.width, height=dis.height)
 
 		if method == "vship":
-			result = src.vship.SSIMULACRA2(dis, gpu_id=gpu_id)
+			result = src.vship.SSIMULACRA2(dis, numStream = numStream, gpu_id=gpu_id)
 		elif method == "vszip":
 			result = src.vszip.Metrics(dis)
 		elif method == "jxl":
@@ -67,7 +67,7 @@ class SSIMU2Score:
 		self.distorded = distordedFile
 		self.type = "SSIMU2"
 
-	def compute_butter(self, originalFile, distordedFile, skip : int = 5, begin : int = 0, end : int = None, method:str="vship", gpu_id=0) -> None:
+	def compute_butter(self, originalFile, distordedFile, skip : int = 5, begin : int = 0, end : int = None, method:str="vship", numStream = 4, gpu_id=0) -> None:
 		src =  (vs.core.bs.VideoSource(originalFile) if (type(originalFile) == str) else originalFile)[begin:end:skip]
 		dis = (vs.core.bs.VideoSource(distordedFile) if (type(distordedFile) == str) else distordedFile)[begin:end:skip]
 
@@ -81,7 +81,7 @@ class SSIMU2Score:
 			result = src.julek.Butteraugli(dis)
 			res = [[begin + ind*skip, fr.props["_FrameButteraugli"]] for (ind, fr) in enumerate(result.frames())]
 		elif method == "vship":
-			result = src.vship.BUTTERAUGLI(dis, gpu_id=gpu_id)
+			result = src.vship.BUTTERAUGLI(dis, numStream = numStream, gpu_id=gpu_id)
 			res = [[begin + ind*skip, fr.props["_BUTTERAUGLI_INFNorm"]] for (ind, fr) in enumerate(result.frames())]
 
 		#res = [k for k in res if k[1] > 0]

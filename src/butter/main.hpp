@@ -366,7 +366,12 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
 
     //vsapi->setThreadCount(std::min((int)((float)(freemem - 20*(1llu << 20))/(8*sizeof(float3)*videowidth*videoheight*(1.33333))), d.oldthreadnum), core);
 
-    d.streamnum = infos.numThreads;
+    d.streamnum = vsapi->mapGetInt(in, "numStream", 0, &error);
+    if (error != peSuccess){
+        d.streamnum = infos.numThreads;
+    }
+
+    d.streamnum = std::min(d.streamnum, infos.numThreads);
     d.streams = (hipStream_t*)malloc(sizeof(hipStream_t)*d.streamnum);
     for (int i = 0; i < d.streamnum; i++){
         hipStreamCreate(d.streams + i);

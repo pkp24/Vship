@@ -20,11 +20,14 @@ dis = r"testscores.mkv" #for distorded file
 begin = 100
 end = 1100
 
+MainVSThreads = 24
+vshipnumStream = 8
+
 gpu_id = 0
 
+vs.core.num_threads = MainVSThreads
 print("starting compute")
 init = time.time()
-vs.core.num_threads = 24
 score.compute_butter(source, dis, 1, begin, end, "jxl")
 print(score)
 print("jxl butter had ", (end-begin)/(time.time()-init), "fps")
@@ -32,8 +35,7 @@ jxlbutterfps = (end-begin)/(time.time()-init)//0.1 * 0.1
 yjxl = [el[1] for el in score.scores]
 print("---------------------------------------")
 init = time.time()
-vs.core.num_threads = 8
-score.compute_butter(source, dis, 1, begin, end, "vship", gpu_id=gpu_id)
+score.compute_butter(source, dis, 1, begin, end, "vship", numStream=vshipnumStream, gpu_id=gpu_id)
 print(score)
 print("vship butter had ", (end-begin)/(time.time()-init), "fps")
 vshipbutterfps = (end-begin)/(time.time()-init)//0.1 * 0.1
@@ -42,7 +44,6 @@ yvship = [el[1] for el in score.scores]
 print("-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-")
 
 init = time.time()
-vs.core.num_threads = 24
 score.compute(source, dis, 1, begin, end, "jxl")
 print(score)
 print("jxl ssimu2 had ", (end-begin)/(time.time()-init), "fps")
@@ -50,15 +51,13 @@ jxlssimu2fps = (end-begin)/(time.time()-init)//0.1 * 0.1
 yjxls = [el[1] for el in score.scores]
 print("---------------------------------------")
 init = time.time()
-vs.core.num_threads = 8
-score.compute(source, dis, 1, begin, end, "vship", gpu_id=gpu_id)
+score.compute(source, dis, 1, begin, end, "vship", numStream=vshipnumStream, gpu_id=gpu_id)
 print(score)
 print("vship ssimu2 had ", (end-begin)/(time.time()-init), "fps")
 vshipssimu2fps = (end-begin)/(time.time()-init)//0.1 * 0.1
 yvships = [el[1] for el in score.scores]
 print("---------------------------------------")
 init = time.time()
-vs.core.num_threads = 24
 score.compute(source, dis, 1, begin, end, "vszip")
 print(score)
 print("vszip ssimu2 had ", (end-begin)/(time.time()-init), "fps")

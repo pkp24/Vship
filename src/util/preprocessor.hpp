@@ -15,6 +15,7 @@
 #include<exception>
 #include<set>
 #include <mutex>
+#include <condition_variable>
 
 
 #ifdef __HIPCC__

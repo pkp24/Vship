@@ -1,5 +1,24 @@
 namespace ssimu2{
 
+int allocsizeScore(int width, int height, int maxshared){
+    int w = width;
+    int h = height;
+    int th_x, bl_x;
+    int pinnedsize = 0;
+    for (int i = 0; i < 6; i++){
+        th_x = std::min((int)(maxshared/(6*sizeof(float3)))/32*32, std::min(1024, w*h));
+        bl_x = (w*h-1)/th_x + 1;
+        while (bl_x >= th_x){
+            bl_x = (bl_x -1)/th_x + 1;
+        }
+        pinnedsize += 6*bl_x;
+
+        w = (w-1)/2 + 1;
+        h = (h-1)/2 + 1;
+    }
+    return pinnedsize;
+}
+
 __global__ void sumreduce(float3* dst, float3* src, int bl_x){
     //dst must be of size 6*sizeof(float3)*blocknum at least
     //shared memory needed is 6*sizeof(float3)*threadnum at least
