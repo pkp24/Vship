@@ -196,13 +196,14 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride
     return finalres;
 }
 
-typedef struct {
+typedef struct ButterData{
     VSNode *reference;
     VSNode *distorted;
     float intensity_multiplier;
     int maxshared;
     int diffmap;
-    hipStream_t streams[STREAMNUM];
+    hipStream_t* streams;
+    int streamnum = 0;
     int oldthreadnum;
 } ButterData;
 
@@ -245,9 +246,9 @@ static const VSFrame *VS_CC butterGetFrame(int n, int activationReason, void *in
         
         try{
             if (d->diffmap){
-                val = butterprocess(vsapi->getWritePtr(dst, 0), vsapi->getStride(dst, 0), srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[n%STREAMNUM]);
+                val = butterprocess(vsapi->getWritePtr(dst, 0), vsapi->getStride(dst, 0), srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[n%d->streamnum]);
             } else {
-                val = butterprocess(NULL, 0, srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[n%STREAMNUM]);
+                val = butterprocess(NULL, 0, srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[n%d->streamnum]);
             }
         } catch (const VshipError& e){
             vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);
@@ -278,9 +279,10 @@ static void VS_CC butterFree(void *instanceData, VSCore *core, const VSAPI *vsap
     vsapi->freeNode(d->reference);
     vsapi->freeNode(d->distorted);
 
-    for (int i = 0; i < STREAMNUM; i++){
+    for (int i = 0; i < d->streamnum; i++){
         hipStreamDestroy(d->streams[i]);
     }
+    free(d->streams);
     //vsapi->setThreadCount(d->oldthreadnum, core);
 
     free(d);
@@ -351,22 +353,24 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
     //int videowidth = viref->width;
     //int videoheight = viref->height;
     //put optimal thread number
-    //VSCoreInfo infos;
-    //vsapi->getCoreInfo(core, &infos);
+    VSCoreInfo infos;
+    vsapi->getCoreInfo(core, &infos);
     //d.oldthreadnum = infos.numThreads;
     //size_t freemem, totalmem;
     //hipMemGetInfo (&freemem, &totalmem);
 
     //vsapi->setThreadCount(std::min((int)((float)(freemem - 20*(1llu << 20))/(8*sizeof(float3)*videowidth*videoheight*(1.33333))), d.oldthreadnum), core);
 
-    for (int i = 0; i < STREAMNUM; i++){
+    d.streamnum = infos.numThreads;
+    d.streams = (hipStream_t*)malloc(sizeof(hipStream_t)*d.streamnum);
+    for (int i = 0; i < d.streamnum; i++){
         hipStreamCreate(d.streams + i);
     }
 
     data = (ButterData *)malloc(sizeof(d));
     *data = d;
 
-    for (int i = 0; i < STREAMNUM; i++){
+    for (int i = 0; i < d.streamnum; i++){
         data->streams[i] = d.streams[i];
     }
     data->maxshared = devattr.sharedMemPerBlock;

@@ -72,7 +72,6 @@ if (err_hip != hipSuccess)\
    	printf("%s in %s at %d\n", hipGetErrorString(err_hip),  __FILE__, __LINE__);\
 }
 
-#define STREAMNUM 29
 #define GAUSSIANSIZE 8
 #define SIGMA 1.5f
 #define PI 3.14159265359

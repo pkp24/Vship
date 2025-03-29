@@ -130,12 +130,13 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     return ssim;
 }
 
-typedef struct {
+typedef struct Ssimulacra2Data{
     VSNode *reference;
     VSNode *distorted;
     int maxshared;
     float* gaussiankernel_d;
-    hipStream_t streams[STREAMNUM];
+    hipStream_t* streams;
+    int streamnum = 0;
     int oldthreadnum;
 } Ssimulacra2Data;
 
@@ -169,7 +170,7 @@ static const VSFrame *VS_CC ssimulacra2GetFrame(int n, int activationReason, voi
 
         double val;
         try{
-            val = ssimu2process(srcp1, srcp2, stride, width, height, d->gaussiankernel_d, d->maxshared, d->streams[n%STREAMNUM]);
+            val = ssimu2process(srcp1, srcp2, stride, width, height, d->gaussiankernel_d, d->maxshared, d->streams[n%d->streamnum]);
         } catch (const VshipError& e){
             vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);
             vsapi->freeFrame(src1);
@@ -197,10 +198,11 @@ static void VS_CC ssimulacra2Free(void *instanceData, VSCore *core, const VSAPI 
     vsapi->freeNode(d->reference);
     vsapi->freeNode(d->distorted);
 
-    for (int i = 0; i < STREAMNUM; i++){
+    for (int i = 0; i < d->streamnum; i++){
         hipStreamDestroy(d->streams[i]);
     }
     hipFree(d->gaussiankernel_d);
+    free(d->streams);
     //vsapi->setThreadCount(d->oldthreadnum, core);
 
     free(d);
@@ -256,22 +258,24 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
     //int videowidth = viref->width;
     //int videoheight = viref->height;
     //put optimal thread number
-    //VSCoreInfo infos;
-    //vsapi->getCoreInfo(core, &infos);
+    VSCoreInfo infos;
+    vsapi->getCoreInfo(core, &infos);
     //d.oldthreadnum = infos.numThreads;
     //size_t freemem, totalmem;
     //hipMemGetInfo (&freemem, &totalmem);
 
     //vsapi->setThreadCount(std::min((int)((float)(freemem - 20*(1llu << 20))/(8*sizeof(float3)*videowidth*videoheight*(1.33333))), d.oldthreadnum), core);
 
-    for (int i = 0; i < STREAMNUM; i++){
+    d.streamnum = infos.numThreads;
+    d.streams = (hipStream_t*)malloc(sizeof(hipStream_t)*d.streamnum);
+    for (int i = 0; i < d.streamnum; i++){
         hipStreamCreate(d.streams + i);
     }
 
     data = (Ssimulacra2Data *)malloc(sizeof(d));
     *data = d;
 
-    for (int i = 0; i < STREAMNUM; i++){
+    for (int i = 0; i < d.streamnum; i++){
         data->streams[i] = d.streams[i];
     }
 
