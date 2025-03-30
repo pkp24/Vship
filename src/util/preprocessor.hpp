@@ -63,6 +63,8 @@
     #define hipMemset cudaMemset
     #define hipMallocAsync cudaMallocAsync
     #define hipFreeAsync cudaFreeAsync
+    #define hipHostFree cudaFreeHost
+    #define hipHostMalloc cudaMallocHost
 #endif
 
 
