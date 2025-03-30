@@ -118,7 +118,7 @@ Plane_d getdiffmap(Plane_d* src1_d, Plane_d* src2_d, float* mem_d, int width, in
     return diffmap;
 }
 
-std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride, const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, float intensity_multiplier, int maxshared, hipStream_t stream){
+std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride, const uint8_t *srcp1[3], const uint8_t *srcp2[3], float* pinned, int stride, int width, int height, float intensity_multiplier, int maxshared, hipStream_t stream){
     int wh = width*height;
     const int totalscalesize = wh;
 
@@ -184,7 +184,7 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride
 
     std::tuple<float, float, float> finalres;
     try{
-        finalres = diffmapscore(diffmap.mem_d, mem_d+9*width*height, mem_d+10*width*height, width*height, event_d, stream);
+        finalres = diffmapscore(diffmap.mem_d, mem_d+9*width*height, mem_d+10*width*height, pinned, width*height, event_d, stream);
     } catch (const VshipError& e){
         hipFree(mem_d);
         hipEventDestroy(event_d);
@@ -201,6 +201,7 @@ typedef struct ButterData{
     VSNode *reference;
     VSNode *distorted;
     float intensity_multiplier;
+    float** PinnedMemPool;
     int maxshared;
     int diffmap;
     hipStream_t* streams;
@@ -248,9 +249,9 @@ static const VSFrame *VS_CC butterGetFrame(int n, int activationReason, void *in
         const int stream = d->streamSet->pop();
         try{
             if (d->diffmap){
-                val = butterprocess(vsapi->getWritePtr(dst, 0), vsapi->getStride(dst, 0), srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[stream]);
+                val = butterprocess(vsapi->getWritePtr(dst, 0), vsapi->getStride(dst, 0), srcp1, srcp2, d->PinnedMemPool[stream], stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[stream]);
             } else {
-                val = butterprocess(NULL, 0, srcp1, srcp2, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[stream]);
+                val = butterprocess(NULL, 0, srcp1, srcp2, d->PinnedMemPool[stream], stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[stream]);
             }
         } catch (const VshipError& e){
             vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);
@@ -284,8 +285,10 @@ static void VS_CC butterFree(void *instanceData, VSCore *core, const VSAPI *vsap
     vsapi->freeNode(d->distorted);
 
     for (int i = 0; i < d->streamnum; i++){
+        hipHostFree(d->PinnedMemPool[i]);
         hipStreamDestroy(d->streams[i]);
     }
+    free(d->PinnedMemPool);
     free(d->streams);
     delete d->streamSet;
     //vsapi->setThreadCount(d->oldthreadnum, core);
@@ -382,6 +385,19 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
         newstreamset.insert(i);
     }
     d.streamSet = new threadSet(newstreamset);
+
+    const int pinnedsize = allocsizeScore(viref->width, viref->height);
+    d.PinnedMemPool = (float**)malloc(sizeof(float*)*d.streamnum);
+    hipError_t erralloc;
+    for (int i = 0; i < d.streamnum; i++){
+        erralloc = hipHostMalloc(d.PinnedMemPool+i, sizeof(float)*pinnedsize);
+        if (erralloc != hipSuccess){
+            vsapi->mapSetError(out, VshipError(OutOfRAM, __FILE__, __LINE__).getErrorMessage().c_str());
+            vsapi->freeNode(d.reference);
+            vsapi->freeNode(d.distorted);
+            return;
+        }
+    }
 
     data = (ButterData *)malloc(sizeof(d));
     *data = d;

@@ -1,5 +1,13 @@
 namespace butter{
 
+int allocsizeScore(int width, int height){
+    int w = width*height;
+    while (w > 1024){
+        w = (w - 1)/1024 + 1;
+    }
+    return w*3;
+}
+
 __global__ void sumreduce(float* dst, float* src, int width){
     //dst must be of size 3*sizeof(float)*blocknum at least
     //shared memory needed is 3*sizeof(float)*threadnum at least
@@ -74,7 +82,7 @@ __global__ void sumreducenorm(float* dst, float* src, int width){
     }
 }
 
-std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float* temp2, int width, hipEvent_t event_d, hipStream_t stream){
+std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float* temp2, float* pinned, int width, hipEvent_t event_d, hipStream_t stream){
     bool first = true;
     int basewidth = width;
     float* src = diffmap;
@@ -94,8 +102,7 @@ std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float*
         first = false;
         width = bl_x;
     }
-    float* back_to_cpu = (float*)malloc(sizeof(float)*width*3);
-    if (!back_to_cpu) throw VshipError(OutOfRAM, __FILE__, __LINE__);
+    float* back_to_cpu = pinned;
     float resnorm2 = 0;
     float resnorm3 = 0;
     float resnorminf = 0;
@@ -116,7 +123,6 @@ std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float*
         }
     }
 
-    free(back_to_cpu);
     resnorm2 = std::pow(resnorm2/basewidth, 1./2.);
     resnorm3 = std::pow(resnorm3/basewidth, 1./3.);
     return std::make_tuple(resnorm2, resnorm3, resnorminf);
