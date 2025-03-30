@@ -11,7 +11,7 @@
 
 namespace ssimu2{
 
-double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int stride, int width, int height, float* gaussiankernel, int maxshared, hipStream_t stream){
+double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* pinned, int stride, int width, int height, float* gaussiankernel, int maxshared, hipStream_t stream){
 
     int wh = width*height;
     int whs[6] = {wh, ((height-1)/2 + 1)*((width-1)/2 + 1), ((height-1)/4 + 1)*((width-1)/4 + 1), ((height-1)/8 + 1)*((width-1)/8 + 1), ((height-1)/16 + 1)*((width-1)/16 + 1), ((height-1)/32 + 1)*((width-1)/32 + 1)};
@@ -96,7 +96,7 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
     //step 5 : edge diff map    
     std::vector<float3> allscore_res;
     try{
-        allscore_res = allscore_map(src1_d, src2_d, tempb1_d, tempb2_d, temps11_d, temps22_d, temps12_d, temp_d, width, height, maxshared, event_d, stream);
+        allscore_res = allscore_map(src1_d, src2_d, tempb1_d, tempb2_d, temps11_d, temps22_d, temps12_d, temp_d, pinned, width, height, maxshared, event_d, stream);
     } catch (const VshipError& e){
         hipFree(mem_d);
         hipEventDestroy(event_d);
@@ -134,6 +134,7 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], int strid
 typedef struct Ssimulacra2Data{
     VSNode *reference;
     VSNode *distorted;
+    float3** PinnedMemPool;
     int maxshared;
     float* gaussiankernel_d;
     hipStream_t* streams;
@@ -172,7 +173,7 @@ static const VSFrame *VS_CC ssimulacra2GetFrame(int n, int activationReason, voi
         double val;
         const int stream = d->streamSet->pop();
         try{
-            val = ssimu2process(srcp1, srcp2, stride, width, height, d->gaussiankernel_d, d->maxshared, d->streams[stream]);
+            val = ssimu2process(srcp1, srcp2, d->PinnedMemPool[stream], stride, width, height, d->gaussiankernel_d, d->maxshared, d->streams[stream]);
         } catch (const VshipError& e){
             vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);
             d->streamSet->insert(stream);
@@ -203,8 +204,10 @@ static void VS_CC ssimulacra2Free(void *instanceData, VSCore *core, const VSAPI 
     vsapi->freeNode(d->distorted);
 
     for (int i = 0; i < d->streamnum; i++){
+        hipHostFree(d->PinnedMemPool[i]);
         hipStreamDestroy(d->streams[i]);
     }
+    free(d->PinnedMemPool);
     hipFree(d->gaussiankernel_d);
     free(d->streams);
     delete d->streamSet;
@@ -259,6 +262,7 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
     hipDeviceProp_t devattr;
     hipGetDevice(&device);
     hipGetDeviceProperties(&devattr, device);
+    d.maxshared = devattr.sharedMemPerBlock;
 
     //int videowidth = viref->width;
     //int videoheight = viref->height;
@@ -288,6 +292,19 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
     }
     d.streamSet = new threadSet(newstreamset);
 
+    const int pinnedsize = allocsizeScore(viref->width, viref->height, d.maxshared);
+    d.PinnedMemPool = (float3**)malloc(sizeof(float3*)*d.streamnum);
+    hipError_t erralloc;
+    for (int i = 0; i < d.streamnum; i++){
+        erralloc = hipHostMalloc(d.PinnedMemPool+i, sizeof(float3)*pinnedsize);
+        if (erralloc != hipSuccess){
+            vsapi->mapSetError(out, VshipError(OutOfRAM, __FILE__, __LINE__).getErrorMessage().c_str());
+            vsapi->freeNode(d.reference);
+            vsapi->freeNode(d.distorted);
+            return;
+        }
+    }
+
     data = (Ssimulacra2Data *)malloc(sizeof(d));
     *data = d;
 
@@ -299,8 +316,6 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
     for (int i = 0; i < 2*GAUSSIANSIZE+1; i++){
         gaussiankernel[i] = std::exp(-(GAUSSIANSIZE-i)*(GAUSSIANSIZE-i)/(2*SIGMA*SIGMA))/(std::sqrt(2*PI*SIGMA*SIGMA));
     }
-
-    data->maxshared = devattr.sharedMemPerBlock;
 
     hipMalloc(&(data->gaussiankernel_d), sizeof(float)*(2*GAUSSIANSIZE+1));
     hipMemcpyHtoD((hipDeviceptr_t)data->gaussiankernel_d, gaussiankernel, (2*GAUSSIANSIZE+1)*sizeof(float));
