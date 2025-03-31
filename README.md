@@ -64,18 +64,20 @@ make install
 
 ## Library Usage
 
-### Threads
+### Streams
 
 In order to control the performance-to-VRAM trade-off, you may set
-`vs.core.num_threads`. 4 is typically a good compromise between both.
+`numStream argument`. 4 is typically a good compromise between both.
 
 ```python
 import vapoursynth as vs
 core = vs.core
-core.num_threads = 4  # Adjust based on your GPU's VRAM
+
+# Adjust based on your GPU's VRAM
+result = core.vship.SSIMULACRA2(sourcefile, distortedfile, numStream = 4)
 ```
 
-VRAM requirements per active VapourSynth thread:
+VRAM requirements per active Stream:
 
 - **SSIMULACRA2**: `24 * 4 * width * height * 4/3` bytes
 - **Butteraugli**: `34 * 4 * width * height` bytes
@@ -91,7 +93,8 @@ ref = core.bs.VideoSource("reference.mp4")
 dist = core.bs.VideoSource("distorted.mp4")
 
 # Calculate SSIMULACRA2 scores
-result = ref.vship.SSIMULACRA2(dist)
+#numStream is the newer way of controling the performance-to-VRAM trade-off
+result = ref.vship.SSIMULACRA2(dist, numStream = 4)
 
 # Extract scores from frame properties
 scores = [frame.props["_SSIMULACRA2"] for frame in result.frames()]
@@ -112,7 +115,7 @@ dist = core.bs.VideoSource("distorted.mp4")
 
 # Calculate Butteraugli scores
 # intensity_multiplier controls sensitivity
-result = ref.vship.BUTTERAUGLI(dist, intensity_multiplier=80, distmap=0)
+result = ref.vship.BUTTERAUGLI(dist, intensity_multiplier=80, distmap=0, numStream = 4)
 
 # Extract scores from frame properties (three different norms available)
 scores_2norm = [frame.props["_BUTTERAUGLI_2Norm"] for frame in result.frames()]
