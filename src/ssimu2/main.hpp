@@ -280,7 +280,8 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
         d.streamnum = infos.numThreads;
     }
 
-    d.streamnum = std::min(d.streamnum, infos.numThreads);
+    d.streamnum = std::min(d.streamnum, infos.numThreads); // vs threads < numStream would make no sense
+    d.streamnum = std::min(d.streamnum, (int)(devattr.totalGlobalMem/(32*4*viref->width*viref->height))); //VRAM overcommit partial protection
     d.streams = (hipStream_t*)malloc(sizeof(hipStream_t)*d.streamnum);
     for (int i = 0; i < d.streamnum; i++){
         hipStreamCreate(d.streams + i);

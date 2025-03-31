@@ -375,6 +375,7 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
     }
 
     d.streamnum = std::min(d.streamnum, infos.numThreads);
+    d.streamnum = std::min(d.streamnum, (int)(devattr.totalGlobalMem/(34*4*viref->width*viref->height))); //VRAM overcommit partial protection.
     d.streams = (hipStream_t*)malloc(sizeof(hipStream_t)*d.streamnum);
     for (int i = 0; i < d.streamnum; i++){
         hipStreamCreate(d.streams + i);
