@@ -2,10 +2,6 @@
 #define THREADSAFESETHPP
 #include "preprocessor.hpp"
 
-class dynamicSemaphore{
-
-};
-
 class threadSet{
     std::condition_variable_any com;
     std::mutex lock;
@@ -29,10 +25,8 @@ public:
     int pop(){
         //return the lowest element
         lock.lock();
-        if (data.empty()){
-            com.wait(lock, [this](){
-                return !data.empty();
-            });
+        while (data.empty()){
+            com.wait(lock);
         }
         int ret = *data.begin();
         data.erase(ret);
