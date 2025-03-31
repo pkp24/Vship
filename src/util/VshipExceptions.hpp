@@ -31,7 +31,7 @@ enum VSHIPEXCEPTTYPE{
 std::string errorMessage(VSHIPEXCEPTTYPE type){
     switch (type){
         case OutOfVRAM:
-        return "OutOfVRAM: Vship was not able to perform GPU memory allocation. (Advice) Reduce the number of vapoursynth threads";
+        return "OutOfVRAM: Vship was not able to perform GPU memory allocation. (Advice) Reduce or Set numStream argument";
 
         case OutOfRAM:
         return "OutOfRAM: Vship was not able to allocate CPU memory. This is a rare error that should be reported. Check your RAM usage";
