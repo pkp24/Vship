@@ -28,18 +28,18 @@ __global__ void GaussianBlur_Kernel(float3* src, float3* dst, int width, int hei
     const int tampon_base_y = y - thy - 8;
 
     //fill tampon
-    tampon[thy*32+thx] = (tampon_base_x + thx >= 0 && tampon_base_x + thx < width && tampon_base_y + thy >= 0 && tampon_base_y + thy < height) ? src[(tampon_base_y+thy)*width + tampon_base_x+thx] : makeFloat3(0., 0., 0.);
-    tampon[(thy+16)*32+thx] = (tampon_base_x + thx >= 0 && tampon_base_x + thx < width && tampon_base_y + thy + 16 >= 0 && tampon_base_y + thy + 16 < height) ? src[(tampon_base_y+thy+16)*width + tampon_base_x+thx] : makeFloat3(0., 0., 0.);
-    tampon[thy*32+thx+16] = (tampon_base_x + thx +16 >= 0 && tampon_base_x + thx +16 < width && tampon_base_y + thy >= 0 && tampon_base_y + thy < height) ? src[(tampon_base_y+thy)*width + tampon_base_x+thx+16] : makeFloat3(0., 0., 0.);
-    tampon[(thy+16)*32+thx+16] = (tampon_base_x + thx +16 >= 0 && tampon_base_x + thx +16 < width && tampon_base_y + thy + 16 >= 0 && tampon_base_y + thy + 16 < height) ? src[(tampon_base_y+thy+16)*width + tampon_base_x+thx+16] : makeFloat3(0., 0., 0.);
+    tampon[thy*32+thx] = (tampon_base_x + thx >= 0 && tampon_base_x + thx < width && tampon_base_y + thy >= 0 && tampon_base_y + thy < height) ? src[(tampon_base_y+thy)*width + tampon_base_x+thx] : makeFloat3(0.f, 0.f, 0.f);
+    tampon[(thy+16)*32+thx] = (tampon_base_x + thx >= 0 && tampon_base_x + thx < width && tampon_base_y + thy + 16 >= 0 && tampon_base_y + thy + 16 < height) ? src[(tampon_base_y+thy+16)*width + tampon_base_x+thx] : makeFloat3(0.f, 0.f, 0.f);
+    tampon[thy*32+thx+16] = (tampon_base_x + thx +16 >= 0 && tampon_base_x + thx +16 < width && tampon_base_y + thy >= 0 && tampon_base_y + thy < height) ? src[(tampon_base_y+thy)*width + tampon_base_x+thx+16] : makeFloat3(0.f, 0.f, 0.f);
+    tampon[(thy+16)*32+thx+16] = (tampon_base_x + thx +16 >= 0 && tampon_base_x + thx +16 < width && tampon_base_y + thy + 16 >= 0 && tampon_base_y + thy + 16 < height) ? src[(tampon_base_y+thy+16)*width + tampon_base_x+thx+16] : makeFloat3(0.f, 0.f, 0.f);
     __syncthreads();
 
     //horizontalBlur on tampon restraint into rectangle [8 - 24][0 - 32] -> 2 pass per thread
 
     //1st pass in [8 - 24][0 - 16]
     float tot = 0.;
-    float3 out = makeFloat3(0., 0., 0.);
-    float3 out2 = makeFloat3(0., 0., 0.);
+    float3 out = makeFloat3(0.f, 0.f, 0.f);
+    float3 out2 = makeFloat3(0.f, 0.f, 0.f);
     for (int i = 0; i < 17; i++){ //starting 8 to the left and going 8 to the right
         out += tampon[thy*32 + thx+i]*gaussiankernel[i];
 
@@ -58,7 +58,7 @@ __global__ void GaussianBlur_Kernel(float3* src, float3* dst, int width, int hei
     __syncthreads();
 
     //verticalBlur on tampon restraint into rectangle [8 - 24][8 - 24] -> 1 pass per thread
-    out = makeFloat3(0., 0., 0.);
+    out = makeFloat3(0.f, 0.f, 0.f);
     tot = 0.;
     for (int i = 0; i < 17; i++){ //starting 8 to the left and going 8 to the right
         out += tampon[(thy+i)*32 + thx+8]*gaussiankernel[i];
