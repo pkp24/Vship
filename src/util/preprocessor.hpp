@@ -65,6 +65,7 @@
     #define hipFreeAsync cudaFreeAsync
     #define hipHostFree cudaFreeHost
     #define hipHostMalloc cudaMallocHost
+    #define hipStreamSynchronize cudaStreamSynchronize
 #endif
 
 

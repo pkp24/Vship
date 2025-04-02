@@ -138,9 +138,6 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride
 
     float* gaussiankernel_dmem = (mem_d + totalplane*totalscalesize);
 
-    hipEvent_t event_d;
-    hipEventCreate(&event_d);
-
     //we put the frame's planes on GPU
     GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp1[0]), stride * height, stream));
     src1_d[0].strideEliminator(mem_d+6*width*height, stride);
@@ -184,15 +181,13 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride
 
     std::tuple<float, float, float> finalres;
     try{
-        finalres = diffmapscore(diffmap.mem_d, mem_d+9*width*height, mem_d+10*width*height, pinned, width*height, event_d, stream);
+        finalres = diffmapscore(diffmap.mem_d, mem_d+9*width*height, mem_d+10*width*height, pinned, width*height, stream);
     } catch (const VshipError& e){
         hipFree(mem_d);
-        hipEventDestroy(event_d);
         throw e;
     }
 
     hipFreeAsync(mem_d, stream);
-    hipEventDestroy(event_d);
 
     return finalres;
 }

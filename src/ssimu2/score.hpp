@@ -165,7 +165,7 @@ __global__ void allscore_map_Kernel(float3* dst, float3* im1, float3* im2, float
     }
 }
 
-std::vector<float3> allscore_map(float3* im1, float3* im2, float3* mu1, float3* mu2, float3* s11, float3* s22, float3* s12, float3* temp, float3* pinned, int basewidth, int baseheight, int maxshared, hipEvent_t event_d, hipStream_t stream){
+std::vector<float3> allscore_map(float3* im1, float3* im2, float3* mu1, float3* mu2, float3* s11, float3* s22, float3* s12, float3* temp, float3* pinned, int basewidth, int baseheight, int maxshared, hipStream_t stream){
     //output is {normssim1scale1, normssim4scale1, norma1scale1, norma4scale1, normad1scale1, normd4scale1, norm1scale2, ...}
     std::vector<float3> result(2*6*3);
     for (int i = 0; i < 2*6*3; i++) {result[i].x = 0; result[i].y = 0; result[i].z = 0;}
@@ -204,8 +204,7 @@ std::vector<float3> allscore_map(float3* im1, float3* im2, float3* mu1, float3* 
     GPU_CHECK(hipMemcpyDtoHAsync(hostback, (hipDeviceptr_t)temp, sizeof(float3)*scaleoutdone[6], stream));
     //the data as already been reduced by a factor of 512 which can now be reasonably retrieved from GPU
 
-    hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
-    hipEventSynchronize(event_d);
+    hipStreamSynchronize(stream);
 
     //let s reduce!
     for (int scale = 0; scale < 6; scale++){

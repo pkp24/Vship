@@ -41,9 +41,6 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* p
     float3* tempb1_d = mem_d + 6*totalscalesize;
     float3* tempb2_d = mem_d + 7*totalscalesize;
 
-    hipEvent_t event_d;
-    hipEventCreate(&event_d);
-
     uint8_t *memory_placeholder[3] = {(uint8_t*)temp_d, (uint8_t*)temp_d+stride*height, (uint8_t*)temp_d+2*stride*height};
     GPU_CHECK(hipMemcpyHtoDAsync(memory_placeholder[0], (void*)srcp1[0], stride * height, stream));
     GPU_CHECK(hipMemcpyHtoDAsync(memory_placeholder[1], (void*)srcp1[1], stride * height, stream));
@@ -96,16 +93,14 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* p
     //step 5 : edge diff map    
     std::vector<float3> allscore_res;
     try{
-        allscore_res = allscore_map(src1_d, src2_d, tempb1_d, tempb2_d, temps11_d, temps22_d, temps12_d, temp_d, pinned, width, height, maxshared, event_d, stream);
+        allscore_res = allscore_map(src1_d, src2_d, tempb1_d, tempb2_d, temps11_d, temps22_d, temps12_d, temp_d, pinned, width, height, maxshared, stream);
     } catch (const VshipError& e){
         hipFree(mem_d);
-        hipEventDestroy(event_d);
         throw e;
     }
 
     //we are done with the gpu at that point and the synchronization has already been done in allscore_map
     hipFreeAsync(mem_d, stream);
-    hipEventDestroy(event_d);
 
     //step 6 : format the vector
     std::vector<float> measure_vec(108);

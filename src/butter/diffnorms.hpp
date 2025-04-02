@@ -82,7 +82,7 @@ __global__ void sumreducenorm(float* dst, float* src, int width){
     }
 }
 
-std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float* temp2, float* pinned, int width, hipEvent_t event_d, hipStream_t stream){
+std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float* temp2, float* pinned, int width, hipStream_t stream){
     bool first = true;
     int basewidth = width;
     float* src = diffmap;
@@ -108,8 +108,7 @@ std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float*
     float resnorminf = 0;
     hipMemcpyDtoHAsync(back_to_cpu, src, sizeof(float)*width*3, stream);
 
-    hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
-    hipEventSynchronize(event_d); //when the event is complete, we know our gpu result is ready!
+    hipStreamSynchronize(stream);
 
     for (int i = 0; i < width; i++){
         if (first){
