@@ -18,9 +18,9 @@ __global__ void sumreduce(float* dst, float* src, int width){
     __shared__ float sharedmem[1024*3];
 
     if (x >= width){
-        sharedmem[thx] = 0;
-        sharedmem[1024+thx] = 0;
-        sharedmem[1024*2+thx] = 0;
+        sharedmem[thx] = 0.0f;
+        sharedmem[1024+thx] = 0.0f;
+        sharedmem[1024*2+thx] = 0.0f;
     } else {
         sharedmem[thx] = src[x];
         sharedmem[1024+thx] = src[x+width];
@@ -55,9 +55,9 @@ __global__ void sumreducenorm(float* dst, float* src, int width){
     __shared__ float sharedmem[1024*3];
 
     if (x >= width){
-        sharedmem[thx] = 0;
-        sharedmem[1024+thx] = 0;
-        sharedmem[1024*2+thx] = 0;
+        sharedmem[thx] = 0.0f;
+        sharedmem[1024+thx] = 0.0f;
+        sharedmem[1024*2+thx] = 0.0f;
     } else {
         sharedmem[thx] = src[x]*src[x];
         sharedmem[1024+thx] = abs(src[x])*src[x]*src[x];
@@ -103,9 +103,9 @@ std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float*
         width = bl_x;
     }
     float* back_to_cpu = pinned;
-    float resnorm2 = 0;
-    float resnorm3 = 0;
-    float resnorminf = 0;
+    float resnorm2 = 0.0f;
+    float resnorm3 = 0.0f;
+    float resnorminf = 0.0f;
     hipMemcpyDtoHAsync(back_to_cpu, src, sizeof(float)*width*3, stream);
 
     hipStreamSynchronize(stream);
