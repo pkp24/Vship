@@ -118,20 +118,14 @@ Plane_d getdiffmap(Plane_d* src1_d, Plane_d* src2_d, float* mem_d, int width, in
     return diffmap;
 }
 
-std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride, const uint8_t *srcp1[3], const uint8_t *srcp2[3], float* pinned, int stride, int width, int height, float intensity_multiplier, int maxshared, hipStream_t stream){
+std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride, const uint8_t *srcp1[3], const uint8_t *srcp2[3], float* mem_d, float* pinned, int stride, int width, int height, float intensity_multiplier, int maxshared, hipStream_t stream){
     int wh = width*height;
     const int totalscalesize = wh;
 
     //big memory allocation, we will try it multiple time if failed to save when too much threads are used
-    hipError_t erralloc;
 
     const int gaussiantotal = 1024;
     const int totalplane = 34;
-    float* mem_d;
-    erralloc = hipMallocAsync(&mem_d, sizeof(float)*totalscalesize*(totalplane) + sizeof(float)*gaussiantotal, stream); //2 base image and 6 working buffers
-    if (erralloc != hipSuccess){
-        throw VshipError(OutOfVRAM, __FILE__, __LINE__);
-    }
     //initial color planes
     Plane_d src1_d[3] = {Plane_d(mem_d, width, height, stream), Plane_d(mem_d+width*height, width, height, stream), Plane_d(mem_d+2*width*height, width, height, stream)};
     Plane_d src2_d[3] = {Plane_d(mem_d+3*width*height, width, height, stream), Plane_d(mem_d+4*width*height, width, height, stream), Plane_d(mem_d+5*width*height, width, height, stream)};
@@ -187,8 +181,6 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride
         throw e;
     }
 
-    hipFreeAsync(mem_d, stream);
-
     return finalres;
 }
 
@@ -197,6 +189,7 @@ typedef struct ButterData{
     VSNode *distorted;
     float intensity_multiplier;
     float** PinnedMemPool;
+    float** VRAMMemPool;
     int maxshared;
     int diffmap;
     hipStream_t* streams;
@@ -244,9 +237,9 @@ static const VSFrame *VS_CC butterGetFrame(int n, int activationReason, void *in
         const int stream = d->streamSet->pop();
         try{
             if (d->diffmap){
-                val = butterprocess(vsapi->getWritePtr(dst, 0), vsapi->getStride(dst, 0), srcp1, srcp2, d->PinnedMemPool[stream], stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[stream]);
+                val = butterprocess(vsapi->getWritePtr(dst, 0), vsapi->getStride(dst, 0), srcp1, srcp2, d->VRAMMemPool[stream], d->PinnedMemPool[stream], stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[stream]);
             } else {
-                val = butterprocess(NULL, 0, srcp1, srcp2, d->PinnedMemPool[stream], stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[stream]);
+                val = butterprocess(NULL, 0, srcp1, srcp2, d->VRAMMemPool[stream], d->PinnedMemPool[stream], stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[stream]);
             }
         } catch (const VshipError& e){
             vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);
@@ -280,9 +273,11 @@ static void VS_CC butterFree(void *instanceData, VSCore *core, const VSAPI *vsap
     vsapi->freeNode(d->distorted);
 
     for (int i = 0; i < d->streamnum; i++){
+        hipFree(d->VRAMMemPool[i]);
         hipHostFree(d->PinnedMemPool[i]);
         hipStreamDestroy(d->streams[i]);
     }
+    free(d->VRAMMemPool);
     free(d->PinnedMemPool);
     free(d->streams);
     delete d->streamSet;
@@ -383,12 +378,21 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
     d.streamSet = new threadSet(newstreamset);
 
     const int pinnedsize = allocsizeScore(viref->width, viref->height);
+    const int vramsize = viref->width*viref->height;
     d.PinnedMemPool = (float**)malloc(sizeof(float*)*d.streamnum);
+    d.VRAMMemPool = (float**)malloc(sizeof(float*)*d.streamnum);
     hipError_t erralloc;
     for (int i = 0; i < d.streamnum; i++){
         erralloc = hipHostMalloc(d.PinnedMemPool+i, sizeof(float)*pinnedsize);
         if (erralloc != hipSuccess){
             vsapi->mapSetError(out, VshipError(OutOfRAM, __FILE__, __LINE__).getErrorMessage().c_str());
+            vsapi->freeNode(d.reference);
+            vsapi->freeNode(d.distorted);
+            return;
+        }
+        erralloc = hipMalloc(d.VRAMMemPool+i, sizeof(float)*34*vramsize + sizeof(float)*1024);
+        if (erralloc != hipSuccess){
+            vsapi->mapSetError(out, VshipError(OutOfVRAM, __FILE__, __LINE__).getErrorMessage().c_str());
             vsapi->freeNode(d.reference);
             vsapi->freeNode(d.distorted);
             return;
