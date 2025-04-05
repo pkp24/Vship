@@ -19,7 +19,7 @@
 
 namespace butter{
 
-Plane_d getdiffmap(Plane_d* src1_d, Plane_d* src2_d, float* mem_d, int width, int height, float intensity_multiplier, int maxshared, float* gaussiankernel_dmem, hipStream_t stream){
+Plane_d getdiffmap(Plane_d* src1_d, Plane_d* src2_d, float* mem_d, int width, int height, float intensity_multiplier, int maxshared, GaussianHandle& gaussianHandle, hipStream_t stream){
     //temporary planes
     Plane_d temp[3] = {Plane_d(mem_d, width, height, stream), Plane_d(mem_d+1*width*height, width, height, stream), Plane_d(mem_d+2*width*height, width, height, stream)};
     Plane_d temp2[3] = {Plane_d(mem_d+3*width*height, width, height, stream), Plane_d(mem_d+4*width*height, width, height, stream), Plane_d(mem_d+5*width*height, width, height, stream)};
@@ -36,12 +36,12 @@ Plane_d getdiffmap(Plane_d* src1_d, Plane_d* src2_d, float* mem_d, int width, in
     Plane_d uhf2[2] = {Plane_d(mem_d+24*width*height, width, height, stream), Plane_d(mem_d+25*width*height, width, height, stream)};
 
     //to XYB
-    opsinDynamicsImage(src1_d, temp, temp2[0], gaussiankernel_dmem, intensity_multiplier);
-    opsinDynamicsImage(src2_d, temp, temp2[0], gaussiankernel_dmem, intensity_multiplier);
+    opsinDynamicsImage(src1_d, temp, temp2[0], gaussianHandle, intensity_multiplier);
+    opsinDynamicsImage(src2_d, temp, temp2[0], gaussianHandle, intensity_multiplier);
     GPU_CHECK(hipGetLastError());
 
-    separateFrequencies(src1_d, temp, lf1, mf1, hf1, uhf1, gaussiankernel_dmem);
-    separateFrequencies(src2_d, temp, lf2, mf2, hf2, uhf2, gaussiankernel_dmem);
+    separateFrequencies(src1_d, temp, lf1, mf1, hf1, uhf1, gaussianHandle);
+    separateFrequencies(src2_d, temp, lf2, mf2, hf2, uhf2, gaussianHandle);
 
     //no more needs for src1_d and src2_d so we reuse them as masks for butter
     Plane_d* block_diff_dc = src1_d; //size 3
@@ -103,7 +103,7 @@ Plane_d getdiffmap(Plane_d* src1_d, Plane_d* src2_d, float* mem_d, int width, in
     Plane_d* temp3 = lf2;
     Plane_d* temp4 = mf2;
 
-    MaskPsychoImage(hf1, uhf1, hf2, uhf2, temp3[0], temp4[0], mask, block_diff_ac, gaussiankernel_dmem);
+    MaskPsychoImage(hf1, uhf1, hf2, uhf2, temp3[0], temp4[0], mask, block_diff_ac, gaussianHandle);
     //at this point hf and uhf cannot be used anymore (they have been invalidated by the function)
 
     Plane_d diffmap = temp[0]; //we only need one plane
@@ -118,7 +118,7 @@ Plane_d getdiffmap(Plane_d* src1_d, Plane_d* src2_d, float* mem_d, int width, in
     return diffmap;
 }
 
-std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride, const uint8_t *srcp1[3], const uint8_t *srcp2[3], float* mem_d, float* pinned, int stride, int width, int height, float intensity_multiplier, int maxshared, hipStream_t stream){
+std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride, const uint8_t *srcp1[3], const uint8_t *srcp2[3], float* mem_d, float* pinned, GaussianHandle& gaussianHandle, int stride, int width, int height, float intensity_multiplier, int maxshared, hipStream_t stream){
     int wh = width*height;
     const int totalscalesize = wh;
 
@@ -128,8 +128,6 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride
     //initial color planes
     Plane_d src1_d[3] = {Plane_d(mem_d, width, height, stream), Plane_d(mem_d+width*height, width, height, stream), Plane_d(mem_d+2*width*height, width, height, stream)};
     Plane_d src2_d[3] = {Plane_d(mem_d+3*width*height, width, height, stream), Plane_d(mem_d+4*width*height, width, height, stream), Plane_d(mem_d+5*width*height, width, height, stream)};
-
-    float* gaussiankernel_dmem = (mem_d + totalplane*totalscalesize);
 
     //we put the frame's planes on GPU
     GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp1[0]), stride * height, stream));
@@ -163,11 +161,11 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride
         downsample(src2_d[i].mem_d, nsrc2_d[i].mem_d, width, height, stream);
     }
 
-    Plane_d diffmap = getdiffmap(src1_d, src2_d, mem_d+8*width*height, width, height, intensity_multiplier, maxshared, gaussiankernel_dmem, stream);
+    Plane_d diffmap = getdiffmap(src1_d, src2_d, mem_d+8*width*height, width, height, intensity_multiplier, maxshared, gaussianHandle, stream);
     //diffmap is stored at mem_d+8*width*height so we can build after that the second smaller scale
     //smaller scale now
     nmem_d = mem_d+9*width*height;
-    Plane_d diffmapsmall = getdiffmap(nsrc1_d, nsrc2_d, nmem_d+6*nwidth*nheight, nwidth, nheight, intensity_multiplier, maxshared, gaussiankernel_dmem, stream);
+    Plane_d diffmapsmall = getdiffmap(nsrc1_d, nsrc2_d, nmem_d+6*nwidth*nheight, nwidth, nheight, intensity_multiplier, maxshared, gaussianHandle, stream);
 
     addsupersample2X(diffmap.mem_d, diffmapsmall.mem_d, width, height, 0.5f, stream);
 
@@ -194,6 +192,7 @@ typedef struct ButterData{
     float intensity_multiplier;
     float** PinnedMemPool;
     float** VRAMMemPool;
+    GaussianHandle gaussianHandle;
     int maxshared;
     int diffmap;
     hipStream_t* streams;
@@ -241,9 +240,9 @@ static const VSFrame *VS_CC butterGetFrame(int n, int activationReason, void *in
         const int stream = d->streamSet->pop();
         try{
             if (d->diffmap){
-                val = butterprocess(vsapi->getWritePtr(dst, 0), vsapi->getStride(dst, 0), srcp1, srcp2, d->VRAMMemPool[stream], d->PinnedMemPool[stream], stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[stream]);
+                val = butterprocess(vsapi->getWritePtr(dst, 0), vsapi->getStride(dst, 0), srcp1, srcp2, d->VRAMMemPool[stream], d->PinnedMemPool[stream], d->gaussianHandle, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[stream]);
             } else {
-                val = butterprocess(NULL, 0, srcp1, srcp2, d->VRAMMemPool[stream], d->PinnedMemPool[stream], stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[stream]);
+                val = butterprocess(NULL, 0, srcp1, srcp2, d->VRAMMemPool[stream], d->PinnedMemPool[stream], d->gaussianHandle, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[stream]);
             }
         } catch (const VshipError& e){
             vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);
@@ -284,6 +283,7 @@ static void VS_CC butterFree(void *instanceData, VSCore *core, const VSAPI *vsap
     free(d->VRAMMemPool);
     free(d->PinnedMemPool);
     free(d->streams);
+    d->gaussianHandle.destroy();
     delete d->streamSet;
     //vsapi->setThreadCount(d->oldthreadnum, core);
 
@@ -368,6 +368,13 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
         d.streamnum = infos.numThreads;
     }
 
+    try {
+        d.gaussianHandle.init();
+    } catch (const VshipError& e){
+        vsapi->mapSetError(out, e.getErrorMessage().c_str());
+        return;
+    }
+
     d.streamnum = std::min(d.streamnum, infos.numThreads);
     d.streamnum = std::min(d.streamnum, (int)(devattr.totalGlobalMem/(34*4*viref->width*viref->height))); //VRAM overcommit partial protection.
     d.streams = (hipStream_t*)malloc(sizeof(hipStream_t)*d.streamnum);
@@ -394,7 +401,7 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
             vsapi->freeNode(d.distorted);
             return;
         }
-        erralloc = hipMalloc(d.VRAMMemPool+i, sizeof(float)*34*vramsize + sizeof(float)*1024);
+        erralloc = hipMalloc(d.VRAMMemPool+i, sizeof(float)*34*vramsize);
         if (erralloc != hipSuccess){
             vsapi->mapSetError(out, VshipError(OutOfVRAM, __FILE__, __LINE__).getErrorMessage().c_str());
             vsapi->freeNode(d.reference);

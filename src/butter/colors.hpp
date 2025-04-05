@@ -86,14 +86,14 @@ __global__ void opsinDynamicsImage_kernel(float* src1, float* src2, float* src3,
     //if ((x == 376098 && width*height == 1080*1920)) printf("%f, %f, %f and %f, %f, %f to %f, %f, %f with %f, %f, %f sens\n", oldsrc.x, oldsrc.y, oldsrc.z, oldblurred.x, oldblurred.y, oldblurred.z, src1[x], src2[x], src3[x], sensitivity.x, sensitivity.y, sensitivity.z);
 }
 
-void opsinDynamicsImage(Plane_d src[3], Plane_d temp[3], Plane_d temp2, float* gaussiankernel, float intensity_multiplier){
+void opsinDynamicsImage(Plane_d src[3], Plane_d temp[3], Plane_d temp2, GaussianHandle& gaussianHandle, float intensity_multiplier){
     //change src from SRGB to opsin dynamic XYB
     int width = src[0].width; int height = src[0].height;
     int th_x = std::min(256, width*height);
     int bl_x = (width*height-1)/th_x + 1;
     //printf("initial adress: %llu\n", (unsigned long long)src[0].mem_d);
     for (int i = 0; i < 3; i++){
-        src[i].blur(temp[i], temp2, 1.2f, 0.0f, gaussiankernel);
+        src[i].blur(temp[i], temp2, gaussianHandle, 0);
     }
     opsinDynamicsImage_kernel<<<dim3(bl_x), dim3(th_x), 0, src[0].stream>>>(src[0].mem_d, src[1].mem_d, src[2].mem_d, temp[0].mem_d, temp[1].mem_d, temp[2].mem_d, width, height, intensity_multiplier);
     GPU_CHECK(hipGetLastError());

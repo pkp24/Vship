@@ -38,13 +38,6 @@ void diffclamp(float* src1, float* src2, float* dst, int width, float maxclamp, 
     GPU_CHECK(hipGetLastError());
 }
 
-__host__ void sameNoiseLevels(Plane_d p1, Plane_d p2, Plane_d output, Plane_d temp1, Plane_d temp2, const float sigma, const float w, const float maxclamp, float* gaussiankernel){
-    //output should not be used because we are going to += it that is why we need 2 temporaries
-    diffclamp(p1.mem_d, p2.mem_d, temp1.mem_d, p1.width*p1.height, maxclamp, p1.stream);
-    temp1.blur(temp2, sigma, 0.0f, gaussiankernel);
-    samenoisediff(temp1.mem_d, output.mem_d, p1.width*p1.height, w, p1.stream);
-}
-
 __launch_bounds__(256)
 __global__ void L2diff_Kernel(float* src1, float* src2, float* dst, int width, float w){
     size_t x = threadIdx.x + blockIdx.x*blockDim.x;

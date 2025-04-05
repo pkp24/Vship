@@ -21,33 +21,27 @@ public:
     void fill0(){
         hipMemsetAsync(mem_d, 0, sizeof(float)*width*height, stream);
     }
-    void blur(Plane_d temp, float sigma, float border_ratio, float* gaussiankernel){
-        const int gaussiansize = (int)(sigma * 5);
-        loadGaussianKernel<<<dim3(1), dim3(2*gaussiansize+1), 0, stream>>>(gaussiankernel, gaussiansize, sigma);
+    void blur(Plane_d temp, GaussianHandle& gaussianHandle, int i){
+        const int gaussiansize = gaussianHandle.getWindow(i);
+        float* gaussianKernel = gaussianHandle.get(i);
 
         int wh = width*height;
         int th_x = std::min(256, wh);
         int bl_x = (wh-1)/th_x + 1;
-        float weight_no_border = 0.0f;
-        for (int i = 0; i < 2*gaussiansize+1; i++){
-            weight_no_border += std::exp(-(gaussiansize-i)*(gaussiansize-i)/(2*sigma*sigma))/(std::sqrt(TAU*sigma*sigma));
-        }
-        horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp.mem_d, mem_d, width, height, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
-        verticalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(mem_d, temp.mem_d, width, height, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
+
+        horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp.mem_d, mem_d, width, height, gaussianKernel, gaussiansize);
+        verticalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(mem_d, temp.mem_d, width, height, gaussianKernel, gaussiansize);
     }
-    void blur(Plane_d dst, Plane_d temp, float sigma, float border_ratio, float* gaussiankernel){
-        const int gaussiansize = (int)(sigma * 5);
-        loadGaussianKernel<<<dim3(1), dim3(2*gaussiansize+1), 0, stream>>>(gaussiankernel, gaussiansize, sigma);
+    void blur(Plane_d dst, Plane_d temp, GaussianHandle& gaussianHandle, int i){
+        const int gaussiansize = gaussianHandle.getWindow(i);
+        float* gaussianKernel = gaussianHandle.get(i);
 
         int wh = width*height;
         int th_x = std::min(256, wh);
         int bl_x = (wh-1)/th_x + 1;
-        float weight_no_border = 0.0f;
-        for (int i = 0; i < 2*gaussiansize+1; i++){
-            weight_no_border += std::exp(-(gaussiansize-i)*(gaussiansize-i)/(2*sigma*sigma))/(std::sqrt(TAU*sigma*sigma));
-        }
-        horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp.mem_d, mem_d, width, height, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
-        verticalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(dst.mem_d, temp.mem_d, width, height, border_ratio, weight_no_border, gaussiankernel, gaussiansize);
+
+        horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp.mem_d, mem_d, width, height, gaussianKernel, gaussiansize);
+        verticalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(dst.mem_d, temp.mem_d, width, height, gaussianKernel, gaussiansize);
     }
     void strideEliminator(float* strided, int stride){
         int wh = width*height;

@@ -157,18 +157,18 @@ namespace butter{
         GPU_CHECK(hipGetLastError());
     }
 
-    void separateFrequencies(Plane_d src[3], Plane_d temp[3], Plane_d lf[3], Plane_d mf[3], Plane_d hf[2], Plane_d uhf[2], float* gaussiankernel){
+    void separateFrequencies(Plane_d src[3], Plane_d temp[3], Plane_d lf[3], Plane_d mf[3], Plane_d hf[2], Plane_d uhf[2], GaussianHandle& gaussianHandle){
         int width = src[0].width; int height = src[0].height;
         hipStream_t stream = src[0].stream;
         
         for (int i = 0; i < 3; i++){
             //we separate lf to get mf BUT we put mf on hf if i != 2 for later reasons
-            src[i].blur(lf[i], temp[i], 7.15593339443f, 0.0f, gaussiankernel);
+            src[i].blur(lf[i], temp[i], gaussianHandle, 4);
 
             if (i == 2){
                 //mf = blur(xyb-lf)
                 subarray(src[i].mem_d, lf[i].mem_d, mf[i].mem_d, width*height, stream);
-                mf[i].blur(temp[i], 3.22489901262f, 0.0f, gaussiankernel);
+                mf[i].blur(temp[i], gaussianHandle, 3);
                 break;
             }
             //mf (hf (uhf)) = xyb-lf //mf is stored on hf which is stored in uhf
@@ -176,7 +176,7 @@ namespace butter{
             subarray(src[i].mem_d, lf[i].mem_d, uhf[i].mem_d, width*height, stream);
             //mf = blur(mf (hf (uhf))) //we blur mf BUT mf is on hf which is on uhf. After this, mf is stored in mf but hf is on uhf
             //the real mf is blurred and we avoid the need to copy the unblurred mf to hf (uhf)
-            uhf[i].blur(mf[i], temp[i], 3.22489901262f, 0.0f, gaussiankernel);
+            uhf[i].blur(mf[i], temp[i], gaussianHandle, 3);
 
             //hf (uhf) = op(mf, hf (uhf))
             if (i == 0){
@@ -192,7 +192,7 @@ namespace butter{
         for (int i = 0; i < 2; i++){
             //original does uhf = hf but hf is already in uhf.
             //next is hf = blur(hf (uhf)) -> hf is now at its place and uhf has the old hf copy
-            uhf[i].blur(hf[i], temp[i], 1.56416327805f, 0.0f, gaussiankernel);
+            uhf[i].blur(hf[i], temp[i], gaussianHandle, 1);
 
             if (i == 0){
                 subarray_removerangearound0(hf[i].mem_d, uhf[i].mem_d, width*height, 1.5f, stream);

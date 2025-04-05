@@ -110,7 +110,7 @@ void fuzzyerrosion(float* src, float* dst, int width, int height, hipStream_t st
     GPU_CHECK(hipGetLastError());
 }
 
-void MaskPsychoImage(Plane_d* hf1, Plane_d* uhf1, Plane_d* hf2, Plane_d* uhf2, Plane_d mask_xyb0, Plane_d mask_xyb1, Plane_d mask, Plane_d* block_diff_ac, float* gaussiankernel) {
+void MaskPsychoImage(Plane_d* hf1, Plane_d* uhf1, Plane_d* hf2, Plane_d* uhf2, Plane_d mask_xyb0, Plane_d mask_xyb1, Plane_d mask, Plane_d* block_diff_ac, GaussianHandle& gaussianHandle) {
     const hipStream_t stream = hf1[0].stream;
     const int width = hf1[0].width;
     const int height = hf1[0].height;
@@ -134,8 +134,8 @@ void MaskPsychoImage(Plane_d* hf1, Plane_d* uhf1, Plane_d* hf2, Plane_d* uhf2, P
     diffPrecompute(mask_xyb1.mem_d, diff1.mem_d, width, height, 6.19424080439f, 12.61050594197f, stream);
     Plane_d blurred0 = mask_xyb0;
     Plane_d blurred1 = mask_xyb1;
-    diff0.blur(blurred0, temp3, 2.7f, 0.0f, gaussiankernel);
-    diff1.blur(blurred1, temp3, 2.7f, 0.0f, gaussiankernel);
+    diff0.blur(blurred0, temp3, gaussianHandle, 2);
+    diff1.blur(blurred1, temp3, gaussianHandle, 2);
     fuzzyerrosion(blurred0.mem_d, mask.mem_d, width, height, stream);
     L2diff(blurred0.mem_d, blurred1.mem_d, block_diff_ac[1].mem_d, width*height, 10.0f, stream);
 }
