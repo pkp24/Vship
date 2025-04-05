@@ -37,11 +37,31 @@ public:
         float* gaussianKernel = gaussianHandle.get(i);
 
         int wh = width*height;
-        int th_x = std::min(256, wh);
-        int bl_x = (wh-1)/th_x + 1;
 
-        horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp.mem_d, mem_d, width, height, gaussianKernel, gaussiansize);
-        verticalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(dst.mem_d, temp.mem_d, width, height, gaussianKernel, gaussiansize);
+        if (gaussiansize == 8){ //special gaussian blur! It doesnt even use temp
+            int th_x = 16;
+            int th_y = 16;
+            int bl_x = (width-1)/th_x+1;
+            int bl_y = (height-1)/th_y+1;
+            GaussianBlur_Kernel<<<dim3(bl_x*bl_y), dim3(th_x, th_y), 0, stream>>>(mem_d, dst.mem_d, width, height, gaussianKernel);
+        } else {
+            int th_x = std::min(256, wh);
+            int bl_x = (wh-1)/th_x + 1;
+            horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp.mem_d, mem_d, width, height, gaussianKernel, gaussiansize);
+            verticalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(dst.mem_d, temp.mem_d, width, height, gaussianKernel, gaussiansize);
+        }
+    }
+    void blurDstNoTemp(Plane_d dst, GaussianHandle& gaussianHandle, int i){
+        const int gaussiansize = gaussianHandle.getWindow(i);
+        float* gaussianKernel = gaussianHandle.get(i);
+
+        assert(gaussiansize == 8);
+        //special gaussian blur! It doesnt even use temp
+        int th_x = 16;
+        int th_y = 16;
+        int bl_x = (width-1)/th_x+1;
+        int bl_y = (height-1)/th_y+1;
+        GaussianBlur_Kernel<<<dim3(bl_x*bl_y), dim3(th_x, th_y), 0, stream>>>(mem_d, dst.mem_d, width, height, gaussianKernel);
     }
     void strideEliminator(float* strided, int stride){
         int wh = width*height;

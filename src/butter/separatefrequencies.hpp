@@ -192,7 +192,7 @@ namespace butter{
         for (int i = 0; i < 2; i++){
             //original does uhf = hf but hf is already in uhf.
             //next is hf = blur(hf (uhf)) -> hf is now at its place and uhf has the old hf copy
-            uhf[i].blur(hf[i], temp[i], gaussianHandle, 1);
+            uhf[i].blurDstNoTemp(hf[i], gaussianHandle, 1);
 
             if (i == 0){
                 subarray_removerangearound0(hf[i].mem_d, uhf[i].mem_d, width*height, 1.5f, stream);

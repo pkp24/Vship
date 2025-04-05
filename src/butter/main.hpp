@@ -22,22 +22,21 @@ namespace butter{
 Plane_d getdiffmap(Plane_d* src1_d, Plane_d* src2_d, float* mem_d, int width, int height, float intensity_multiplier, int maxshared, GaussianHandle& gaussianHandle, hipStream_t stream){
     //temporary planes
     Plane_d temp[3] = {Plane_d(mem_d, width, height, stream), Plane_d(mem_d+1*width*height, width, height, stream), Plane_d(mem_d+2*width*height, width, height, stream)};
-    Plane_d temp2[3] = {Plane_d(mem_d+3*width*height, width, height, stream), Plane_d(mem_d+4*width*height, width, height, stream), Plane_d(mem_d+5*width*height, width, height, stream)};
 
     //Psycho Image planes
-    Plane_d lf1[3] = {Plane_d(mem_d+6*width*height, width, height, stream), Plane_d(mem_d+7*width*height, width, height, stream), Plane_d(mem_d+8*width*height, width, height, stream)};
-    Plane_d mf1[3] = {Plane_d(mem_d+9*width*height, width, height, stream), Plane_d(mem_d+10*width*height, width, height, stream), Plane_d(mem_d+11*width*height, width, height, stream)};
-    Plane_d hf1[2] = {Plane_d(mem_d+12*width*height, width, height, stream), Plane_d(mem_d+13*width*height, width, height, stream)};
-    Plane_d uhf1[2] = {Plane_d(mem_d+14*width*height, width, height, stream), Plane_d(mem_d+15*width*height, width, height, stream)};
+    Plane_d lf1[3] = {Plane_d(mem_d+3*width*height, width, height, stream), Plane_d(mem_d+4*width*height, width, height, stream), Plane_d(mem_d+5*width*height, width, height, stream)};
+    Plane_d mf1[3] = {Plane_d(mem_d+6*width*height, width, height, stream), Plane_d(mem_d+7*width*height, width, height, stream), Plane_d(mem_d+8*width*height, width, height, stream)};
+    Plane_d hf1[2] = {Plane_d(mem_d+9*width*height, width, height, stream), Plane_d(mem_d+10*width*height, width, height, stream)};
+    Plane_d uhf1[2] = {Plane_d(mem_d+11*width*height, width, height, stream), Plane_d(mem_d+12*width*height, width, height, stream)};
 
-    Plane_d lf2[3] = {Plane_d(mem_d+16*width*height, width, height, stream), Plane_d(mem_d+17*width*height, width, height, stream), Plane_d(mem_d+18*width*height, width, height, stream)};
-    Plane_d mf2[3] = {Plane_d(mem_d+19*width*height, width, height, stream), Plane_d(mem_d+20*width*height, width, height, stream), Plane_d(mem_d+21*width*height, width, height, stream)};
-    Plane_d hf2[2] = {Plane_d(mem_d+22*width*height, width, height, stream), Plane_d(mem_d+23*width*height, width, height, stream)};
-    Plane_d uhf2[2] = {Plane_d(mem_d+24*width*height, width, height, stream), Plane_d(mem_d+25*width*height, width, height, stream)};
+    Plane_d lf2[3] = {Plane_d(mem_d+13*width*height, width, height, stream), Plane_d(mem_d+14*width*height, width, height, stream), Plane_d(mem_d+15*width*height, width, height, stream)};
+    Plane_d mf2[3] = {Plane_d(mem_d+16*width*height, width, height, stream), Plane_d(mem_d+17*width*height, width, height, stream), Plane_d(mem_d+18*width*height, width, height, stream)};
+    Plane_d hf2[2] = {Plane_d(mem_d+19*width*height, width, height, stream), Plane_d(mem_d+20*width*height, width, height, stream)};
+    Plane_d uhf2[2] = {Plane_d(mem_d+21*width*height, width, height, stream), Plane_d(mem_d+22*width*height, width, height, stream)};
 
     //to XYB
-    opsinDynamicsImage(src1_d, temp, temp2[0], gaussianHandle, intensity_multiplier);
-    opsinDynamicsImage(src2_d, temp, temp2[0], gaussianHandle, intensity_multiplier);
+    opsinDynamicsImage(src1_d, temp, gaussianHandle, intensity_multiplier);
+    opsinDynamicsImage(src2_d, temp, gaussianHandle, intensity_multiplier);
     GPU_CHECK(hipGetLastError());
 
     separateFrequencies(src1_d, temp, lf1, mf1, hf1, uhf1, gaussianHandle);
@@ -119,12 +118,9 @@ Plane_d getdiffmap(Plane_d* src1_d, Plane_d* src2_d, float* mem_d, int width, in
 }
 
 std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride, const uint8_t *srcp1[3], const uint8_t *srcp2[3], float* mem_d, float* pinned, GaussianHandle& gaussianHandle, int stride, int width, int height, float intensity_multiplier, int maxshared, hipStream_t stream){
-    int wh = width*height;
-    const int totalscalesize = wh;
 
     //big memory allocation, we will try it multiple time if failed to save when too much threads are used
 
-    const int totalplane = 34;
     //initial color planes
     Plane_d src1_d[3] = {Plane_d(mem_d, width, height, stream), Plane_d(mem_d+width*height, width, height, stream), Plane_d(mem_d+2*width*height, width, height, stream)};
     Plane_d src2_d[3] = {Plane_d(mem_d+3*width*height, width, height, stream), Plane_d(mem_d+4*width*height, width, height, stream), Plane_d(mem_d+5*width*height, width, height, stream)};
@@ -401,7 +397,7 @@ static void VS_CC butterCreate(const VSMap *in, VSMap *out, void *userData, VSCo
             vsapi->freeNode(d.distorted);
             return;
         }
-        erralloc = hipMalloc(d.VRAMMemPool+i, sizeof(float)*34*vramsize);
+        erralloc = hipMalloc(d.VRAMMemPool+i, sizeof(float)*31*vramsize);
         if (erralloc != hipSuccess){
             vsapi->mapSetError(out, VshipError(OutOfVRAM, __FILE__, __LINE__).getErrorMessage().c_str());
             vsapi->freeNode(d.reference);
