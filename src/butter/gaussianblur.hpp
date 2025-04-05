@@ -87,38 +87,50 @@ __global__ void verticalBlur_Kernel(float* dst, float* src, int w, int h, float*
 
 //blur for windowsize == 8
 //launch in 16*16
+//manage a block of 32*32
 __launch_bounds__(256)
 __global__ void GaussianBlur_Kernel(float* src, float* dst, int width, int height, float* gaussiankernel){
     int originalBl_X = blockIdx.x;
     //let's determine which scale our block is in and adjust our input parameters accordingly
 
-    const int blockwidth = (width-1)/16+1;
+    const int blockwidth = (width-1)/32+1;
 
-    const int x = threadIdx.x + 16*(originalBl_X%blockwidth);
-    const int y = threadIdx.y + 16*(originalBl_X/blockwidth);
+    const int x = threadIdx.x + 32*(originalBl_X%blockwidth);
+    const int y = threadIdx.y + 32*(originalBl_X/blockwidth);
     const int thx = threadIdx.x;
     const int thy = threadIdx.y;
 
-    __shared__ float tampon[32*32]; //we import into tampon, compute onto tampon and then put into dst
+    __shared__ float tampon[48*48]; //we import into tampon, compute onto tampon and then put into dst
     //tampon has 8 of border on each side with no thread
     const int tampon_base_x = x - thx - 8;
     const int tampon_base_y = y - thy - 8;
 
     //fill tampon
-    tampon[thy*32+thx] = (tampon_base_x + thx >= 0 && tampon_base_x + thx < width && tampon_base_y + thy >= 0 && tampon_base_y + thy < height) ? src[(tampon_base_y+thy)*width + tampon_base_x+thx] : 0.f;
-    tampon[(thy+16)*32+thx] = (tampon_base_x + thx >= 0 && tampon_base_x + thx < width && tampon_base_y + thy + 16 >= 0 && tampon_base_y + thy + 16 < height) ? src[(tampon_base_y+thy+16)*width + tampon_base_x+thx] : 0.f;
-    tampon[thy*32+thx+16] = (tampon_base_x + thx +16 >= 0 && tampon_base_x + thx +16 < width && tampon_base_y + thy >= 0 && tampon_base_y + thy < height) ? src[(tampon_base_y+thy)*width + tampon_base_x+thx+16] : 0.f;
-    tampon[(thy+16)*32+thx+16] = (tampon_base_x + thx +16 >= 0 && tampon_base_x + thx +16 < width && tampon_base_y + thy + 16 >= 0 && tampon_base_y + thy + 16 < height) ? src[(tampon_base_y+thy+16)*width + tampon_base_x+thx+16] : 0.f;
+    tampon[thy*48+thx] = (tampon_base_x + thx >= 0 && tampon_base_x + thx < width && tampon_base_y + thy >= 0 && tampon_base_y + thy < height) ? src[(tampon_base_y+thy)*width + tampon_base_x+thx] : 0.f;
+    tampon[(thy+16)*48+thx] = (tampon_base_x + thx >= 0 && tampon_base_x + thx < width && tampon_base_y + thy + 16 >= 0 && tampon_base_y + thy + 16 < height) ? src[(tampon_base_y+thy+16)*width + tampon_base_x+thx] : 0.f;
+    tampon[(thy+32)*48+thx] = (tampon_base_x + thx >= 0 && tampon_base_x + thx < width && tampon_base_y + thy + 32 >= 0 && tampon_base_y + thy + 32 < height) ? src[(tampon_base_y+thy+32)*width + tampon_base_x+thx] : 0.f;
+    tampon[thy*48+thx+16] = (tampon_base_x + thx +16 >= 0 && tampon_base_x + thx +16 < width && tampon_base_y + thy >= 0 && tampon_base_y + thy < height) ? src[(tampon_base_y+thy)*width + tampon_base_x+thx+16] : 0.f;
+    tampon[(thy+16)*48+thx+16] = (tampon_base_x + thx +16 >= 0 && tampon_base_x + thx +16 < width && tampon_base_y + thy + 16 >= 0 && tampon_base_y + thy + 16 < height) ? src[(tampon_base_y+thy+16)*width + tampon_base_x+thx+16] : 0.f;
+    tampon[(thy+32)*48+thx+16] = (tampon_base_x + thx +16 >= 0 && tampon_base_x + thx +16 < width && tampon_base_y + thy + 32 >= 0 && tampon_base_y + thy + 32 < height) ? src[(tampon_base_y+thy+32)*width + tampon_base_x+thx+16] : 0.f;
+    tampon[thy*48+thx+32] = (tampon_base_x + thx +32 >= 0 && tampon_base_x + thx +32 < width && tampon_base_y + thy >= 0 && tampon_base_y + thy < height) ? src[(tampon_base_y+thy)*width + tampon_base_x+thx+32] : 0.f;
+    tampon[(thy+16)*48+thx+32] = (tampon_base_x + thx +32 >= 0 && tampon_base_x + thx +32 < width && tampon_base_y + thy + 16 >= 0 && tampon_base_y + thy + 16 < height) ? src[(tampon_base_y+thy+16)*width + tampon_base_x+thx+32] : 0.f;
+    tampon[(thy+32)*48+thx+32] = (tampon_base_x + thx +32 >= 0 && tampon_base_x + thx +32 < width && tampon_base_y + thy + 32 >= 0 && tampon_base_y + thy + 32 < height) ? src[(tampon_base_y+thy+32)*width + tampon_base_x+thx+32] : 0.f;
+    
     __syncthreads();
 
-    //horizontalBlur on tampon restraint into rectangle [8 - 24][0 - 32] -> 2 pass per thread
+    //horizontalBlur on tampon restraint into rectangle [8 - 40][0 - 48] -> 6 pass per thread
 
     //1st pass in [8 - 24][0 - 16]
-    float tot = 0.;
+    float tot = 0.f;
+    float tot2 = 0.f;
     float out = 0.f;
     float out2 = 0.f;
+    float out3 = 0.f;
+    float out4 = 0.f;
+    float out5 = 0.f;
+    float out6 = 0.f;
     for (int i = 0; i < 17; i++){ //starting 8 to the left and going 8 to the right
-        out += tampon[thy*32 + thx+i]*gaussiankernel[i];
+        out += tampon[thy*48 + thx+i]*gaussiankernel[i];
 
         //border handling precompute
         if (tampon_base_x+thx+i >= 0 && tampon_base_x+thx+i < width) tot += gaussiankernel[i];
@@ -126,30 +138,90 @@ __global__ void GaussianBlur_Kernel(float* src, float* dst, int width, int heigh
 
     //2nd pass in [8 - 24][16 - 32]
     for (int i = 0; i < 17; i++){ //starting 8 to the left and going 8 to the right
-        out2 += tampon[(thy+16)*32 + thx+i]*gaussiankernel[i];
+        out2 += tampon[(thy+16)*48 + thx+i]*gaussiankernel[i];
+    }
+
+    //3rd pass in [8 - 24][32 - 48]
+    for (int i = 0; i < 17; i++){ //starting 8 to the left and going 8 to the right
+        out3 += tampon[(thy+32)*48 + thx+i]*gaussiankernel[i];
+    }
+
+    //second column
+    for (int i = 0; i < 17; i++){ //starting 8 to the left and going 8 to the right
+        out4 += tampon[thy*48 + thx+i+16]*gaussiankernel[i];
+
+        //border handling precompute
+        if (tampon_base_x+thx+i+16 >= 0 && tampon_base_x+thx+i+16 < width) tot2 += gaussiankernel[i];
+    }
+
+    //2nd pass in [24 - 40][16 - 32]
+    for (int i = 0; i < 17; i++){ //starting 8 to the left and going 8 to the right
+        out5 += tampon[(thy+16)*48 + thx+i+16]*gaussiankernel[i];
+    }
+
+    //3rd pass in [24 - 40][32 - 48]
+    for (int i = 0; i < 17; i++){ //starting 8 to the left and going 8 to the right
+        out6 += tampon[(thy+32)*48 + thx+i+16]*gaussiankernel[i];
     }
 
     __syncthreads();
-    tampon[thy*32 + thx+8] = out/tot;
-    tampon[(thy+16)*32 + thx+8] = out2/tot;
+    tampon[thy*48 + thx+8] = out/tot;
+    tampon[(thy+16)*48 + thx+8] = out2/tot;
+    tampon[(thy+32)*48 + thx+8] = out3/tot;
+
+    tampon[thy*48 + thx+8+16] = out4/tot2;
+    tampon[(thy+16)*48 + thx+8+16] = out5/tot2;
+    tampon[(thy+32)*48 + thx+8+16] = out6/tot2;
     __syncthreads();
 
-    //verticalBlur on tampon restraint into rectangle [8 - 24][8 - 24] -> 1 pass per thread
-    out = 0.f;
+    //verticalBlur on tampon restraint into rectangle [8 - 40][8 - 40] -> 4 pass per thread
     tot = 0.f;
+    tot2 = 0.f;
+    out = 0.f;
+    out2 = 0.f;
+    out3 = 0.f;
+    out4 = 0.f;
+
     for (int i = 0; i < 17; i++){ //starting 8 to the left and going 8 to the right
-        out += tampon[(thy+i)*32 + thx+8]*gaussiankernel[i];
+        out += tampon[(thy+i)*48 + thx+8]*gaussiankernel[i];
 
         //border handling precompute
         if (tampon_base_y+thy+i >= 0 && tampon_base_y+thy+i < height) tot += gaussiankernel[i];
     }
 
+    //2nd pass [24 - 40][8 - 24]
+    for (int i = 0; i < 17; i++){ //starting 8 to the left and going 8 to the right
+        out2 += tampon[(thy+i)*48 + thx+8+16]*gaussiankernel[i];
+    }
+
+    //second row
+    for (int i = 0; i < 17; i++){ //starting 8 to the left and going 8 to the right
+        out3 += tampon[(thy+i+16)*48 + thx+8]*gaussiankernel[i];
+
+        //border handling precompute
+        if (tampon_base_y+thy+i+16 >= 0 && tampon_base_y+thy+i+16 < height) tot2 += gaussiankernel[i];
+    }
+
+    //2nd pass [24 - 40][24 - 40]
+    for (int i = 0; i < 17; i++){ //starting 8 to the left and going 8 to the right
+        out4 += tampon[(thy+i+16)*48 + thx+8+16]*gaussiankernel[i];
+    }
+
     __syncthreads();
-    tampon[(thy+8)*32 + thx+8] = out/tot;
+    tampon[(thy+8)*48 + thx+8] = out/tot;
+    tampon[(thy+8)*48 + thx+8+16] = out2/tot;
+    tampon[(thy+8+16)*48 + thx+8] = out3/tot2;
+    tampon[(thy+8+16)*48 + thx+8+16] = out4/tot2;
     __syncthreads();
 
     //tampon [8 - 24][8 - 24] -> dst
-    if (tampon_base_x + thx +8 >= 0 && tampon_base_x + thx +8 < width && tampon_base_y + thy +8 >= 0 && tampon_base_y + thy +8 < height) dst[(tampon_base_y+thy+8)*width + tampon_base_x+thx+8] = tampon[(thy+8)*32+thx+8];
+    if (tampon_base_x + thx +8 >= 0 && tampon_base_x + thx +8 < width && tampon_base_y + thy +8 >= 0 && tampon_base_y + thy +8 < height) dst[(tampon_base_y+thy+8)*width + tampon_base_x+thx+8] = tampon[(thy+8)*48+thx+8];
+    //tampon [24 - 40][8 - 24] -> dst
+    if (tampon_base_x + thx +8+16 >= 0 && tampon_base_x + thx +8+16 < width && tampon_base_y + thy +8 >= 0 && tampon_base_y + thy +8 < height) dst[(tampon_base_y+thy+8)*width + tampon_base_x+thx+8+16] = tampon[(thy+8)*48+thx+8+16];
+    //tampon [8 - 24][24 - 40] -> dst
+    if (tampon_base_x + thx +8 >= 0 && tampon_base_x + thx +8 < width && tampon_base_y + thy +8+16 >= 0 && tampon_base_y + thy +8+16 < height) dst[(tampon_base_y+thy+8+16)*width + tampon_base_x+thx+8] = tampon[(thy+8+16)*48+thx+8];
+    //tampon [24 - 40][24 - 40] -> dst
+    if (tampon_base_x + thx +8+16 >= 0 && tampon_base_x + thx +8+16 < width && tampon_base_y + thy +8+16 >= 0 && tampon_base_y + thy +8+16 < height) dst[(tampon_base_y+thy+8+16)*width + tampon_base_x+thx+8+16] = tampon[(thy+8+16)*48+thx+8+16];
 }
 
 //all gaussian sigmas:
