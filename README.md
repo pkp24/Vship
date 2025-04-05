@@ -79,8 +79,8 @@ result = core.vship.SSIMULACRA2(sourcefile, distortedfile, numStream = 4)
 
 VRAM requirements per active Stream:
 
-- **SSIMULACRA2**: `24 * 4 * width * height * 4/3` bytes
-- **Butteraugli**: `34 * 4 * width * height` bytes
+- **SSIMULACRA2**: `32 * 4 * width * height` bytes
+- **Butteraugli**: `31 * 4 * width * height` bytes
 
 ### SSIMULACRA2
 
