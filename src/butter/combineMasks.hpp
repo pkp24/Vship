@@ -29,7 +29,7 @@ __global__ void computeDiffmap_Kernel(float* mask, float* block_diff_dc0, float*
     float maskval_dc = MaskDcY(val);
 
     dst[x] = sqrtf(maskval * (block_diff_ac0[x] + block_diff_ac1[x] + block_diff_ac2[x]) + maskval_dc * (block_diff_dc0[x] + block_diff_dc1[x] + block_diff_dc2[x]));
-    //if ((x == 1841628 && width == 1080*1920) || ((x == 959/2 * 960 + 348/2 && width == 540*960))) printf("final result: %f with ac: %f, %f, %f, dc: %f, %f, %f, mask: %f.\n", dst[x], block_diff_ac0[x], block_diff_ac1[x], block_diff_ac2[x], block_diff_dc0[x], block_diff_dc1[x], block_diff_dc2[x], mask[x]);
+    //if ((x == 376098 && width == 1080*1920) || ((x == 59456 && width == 540*960))) printf("final result: %f with ac: %f, %f, %f, dc: %f, %f, %f, mask: %f.\n", dst[x], block_diff_ac0[x], block_diff_ac1[x], block_diff_ac2[x], block_diff_dc0[x], block_diff_dc1[x], block_diff_dc2[x], mask[x]);
 }
 
 void computeDiffmap(float* mask, float* block_diff_dc0, float* block_diff_dc1, float* block_diff_dc2, float* block_diff_ac0, float* block_diff_ac1, float* block_diff_ac2, float* dst, int width, hipStream_t stream){

@@ -123,7 +123,7 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride
     const int totalscalesize = wh;
 
     //big memory allocation, we will try it multiple time if failed to save when too much threads are used
-    
+
     const int totalplane = 34;
     //initial color planes
     Plane_d src1_d[3] = {Plane_d(mem_d, width, height, stream), Plane_d(mem_d+width*height, width, height, stream), Plane_d(mem_d+2*width*height, width, height, stream)};
@@ -152,6 +152,11 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride
     float* nmem_d = mem_d+6*width*height; //allow usage up to mem_d+8*width*height;
     Plane_d nsrc1_d[3] = {Plane_d(nmem_d, nwidth, nheight, stream), Plane_d(nmem_d+nwidth*nheight, nwidth, nheight, stream), Plane_d(nmem_d+2*nwidth*nheight, nwidth, nheight, stream)};
     Plane_d nsrc2_d[3] = {Plane_d(nmem_d+3*nwidth*nheight, nwidth, nheight, stream), Plane_d(nmem_d+4*nwidth*nheight, nwidth, nheight, stream), Plane_d(nmem_d+5*nwidth*nheight, nwidth, nheight, stream)};
+
+    //we need to convert to linear rgb before downsampling
+    linearRGB(src1_d);
+    linearRGB(src2_d);
+
     //using 6 smaller planes is equivalent to 1.5 standard planes, so it fits within the 2 planes given here!)
     for (int i = 0; i < 3; i++){
         downsample(src1_d[i].mem_d, nsrc1_d[i].mem_d, width, height, stream);

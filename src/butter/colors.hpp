@@ -5,10 +5,18 @@ __device__ float gamma(float v) {
 }
 
 __device__ inline void rgb_to_linrgbfunc(float& a){
-    if (a > 0.04045f){
-        a = powf(((a+0.055)*(1.0/1.055)), 2.4f);
+    if (a < 0){
+        if (a < -0.04045f){
+            a = -powf(((-a+0.055)*(1.0/1.055)), 2.4f);
+        } else {
+            a *= 1.0/12.92;
+        }
     } else {
-        a *= 1.0/12.92;
+        if (a > 0.04045f){
+            a = powf(((a+0.055)*(1.0/1.055)), 2.4f);
+        } else {
+            a *= 1.0/12.92;
+        }
     }
 }
 
@@ -18,6 +26,8 @@ __global__ void linearrgb_kernel(float* src1, float* src2, float* src3, int widt
     rgb_to_linrgbfunc(src1[x]);
     rgb_to_linrgbfunc(src2[x]);
     rgb_to_linrgbfunc(src3[x]);
+
+    //if ((x == 376098 && width*height == 1080*1920)) printf("After Linear %f, %f, %f\n", src1[x], src2[x], src3[x]);
 }
 
 __device__ inline void butterOpsinAbsorbance(float3& a, bool clamp = false){
@@ -73,7 +83,7 @@ __global__ void opsinDynamicsImage_kernel(float* src1, float* src2, float* src3,
     src1[x] = src.x - src.y; 
     src2[x] = src.x + src.y; 
     src3[x] = src.z;
-    //if (x == 10000) printf("%f, %f, %f and %f, %f, %f to %f, %f, %f with %f, %f, %f sens\n", oldsrc.x, oldsrc.y, oldsrc.z, oldblurred.x, oldblurred.y, oldblurred.z, src1[x], src2[x], src3[x], sensitivity.x, sensitivity.y, sensitivity.z);
+    //if ((x == 376098 && width*height == 1080*1920)) printf("%f, %f, %f and %f, %f, %f to %f, %f, %f with %f, %f, %f sens\n", oldsrc.x, oldsrc.y, oldsrc.z, oldblurred.x, oldblurred.y, oldblurred.z, src1[x], src2[x], src3[x], sensitivity.x, sensitivity.y, sensitivity.z);
 }
 
 void opsinDynamicsImage(Plane_d src[3], Plane_d temp[3], Plane_d temp2, float* gaussiankernel, float intensity_multiplier){
@@ -81,13 +91,19 @@ void opsinDynamicsImage(Plane_d src[3], Plane_d temp[3], Plane_d temp2, float* g
     int width = src[0].width; int height = src[0].height;
     int th_x = std::min(256, width*height);
     int bl_x = (width*height-1)/th_x + 1;
-    linearrgb_kernel<<<dim3(bl_x), dim3(th_x), 0, src[0].stream>>>(src[0].mem_d, src[1].mem_d, src[2].mem_d, width, height);
     //printf("initial adress: %llu\n", (unsigned long long)src[0].mem_d);
     for (int i = 0; i < 3; i++){
         src[i].blur(temp[i], temp2, 1.2f, 0.0f, gaussiankernel);
     }
     opsinDynamicsImage_kernel<<<dim3(bl_x), dim3(th_x), 0, src[0].stream>>>(src[0].mem_d, src[1].mem_d, src[2].mem_d, temp[0].mem_d, temp[1].mem_d, temp[2].mem_d, width, height, intensity_multiplier);
     GPU_CHECK(hipGetLastError());
+}
+
+void linearRGB(Plane_d src[3]){
+    int width = src[0].width; int height = src[0].height;
+    int th_x = std::min(256, width*height);
+    int bl_x = (width*height-1)/th_x + 1;
+    linearrgb_kernel<<<dim3(bl_x), dim3(th_x), 0, src[0].stream>>>(src[0].mem_d, src[1].mem_d, src[2].mem_d, width, height);
 }
 
 }

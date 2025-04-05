@@ -114,7 +114,7 @@ namespace butter{
         GPU_CHECK(hipGetLastError());
     }
 
-    __global__ void separateHf_Uhf_Kernel(float* lf, float* hf, float* uhf, float width){
+    __global__ void separateHf_Uhf_Kernel(float* hf, float* uhf, float width){
         size_t x = threadIdx.x + blockIdx.x*blockDim.x;
 
         if (x >= width) return;
@@ -132,10 +132,10 @@ namespace butter{
         //printf("res : %f and %f\n", first[x], second[x]);
     }
 
-    void separateHf_Uhf(float* lf, float* hf, float* uhf, int width, hipStream_t stream){
+    void separateHf_Uhf(float* hf, float* uhf, int width, hipStream_t stream){
         int th_x = std::min(256, width);
         int bl_x = (width-1)/th_x + 1;
-        separateHf_Uhf_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(lf, hf, uhf, width);
+        separateHf_Uhf_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(hf, uhf, width);
         GPU_CHECK(hipGetLastError());
     }
 
@@ -144,7 +144,9 @@ namespace butter{
 
         if (x >= width) return;
 
+        float3 old = makeFloat3(xplane[x], yplane[x], bplane[x]);
         XybLowFreqToVals(xplane[x], yplane[x], bplane[x]);
+        //if ((x == 376098 && width == 1080*1920) || ((x == 59456 && width == 540*960))) printf("lfreqval : %f %f %f from %f %f %f\n", xplane[x], yplane[x], bplane[x], old.x, old.y, old.z); 
         //printf("res : %f and %f\n", first[x], second[x]);
     }
 
@@ -196,7 +198,7 @@ namespace butter{
                 subarray_removerangearound0(hf[i].mem_d, uhf[i].mem_d, width*height, 1.5f, stream);
                 removerangearound0(uhf[i].mem_d, width*height, 0.04f, stream);
             } else {
-                separateHf_Uhf(lf[i].mem_d, hf[i].mem_d, uhf[i].mem_d, width*height, stream);
+                separateHf_Uhf(hf[i].mem_d, uhf[i].mem_d, width*height, stream);
             }
         }
 
