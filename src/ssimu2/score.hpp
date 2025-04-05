@@ -227,9 +227,9 @@ std::vector<float3> allscore_map(float3* im1, float3* im2, float3* mu1, float3* 
     }
 
     for (int i = 0; i < 18; i++){
-        result[2*i+1].x = std::sqrtf(std::sqrtf(result[2*i+1].x));
-        result[2*i+1].y = std::sqrtf(std::sqrtf(result[2*i+1].y));
-        result[2*i+1].z = std::sqrtf(std::sqrtf(result[2*i+1].z));
+        result[2*i+1].x = std::sqrt(std::sqrt(result[2*i+1].x));
+        result[2*i+1].y = std::sqrt(std::sqrt(result[2*i+1].y));
+        result[2*i+1].z = std::sqrt(std::sqrt(result[2*i+1].z));
     } //completing 4th norm
 
     return result;
