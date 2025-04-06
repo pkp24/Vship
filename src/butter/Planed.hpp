@@ -29,8 +29,13 @@ public:
         int th_x = std::min(256, wh);
         int bl_x = (wh-1)/th_x + 1;
 
+        int verticalth_x = 8;
+        int verticalth_y = 32;
+        int verticalbl_x = (width-1)/verticalth_x+1;
+        int verticalbl_y = (height-1)/verticalth_y+1;
+
         horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp.mem_d, mem_d, width, height, gaussianKernel, gaussiansize);
-        verticalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(mem_d, temp.mem_d, width, height, gaussianKernel, gaussiansize);
+        verticalBlur_Kernel<<<dim3(verticalbl_x, verticalbl_y), dim3(verticalth_x, verticalth_y), 0, stream>>>(mem_d, temp.mem_d, width, height, gaussianKernel, gaussiansize);
     }
     void blur(Plane_d dst, Plane_d temp, GaussianHandle& gaussianHandle, int i){
         const int gaussiansize = gaussianHandle.getWindow(i);
@@ -47,8 +52,13 @@ public:
         } else {
             int th_x = std::min(256, wh);
             int bl_x = (wh-1)/th_x + 1;
+
+            int verticalth_x = 8;
+            int verticalth_y = 32;
+            int verticalbl_x = (width-1)/verticalth_x+1;
+            int verticalbl_y = (height-1)/verticalth_y+1;
             horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp.mem_d, mem_d, width, height, gaussianKernel, gaussiansize);
-            verticalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(dst.mem_d, temp.mem_d, width, height, gaussianKernel, gaussiansize);
+            verticalBlur_Kernel<<<dim3(verticalbl_x, verticalbl_y), dim3(verticalth_x, verticalth_y), 0, stream>>>(dst.mem_d, temp.mem_d, width, height, gaussianKernel, gaussiansize);
         }
     }
     void blurDstNoTemp(Plane_d dst, GaussianHandle& gaussianHandle, int i){

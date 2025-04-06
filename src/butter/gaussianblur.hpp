@@ -65,24 +65,22 @@ __global__ void horizontalBlur_Kernel(float* dst, float* src, int w, int h, floa
     dst[x] = out/weight;
 }
 
+//best is to use 8x32 rectangle 
 __launch_bounds__(256)
 __global__ void verticalBlur_Kernel(float* dst, float* src, int w, int h, float* gaussiankernel, int gaussiansize){
     int x = threadIdx.x + blockIdx.x*blockDim.x;
-    int size = w*h;
-    if (x >= size) return;
-
-    int current_line = x/w;
-    int current_column = x%w;
+    int y = threadIdx.y + blockIdx.y*blockDim.y;
+    if (x >= w) return;
+    if (y >= h) return;
 
     float weight = 0.0f;
-
     float out = 0.0f;
-    for (int i = max(current_line-gaussiansize, 0); i <= min(current_line+gaussiansize, h-1); i++){
-        out += src[i * w + current_column]*gaussiankernel[gaussiansize+i-current_line];
-        weight += gaussiankernel[gaussiansize+i-current_line];
-        //if (threadIdx.x == 0) printf("%f at %d\n", gaussiankernel[gaussiansize+i-current_line], gaussiansize+i-current_line);
+    for (int i = max(y-gaussiansize, 0); i <= min(y+gaussiansize, h-1); i++){
+        //if (x == 423 && y == 323) printf("%f at %d for %f\n", gaussiankernel[gaussiansize+i-y], gaussiansize+i-y, src[i*w+x]);
+        out += src[i * w + x]*gaussiankernel[gaussiansize+i-y];
+        weight += gaussiankernel[gaussiansize+i-y];
     }
-    dst[x] = out/weight;
+    dst[y*w+x] = out/weight;
 }
 
 //blur for windowsize == 8
