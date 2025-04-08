@@ -11,7 +11,7 @@
 
 namespace ssimu2{
 
-double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* mem_d, float3* pinned, int stride, int width, int height, float* gaussiankernel, int maxshared, hipStream_t stream){
+double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* pinned, int stride, int width, int height, float* gaussiankernel, int maxshared, hipStream_t stream){
 
     int wh = width*height;
     int whs[6] = {wh, ((height-1)/2 + 1)*((width-1)/2 + 1), ((height-1)/4 + 1)*((width-1)/4 + 1), ((height-1)/8 + 1)*((width-1)/8 + 1), ((height-1)/16 + 1)*((width-1)/16 + 1), ((height-1)/32 + 1)*((width-1)/32 + 1)};
@@ -21,6 +21,15 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* m
         whs_integral[i+1] = whs_integral[i] + whs[i];
     }
     int totalscalesize = whs_integral[6];
+
+    //big memory allocation, we will try it multiple time if failed to save when too much threads are used
+    hipError_t erralloc;
+
+    float3* mem_d;
+    erralloc = hipMallocAsync(&mem_d, sizeof(float3)*totalscalesize*(2 + 6), stream); //2 base image and 6 working buffers
+    if (erralloc != hipSuccess){
+        throw VshipError(OutOfVRAM, __FILE__, __LINE__);
+    }
 
     float3* src1_d = mem_d; //length totalscalesize
     float3* src2_d = mem_d + totalscalesize;
@@ -86,8 +95,12 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* m
     try{
         allscore_res = allscore_map(src1_d, src2_d, tempb1_d, tempb2_d, temps11_d, temps22_d, temps12_d, temp_d, pinned, width, height, maxshared, stream);
     } catch (const VshipError& e){
+        hipFree(mem_d);
         throw e;
     }
+
+    //we are done with the gpu at that point and the synchronization has already been done in allscore_map
+    hipFreeAsync(mem_d, stream);
 
     //step 6 : format the vector
     std::vector<float> measure_vec(108);
@@ -117,7 +130,6 @@ typedef struct Ssimulacra2Data{
     VSNode *reference;
     VSNode *distorted;
     float3** PinnedMemPool;
-    float3** VRAMMemPool;
     int maxshared;
     float* gaussiankernel_d;
     hipStream_t* streams;
@@ -156,7 +168,7 @@ static const VSFrame *VS_CC ssimulacra2GetFrame(int n, int activationReason, voi
         double val;
         const int stream = d->streamSet->pop();
         try{
-            val = ssimu2process(srcp1, srcp2, d->VRAMMemPool[stream], d->PinnedMemPool[stream], stride, width, height, d->gaussiankernel_d, d->maxshared, d->streams[stream]);
+            val = ssimu2process(srcp1, srcp2, d->PinnedMemPool[stream], stride, width, height, d->gaussiankernel_d, d->maxshared, d->streams[stream]);
         } catch (const VshipError& e){
             vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);
             d->streamSet->insert(stream);
@@ -187,11 +199,9 @@ static void VS_CC ssimulacra2Free(void *instanceData, VSCore *core, const VSAPI 
     vsapi->freeNode(d->distorted);
 
     for (int i = 0; i < d->streamnum; i++){
-        hipFree(d->VRAMMemPool[i]);
         hipHostFree(d->PinnedMemPool[i]);
         hipStreamDestroy(d->streams[i]);
     }
-    free(d->VRAMMemPool);
     free(d->PinnedMemPool);
     hipFree(d->gaussiankernel_d);
     free(d->streams);
@@ -279,27 +289,12 @@ static void VS_CC ssimulacra2Create(const VSMap *in, VSMap *out, void *userData,
     d.streamSet = new threadSet(newstreamset);
 
     const int pinnedsize = allocsizeScore(viref->width, viref->height, d.maxshared);
-    int vramsize = 0; int w = viref->width; int h = viref->height;
-    for (int scale = 0; scale <= 5; scale++){
-        vramsize += w*h;
-        w = (w-1)/2+1;
-        h = (h-1)/2+1;
-    }
-
     d.PinnedMemPool = (float3**)malloc(sizeof(float3*)*d.streamnum);
-    d.VRAMMemPool = (float3**)malloc(sizeof(float3*)*d.streamnum);
     hipError_t erralloc;
     for (int i = 0; i < d.streamnum; i++){
         erralloc = hipHostMalloc(d.PinnedMemPool+i, sizeof(float3)*pinnedsize);
         if (erralloc != hipSuccess){
             vsapi->mapSetError(out, VshipError(OutOfRAM, __FILE__, __LINE__).getErrorMessage().c_str());
-            vsapi->freeNode(d.reference);
-            vsapi->freeNode(d.distorted);
-            return;
-        }
-        erralloc = hipMalloc(d.VRAMMemPool+i, sizeof(float3)*8*vramsize); //8 planes of size totalscale
-        if (erralloc != hipSuccess){
-            vsapi->mapSetError(out, VshipError(OutOfVRAM, __FILE__, __LINE__).getErrorMessage().c_str());
             vsapi->freeNode(d.reference);
             vsapi->freeNode(d.distorted);
             return;
