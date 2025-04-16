@@ -64,56 +64,6 @@ namespace helper{
         }
     }
 
-    static void VS_CC GpuInfo(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
-        std::stringstream ss;
-        int count, device;
-        hipDeviceProp_t devattr;
-
-        //we don't need a full check at that point
-        try{
-            count = checkGpuCount();
-        } catch (const VshipError& e){
-            vsapi->mapSetError(out, e.getErrorMessage().c_str());
-            return;
-        }
-
-        int error;
-        int gpuid = vsapi->mapGetInt(in, "gpu_id", 0, &error);
-        if (error != peSuccess){
-            gpuid = 0;
-        }
-        
-        if (count <= gpuid || gpuid < 0){
-            vsapi->mapSetError(out, VshipError(BadDeviceArgument, __FILE__, __LINE__).getErrorMessage().c_str());
-            return;
-        }
-
-        if (error != peSuccess){
-            //no gpu_id was selected
-            for (int i = 0; i < count; i++){
-                hipSetDevice(i);
-                hipGetDevice(&device);
-                hipGetDeviceProperties(&devattr, device);
-                ss << "GPU " << i << ": " << devattr.name << std::endl;
-            }
-        } else {
-            hipSetDevice(gpuid);
-            hipGetDevice(&device);
-            hipGetDeviceProperties(&devattr, device);
-            ss << "Name: " << devattr.name << std::endl;
-            ss << "MultiProcessorCount: " << devattr.multiProcessorCount << std::endl;
-            ss << "ClockRate: " << ((float)devattr.clockRate)/1000000 << " Ghz" << std::endl;
-            ss << "MaxSharedMemoryPerBlock: " << devattr.sharedMemPerBlock << " bytes" << std::endl;
-            ss << "WarpSize: " << devattr.warpSize << std::endl;
-            ss << "VRAMCapacity: " << ((float)devattr.totalGlobalMem)/1000000000 << " GB" << std::endl;
-            ss << "MemoryBusWidth: " << devattr.memoryBusWidth << " bits" << std::endl;
-            ss << "MemoryClockRate: " << ((float)devattr.memoryClockRate)/1000000 << " Ghz" << std::endl;
-            ss << "Integrated: " << devattr.integrated << std::endl;
-            ss << "PassKernelCheck : " << (int)gpuKernelCheck() << std::endl;
-        }
-        vsapi->mapSetData(out, "gpu_human_data", ss.str().data(), ss.str().size(), dtUtf8, maReplace);
-    }
-
 }
 
 #endif

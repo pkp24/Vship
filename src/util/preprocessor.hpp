@@ -7,8 +7,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include<math.h>
-#include "VapourSynth4.h"
-#include "VSHelper4.h"
 #include<vector>
 #include <chrono>
 #include <thread>

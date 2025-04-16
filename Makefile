@@ -15,17 +15,17 @@ endif
 
 .FORCE:
 
-build: src/main.cpp .FORCE
-	hipcc src/main.cpp --offload-arch=native -I "$(current_dir)include" -Wno-unused-result -Wno-ignored-attributes -shared $(fpicamd) -o "$(current_dir)vship$(dllend)"
+build: src/vapoursynthPlugin.cpp .FORCE
+	hipcc src/vapoursynthPlugin.cpp --offload-arch=native -I "$(current_dir)include" -Wno-unused-result -Wno-ignored-attributes -shared $(fpicamd) -o "$(current_dir)vship$(dllend)"
 
-buildcuda: src/main.cpp .FORCE
-	nvcc -x cu src/main.cpp -arch=native -I "$(current_dir)include"  -shared $(fpiccuda) -o "$(current_dir)vship$(dllend)"
+buildcuda: src/vapoursynthPlugin.cpp .FORCE
+	nvcc -x cu src/vapoursynthPlugin.cpp -arch=native -I "$(current_dir)include"  -shared $(fpiccuda) -o "$(current_dir)vship$(dllend)"
 
-buildcudaall: src/main.cpp .FORCE
-	nvcc -x cu src/main.cpp -arch=all -I "$(current_dir)include" -shared $(fpiccuda) -o "$(current_dir)vship$(dllend)"
+buildcudaall: src/vapoursynthPlugin.cpp .FORCE
+	nvcc -x cu src/vapoursynthPlugin.cpp -arch=all -I "$(current_dir)include" -shared $(fpiccuda) -o "$(current_dir)vship$(dllend)"
 
-buildall: src/main.cpp .FORCE
-	hipcc src/main.cpp --offload-arch=gfx1100,gfx1101,gfx1102,gfx1030,gfx1031,gfx1032,gfx906,gfx801,gfx802,gfx803 -I "$(current_dir)include" -Wno-unused-result -Wno-ignored-attributes -shared $(fpicamd) -o "$(current_dir)vship$(dllend)"
+buildall: src/vapoursynthPlugin.cpp .FORCE
+	hipcc src/vapoursynthPlugin.cpp --offload-arch=gfx1100,gfx1101,gfx1102,gfx1030,gfx1031,gfx1032,gfx906,gfx801,gfx802,gfx803 -I "$(current_dir)include" -Wno-unused-result -Wno-ignored-attributes -shared $(fpicamd) -o "$(current_dir)vship$(dllend)"
 
 
 install:
