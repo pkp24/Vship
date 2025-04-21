@@ -40,7 +40,7 @@ class SSIMU2Score:
 		self.distorded = "None"
 		self.type = "SSIMU2"
 
-	def compute(self, originalFile : str, distordedFile : str, skip : int = 5, begin : int = 0, end : int = None, method:str="vship", numStream = 4, gpu_id=0) -> None:
+	def compute(self, originalFile : str, distordedFile : str, skip : int = 1, begin : int = 0, end : int = None, method:str="vship", numStream = 8, gpu_id=0) -> None:
 		src =  (vs.core.bs.VideoSource(originalFile) if (type(originalFile) == str) else originalFile)[begin:end:skip]
 		dis = (vs.core.bs.VideoSource(distordedFile) if (type(distordedFile) == str) else distordedFile)[begin:end:skip]
 
@@ -67,7 +67,7 @@ class SSIMU2Score:
 		self.distorded = distordedFile
 		self.type = "SSIMU2"
 
-	def compute_butter(self, originalFile, distordedFile, skip : int = 5, begin : int = 0, end : int = None, method:str="vship", numStream = 4, gpu_id=0) -> None:
+	def compute_butter(self, originalFile, distordedFile, skip : int = 1, begin : int = 0, end : int = None, method:str="vship", numStream = 8, gpu_id=0) -> None:
 		src =  (vs.core.bs.VideoSource(originalFile) if (type(originalFile) == str) else originalFile)[begin:end:skip]
 		dis = (vs.core.bs.VideoSource(distordedFile) if (type(distordedFile) == str) else distordedFile)[begin:end:skip]
 
