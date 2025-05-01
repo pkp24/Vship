@@ -15,19 +15,86 @@ extern "C"{
 #include <libavutil/imgutils.h>
 }
 
-class DecodingContext{
-public:
+class FFmpegVideoManager{
     AVFormatContext* fmt_ctx = NULL;
-    int streamid = 0;
+    int streamid;
+    AVStream *st;
+    AVCodecParameters *dec_param;
+    const AVCodec *dec;
     AVCodecContext *video_dec_ctx = NULL;
 
+    //active decoding context
     AVPacket *pkt = NULL;
     bool packet_end = true;
     bool end_of_video = false; //used for flushing last decoder frames
-
+public:
     AVFrame *frame = NULL;
     int error = 0;
+    FFmpegVideoManager(std::string file){
+        int ret = 0;
 
+        ret = avformat_open_input(&fmt_ctx, file.c_str(), NULL, NULL);
+        if (ret < 0) {
+            std::cout << "FFmpeg failed to read file (Error : " << ret << ") : " << file << std::endl;
+            error = 1;
+            return;
+        }
+
+        ret = avformat_find_stream_info(fmt_ctx, NULL);
+        if (ret < 0){
+            std::cout << "FFmpeg failed to read streams from file (Error : " << ret << ") : " << file << std::endl;
+            error = 2;
+            return;
+        }
+
+        ret = av_find_best_stream(fmt_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
+        if (ret < 0){
+            std::cout << "FFmpeg failed to find a video stream for file (Error : " << ret << ") : " << file << std::endl;
+            error = 3;
+            return;
+        }
+
+        streamid = ret;
+        st = fmt_ctx->streams[streamid];
+        dec_param = st->codecpar;
+
+        dec = avcodec_find_decoder(dec_param->codec_id);
+        if (!dec){
+            std::cout << "FFmpeg failed to find " << file << " codec" << std::endl;
+            error = 4;
+            return;
+        }
+
+        video_dec_ctx = avcodec_alloc_context3(dec);
+        if (!video_dec_ctx){
+            std::cout << "FFmpeg failed to allocate codec context" << std::endl;
+            error = 5;
+            return;
+        }
+
+        avcodec_parameters_to_context(video_dec_ctx, dec_param);
+
+        ret = avcodec_open2(video_dec_ctx, dec, NULL);
+        if (ret < 0){
+            std::cout << "FFmpeg failed to open " << file << " codec" << std::endl;
+            error = 6;
+            return;
+        }
+
+        frame = av_frame_alloc();
+        if (!frame){
+            std::cout << "FFmpeg failed to allocate frame" << std::endl;
+            error = 7;
+            return;
+        }
+        pkt = av_packet_alloc();
+        if (!pkt){
+            std::cout << "FFmpeg failed to allocate packet" << std::endl;
+            error = 8;
+            return;
+        }
+        
+    }
     int getNextFrame(){ //access result with object.frame. return 0 if success, -2 is EndOfVideo
         int ret;
         av_frame_unref(frame); //we remove last frame
@@ -67,97 +134,11 @@ public:
         }
         return 0;
     }
-    ~DecodingContext(){
+    ~FFmpegVideoManager(){
+        if (fmt_ctx != NULL) avformat_close_input(&fmt_ctx);
         if (video_dec_ctx != NULL) avcodec_free_context(&video_dec_ctx);
         if (pkt != NULL) av_packet_free(&pkt);
         if (frame != NULL) av_frame_free(&frame);
-    }
-};
-
-class FFmpegVideoManager{
-    AVFormatContext* fmt_ctx = NULL;
-    int streamid;
-    AVStream *st;
-    AVCodecParameters *dec_param;
-    const AVCodec *dec;
-public:
-    int error = 0;
-    FFmpegVideoManager(std::string file){
-        int ret = 0;
-
-        ret = avformat_open_input(&fmt_ctx, file.c_str(), NULL, NULL);
-        if (ret < 0) {
-            std::cout << "FFmpeg failed to read file (Error : " << ret << ") : " << file << std::endl;
-            error = 1;
-            return;
-        }
-
-        ret = avformat_find_stream_info(fmt_ctx, NULL);
-        if (ret < 0){
-            std::cout << "FFmpeg failed to read streams from file (Error : " << ret << ") : " << file << std::endl;
-            error = 2;
-            return;
-        }
-
-        ret = av_find_best_stream(fmt_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
-        if (ret < 0){
-            std::cout << "FFmpeg failed to find a video stream for file (Error : " << ret << ") : " << file << std::endl;
-            error = 3;
-            return;
-        }
-
-        streamid = ret;
-        st = fmt_ctx->streams[streamid];
-        dec_param = st->codecpar;
-
-        dec = avcodec_find_decoder(dec_param->codec_id);
-        if (!dec){
-            std::cout << "FFmpeg failed to find " << file << " codec" << std::endl;
-            error = 4;
-            return;
-        }
-
-    }
-
-    DecodingContext createDecodingContext(){
-        int ret;
-
-        DecodingContext res;
-        res.fmt_ctx = fmt_ctx;
-        res.streamid = streamid;
-        res.video_dec_ctx = avcodec_alloc_context3(dec);
-        if (!res.video_dec_ctx){
-            std::cout << "FFmpeg failed to allocate codec context" << std::endl;
-            res.error = 5;
-            return res;
-        }
-
-        avcodec_parameters_to_context(res.video_dec_ctx, dec_param);
-
-        ret = avcodec_open2(res.video_dec_ctx, dec, NULL);
-        if (ret < 0){
-            std::cout << "FFmpeg failed to open codec" << std::endl;
-            res.error = 6;
-            return res;
-        }
-
-        res.frame = av_frame_alloc();
-        if (!res.frame){
-            std::cout << "FFmpeg failed to allocate frame" << std::endl;
-            res.error = 7;
-            return res;
-        }
-        res.pkt = av_packet_alloc();
-        if (!res.pkt){
-            std::cout << "FFmpeg failed to allocate packet" << std::endl;
-            res.error = 8;
-            return res;
-        }
-
-        return res;
-    }
-    ~FFmpegVideoManager(){
-        if (fmt_ctx != NULL) avformat_close_input(&fmt_ctx);
     }
 };
 
@@ -337,23 +318,15 @@ int main(int argc, char** argv){
         std::cout << "Failed to open file " << file1 << std::endl;
         return 0;
     }
-    DecodingContext dc1 = v1.createDecodingContext();
-    if (dc1.error){
-        std::cout << "Failed to create decoding context " << file1 << std::endl;
-    }
     FFmpegVideoManager v2(file2);
     if (v2.error){
         std::cout << "Failed to open file " << file2 << std::endl;
         return 0;
     }
-    DecodingContext dc2 = v2.createDecodingContext();
-    if (dc2.error){
-        std::cout << "Failed to create decoding context " << file1 << std::endl;
-    }
 
     auto init = std::chrono::high_resolution_clock::now();
     int i = 0;
-    while (dc1.getNextFrame() == 0){
+    while (v1.getNextFrame() == 0){
         i++;
     }
     auto fin = std::chrono::high_resolution_clock::now();
@@ -361,7 +334,7 @@ int main(int argc, char** argv){
 
     init = std::chrono::high_resolution_clock::now();
     i = 0;
-    while (dc2.getNextFrame() == 0){
+    while (v2.getNextFrame() == 0){
         i++;
     }
     fin = std::chrono::high_resolution_clock::now();
