@@ -96,8 +96,8 @@ namespace ssimu2{
         Ssimulacra2Data *data;
     
         // Get a clip reference from the input arguments. This must be freed later.
-        d.reference = toRGBS(vsapi->mapGetNode(in, "reference", 0, 0), core, vsapi);
-        d.distorted = toRGBS(vsapi->mapGetNode(in, "distorted", 0, 0), core, vsapi);
+        d.reference = toRGBS(vsapi->mapGetNode(in, "reference", 0, 0), core, vsapi, false);
+        d.distorted = toRGBS(vsapi->mapGetNode(in, "distorted", 0, 0), core, vsapi, false);
         const VSVideoInfo *viref = vsapi->getVideoInfo(d.reference);
         const VSVideoInfo *vidis = vsapi->getVideoInfo(d.distorted);
     

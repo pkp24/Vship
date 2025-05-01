@@ -18,7 +18,9 @@
 
 #ifdef __HIPCC__
     #include<hip/hip_runtime.h>
+    #include<hip/hip_fp16.h>
 #elif defined __CUDACC__
+    #include <cuda_fp16.h>
     #define LOWLEVEL
     #define hipMemcpyDtoH(x, y, z) cudaMemcpy(x, y, z, cudaMemcpyDeviceToHost)
     #define hipMemcpyHtoD(x, y, z) cudaMemcpy(x, y, z, cudaMemcpyHostToDevice)

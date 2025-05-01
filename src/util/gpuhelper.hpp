@@ -64,6 +64,20 @@ namespace helper{
         }
     }
 
+    std::string listGPU(){
+        std::stringstream ss;
+        hipDeviceProp_t devattr;
+        int device;
+        int count = checkGpuCount();
+
+        for (int i = 0; i < count; i++){
+            hipSetDevice(i);
+            hipGetDevice(&device);
+            hipGetDeviceProperties(&devattr, device);
+            ss << "GPU " << i << ": " << devattr.name << std::endl;
+        }
+        return ss.str();
+    }
 }
 
 #endif
