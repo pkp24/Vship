@@ -27,6 +27,11 @@ class FFmpegVideoManager{
     AVPacket *pkt = NULL;
     bool packet_end = true;
     bool end_of_video = false; //used for flushing last decoder frames
+
+    int packet_frame = 0;
+    uint64_t beginTime = 0;
+    uint64_t endTime = 0;
+    
 public:
     AVFrame *frame = NULL;
     int error = 0;
@@ -93,12 +98,24 @@ public:
             error = 8;
             return;
         }
-        
+        beginTime = 0;
+        endTime = ((fmt_ctx->duration+1)*st->time_base.den)/(st->time_base.num*AV_TIME_BASE);
+    }
+    int seek(int num, int den){
+        //std::cout << fmt_ctx->duration << " " << st->time_base.num << " " << st->time_base.den << " " << AV_TIME_BASE << std::endl;
+        uint64_t totaltimeunit = ((fmt_ctx->duration+1)*st->time_base.den)/(st->time_base.num*AV_TIME_BASE);
+        uint64_t requested = ((int64_t)totaltimeunit*(int64_t)num-1)/den+1;
+        int ret = avformat_seek_file(fmt_ctx, streamid, INT64_MIN, requested, INT64_MAX, 0);
+        beginTime = requested;
+        endTime = ((int64_t)totaltimeunit*(int64_t)(num+1)-1)/den+1;
+        return ret;
     }
     int getNextFrame(){ //access result with object.frame. return 0 if success, -2 is EndOfVideo
         int ret;
+
         av_frame_unref(frame); //we remove last frame
         if (packet_end){
+            packet_frame = 0;
             av_packet_unref(pkt); //we remove last packet and search a new one
             while (true){
                 if (av_read_frame(fmt_ctx, pkt) < 0){
@@ -131,6 +148,15 @@ public:
  
             std::cout << "Error during decoding: " <<  av_err2str(ret) << std::endl;
             return -1;
+        }
+        packet_frame++;
+
+        //if we are before beginTime, go next
+        if (!end_of_video){
+            const uint64_t currentTime = frame->pts;
+            //std::cout << pkt->pts << "  " << packet_frame << "  " << st->time_base.num << " / " << st->time_base.den << std::endl;
+            if (currentTime < beginTime) return getNextFrame();
+            if (currentTime >= endTime) return -2;
         }
         return 0;
     }
@@ -323,6 +349,9 @@ int main(int argc, char** argv){
         std::cout << "Failed to open file " << file2 << std::endl;
         return 0;
     }
+
+    v1.seek(5, 24);
+    v2.seek(5, 24);
 
     auto init = std::chrono::high_resolution_clock::now();
     int i = 0;
