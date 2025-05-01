@@ -15,7 +15,72 @@ extern "C"{
 #include <libavutil/imgutils.h>
 }
 
-#include "ffmpeg_util/base.hpp"
+class FFmpegVideoManager{
+    AVFormatContext* fmt_ctx = NULL;
+    int streamid;
+    AVStream *st;
+    AVCodecParameters *dec_param;
+    const AVCodec *dec;
+    AVCodecContext *video_dec_ctx = NULL;
+public:
+    int error = 0;
+    FFmpegVideoManager(std::string file){
+        int ret = 0;
+
+        ret = avformat_open_input(&fmt_ctx, file.c_str(), NULL, NULL);
+        if (ret < 0) {
+            std::cout << "FFmpeg failed to read file (Error : " << ret << ") : " << file << std::endl;
+            error = 1;
+            return;
+        }
+
+        ret = avformat_find_stream_info(fmt_ctx, NULL);
+        if (ret < 0){
+            std::cout << "FFmpeg failed to read streams from file (Error : " << ret << ") : " << file << std::endl;
+            error = 2;
+            return;
+        }
+
+        ret = av_find_best_stream(fmt_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
+        if (ret < 0){
+            std::cout << "FFmpeg failed to find a video stream for file (Error : " << ret << ") : " << file << std::endl;
+            error = 3;
+            return;
+        }
+
+        streamid = ret;
+        st = fmt_ctx->streams[streamid];
+        dec_param = st->codecpar;
+
+        dec = avcodec_find_decoder(dec_param->codec_id);
+        if (!dec){
+            std::cout << "FFmpeg failed to find " << file << " codec" << std::endl;
+            error = 4;
+            return;
+        }
+
+        video_dec_ctx = avcodec_alloc_context3(dec);
+        if (!video_dec_ctx){
+            std::cout << "OOM" << std::endl;
+            error = 5;
+            return;
+        }
+
+        avcodec_parameters_to_context(video_dec_ctx, dec_param);
+
+        ret = avcodec_open2(video_dec_ctx, dec, NULL);
+        if (ret < 0){
+            std::cout << "FFmpeg failed to open " << file << " codec" << std::endl;
+            error = 6;
+            avformat_close_input(&fmt_ctx);
+            return;
+        }
+    }
+    ~FFmpegVideoManager(){
+        if (fmt_ctx != NULL) avformat_close_input(&fmt_ctx);
+        if (video_dec_ctx != NULL) avcodec_free_context(&video_dec_ctx);
+    }
+};
 
 void printUsage(){
     std::cout << R"(usage: ./vship [-h] [--source SOURCE] [--encoded ENCODED]
@@ -187,77 +252,17 @@ int main(int argc, char** argv){
 
     //gpu sanity check
     helper::gpuFullCheck(gpuid);
-
-    int ret = 0;
-
-    AVFormatContext* fmt_ctx1 = NULL;
-    AVFormatContext* fmt_ctx2 = NULL;
-    ret = avformat_open_input(&fmt_ctx1, file1.c_str(), NULL, NULL);
-    if (ret < 0) {
-        std::cout << "FFmpeg failed to read file (Error : " << ret << ") : " << file1 << std::endl;
-        return 0;
-    }
-    ret = avformat_open_input(&fmt_ctx2, file2.c_str(), NULL, NULL);
-    if (ret < 0) {
-        std::cout << "FFmpeg failed to read file (Error : " << ret << ") : " << file2 << std::endl;
-        avformat_close_input(&fmt_ctx1);
-        return 0;
-    }
-
-    ret = avformat_find_stream_info(fmt_ctx1, NULL);
-    if (ret < 0){
-        std::cout << "FFmpeg failed to read streams from file (Error : " << ret << ") : " << file1 << std::endl;
-        avformat_close_input(&fmt_ctx1);
-        avformat_close_input(&fmt_ctx2);
-        return 0;
-    }
-    ret = avformat_find_stream_info(fmt_ctx2, NULL);
-    if (ret < 0){
-        std::cout << "FFmpeg failed to read streams from file (Error : " << ret << ") : " << file2 << std::endl;
-        avformat_close_input(&fmt_ctx1);
-        avformat_close_input(&fmt_ctx2);
-        return 0;
-    }
-
-    ret = av_find_best_stream(fmt_ctx1, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
-    if (ret < 0){
-        std::cout << "FFmpeg failed to find a video stream for file (Error : " << ret << ") : " << file1 << std::endl;
-        avformat_close_input(&fmt_ctx1);
-        avformat_close_input(&fmt_ctx2);
-    }
-    int streamid1 = ret;
-    ret = av_find_best_stream(fmt_ctx2, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
-    if (ret < 0){
-        std::cout << "FFmpeg failed to find a video stream for file (Error : " << ret << ") : " << file2 << std::endl;
-        avformat_close_input(&fmt_ctx1);
-        avformat_close_input(&fmt_ctx2);
-    }
-    int streamid2 = ret;
     
-    AVStream *st1 = fmt_ctx1->streams[streamid1];
-    AVStream *st2 = fmt_ctx2->streams[streamid2];
-
-    AVCodecParameters *dec_param1 = st1->codecpar;
-    AVCodecParameters *dec_param2 = st2->codecpar;
-
-    const AVCodec *dec1 = avcodec_find_decoder(dec_param1->codec_id);
-    if (!dec1){
-        std::cout << "FFmpeg failed to find " << file1 << " codec" << std::endl;
-        avformat_close_input(&fmt_ctx1);
-        avformat_close_input(&fmt_ctx2);
+    FFmpegVideoManager v1(file1);
+    if (v1.error){
+        std::cout << "Failed to open file " << file1 << std::endl;
         return 0;
     }
-    const AVCodec *dec2 = avcodec_find_decoder(dec_param2->codec_id);
-    if (!dec2){
-        std::cout << "FFmpeg failed to find " << file2 << " codec" << std::endl;
-        avformat_close_input(&fmt_ctx1);
-        avformat_close_input(&fmt_ctx2);
+    FFmpegVideoManager v2(file2);
+    if (v2.error){
+        std::cout << "Failed to open file " << file2 << std::endl;
         return 0;
     }
-
-
-    avformat_close_input(&fmt_ctx1);
-    avformat_close_input(&fmt_ctx2);
     
     return 0;
 }
