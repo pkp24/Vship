@@ -22,7 +22,13 @@ class FFmpegVideoManager{
     AVCodecParameters *dec_param;
     const AVCodec *dec;
     AVCodecContext *video_dec_ctx = NULL;
+
+    //active decoding context
+    AVPacket *pkt = NULL;
+    bool packet_end = true;
+    bool end_of_video = false; //used for flushing last decoder frames
 public:
+    AVFrame *frame = NULL;
     int error = 0;
     FFmpegVideoManager(std::string file){
         int ret = 0;
@@ -61,7 +67,7 @@ public:
 
         video_dec_ctx = avcodec_alloc_context3(dec);
         if (!video_dec_ctx){
-            std::cout << "OOM" << std::endl;
+            std::cout << "FFmpeg failed to allocate codec context" << std::endl;
             error = 5;
             return;
         }
@@ -72,13 +78,66 @@ public:
         if (ret < 0){
             std::cout << "FFmpeg failed to open " << file << " codec" << std::endl;
             error = 6;
-            avformat_close_input(&fmt_ctx);
             return;
         }
+
+        frame = av_frame_alloc();
+        if (!frame){
+            std::cout << "FFmpeg failed to allocate frame" << std::endl;
+            error = 7;
+            return;
+        }
+        pkt = av_packet_alloc();
+        if (!pkt){
+            std::cout << "FFmpeg failed to allocate packet" << std::endl;
+            error = 8;
+            return;
+        }
+    }
+    int getNextFrame(){ //access result with object.frame. return 0 if success, -2 is EndOfVideo
+        int ret;
+        av_frame_unref(frame); //we remove last frame
+        if (packet_end){
+            av_packet_unref(pkt); //we remove last packet and search a new one
+            while (true){
+                if (av_read_frame(fmt_ctx, pkt) < 0){
+                    if (end_of_video) return -2; //we ve been there already so we are flushed
+                    packet_end = false;
+                    ret = avcodec_send_packet(video_dec_ctx, NULL);
+                    if (ret < 0){
+                        std::cout << "Error submitting a packet to the decoder" << std::endl;
+                    }
+                    end_of_video = true;
+                    return getNextFrame();
+                } else {
+                    if (pkt->stream_index == streamid){
+                        packet_end = false;
+                        ret = avcodec_send_packet(video_dec_ctx, pkt);
+                        if (ret < 0){
+                            std::cout << "Error submitting a packet to the decoder" << std::endl;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        ret = avcodec_receive_frame(video_dec_ctx, frame);
+        if (ret < 0) {
+            if (ret == AVERROR_EOF || ret == AVERROR(EAGAIN)){ //end of packet
+                packet_end = true;
+                return getNextFrame(); //still needs to track the next one
+            }
+ 
+            std::cout << "Error during decoding: " <<  av_err2str(ret) << std::endl;
+            return -1;
+        }
+        return 0;
     }
     ~FFmpegVideoManager(){
         if (fmt_ctx != NULL) avformat_close_input(&fmt_ctx);
         if (video_dec_ctx != NULL) avcodec_free_context(&video_dec_ctx);
+        if (pkt != NULL) av_packet_free(&pkt);
+        if (frame != NULL) av_frame_free(&frame);
     }
 };
 
@@ -263,6 +322,18 @@ int main(int argc, char** argv){
         std::cout << "Failed to open file " << file2 << std::endl;
         return 0;
     }
+
+    int i = 0;
+    while (v1.getNextFrame() == 0){
+        i++;
+    }
+    std::cout << "Read " << i << " frames" << std::endl;
+
+    i = 0;
+    while (v2.getNextFrame() == 0){
+        i++;
+    }
+    std::cout << "Read " << i << " frames" << std::endl;
     
     return 0;
 }
