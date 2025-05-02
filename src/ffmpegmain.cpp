@@ -1,9 +1,13 @@
+#include<fstream>
+#include<algorithm>
+
 #include "util/preprocessor.hpp"
 #include "util/gpuhelper.hpp"
 #include "util/VshipExceptions.hpp"
-
-#include "util/preprocessor.hpp"
 #include "util/threadsafeset.hpp"
+
+#include "ssimu2/main.hpp"
+#include "butter/main.hpp"
 
 extern "C"{
 #include <libavcodec/avcodec.h>
@@ -13,6 +17,7 @@ extern "C"{
 }
 
 class FFmpegVideoManager{
+public:
     SwsContext* sws_ctx = NULL;
 
     AVFormatContext* fmt_ctx = NULL;
@@ -30,7 +35,6 @@ class FFmpegVideoManager{
     uint64_t beginTime = 0;
     uint64_t endTime = 0;
     
-public:
     AVFrame *frame = NULL;
     uint8_t* outputRGB = NULL;
     uint8_t* RGBptrHelper[3] = {NULL, NULL, NULL};
@@ -203,7 +207,7 @@ public:
 
 enum METRICS{SSIMULACRA2, Butteraugli};
 
-void threadwork(std::string file1, std::string file2, int threadid, int threadnum, METRICS metric, threadSet* gpustreams, std::vector<float>& output){ //for butteraugli, return 2norm, 3norm, Infnorm, 2norm, ...
+void threadwork(std::string file1, std::string file2, int threadid, int threadnum, METRICS metric, threadSet* gpustreams, int maxshared, float intensity_multiplier, float* gaussiankernel_dssimu2, butter::GaussianHandle* gaussianhandlebutter, void** pinnedmempool, hipStream_t* streams_d, std::vector<float>* output){ //for butteraugli, return 2norm, 3norm, Infnorm, 2norm, ...
 
     av_log_set_level(AV_LOG_ERROR);
     
@@ -217,6 +221,10 @@ void threadwork(std::string file1, std::string file2, int threadid, int threadnu
         std::cout << "Thread " << threadid << " Failed to open file " << file2 << std::endl;
         return;
     }
+    if (v1.video_dec_ctx->width != v2.video_dec_ctx->width || v1.video_dec_ctx->height != v2.video_dec_ctx->height){
+        std::cout << "the 2 videos do not have the same sizes" << std::endl;
+        return;
+    }
     if (v1.seek(threadid, threadnum) != 0){
         std::cout << "Thread " << threadid << " Failed to seek file " << file1 << std::endl;
         return;
@@ -224,6 +232,16 @@ void threadwork(std::string file1, std::string file2, int threadid, int threadnu
     if (v2.seek(threadid, threadnum) != 0){
         std::cout << "Thread " << threadid << " Failed to seek file " << file2 << std::endl;
         return;
+    }
+
+    int pinnedsize = 0;
+    switch (metric){
+        case SSIMULACRA2:
+        pinnedsize = ssimu2::allocsizeScore(v2.video_dec_ctx->width, v1.video_dec_ctx->height, maxshared)*sizeof(float3);
+        break;
+        case Butteraugli:
+        pinnedsize = butter::allocsizeScore(v2.video_dec_ctx->width, v1.video_dec_ctx->height)*sizeof(float);
+        break;
     }
     
     int i = 0;
@@ -233,9 +251,39 @@ void threadwork(std::string file1, std::string file2, int threadid, int threadnu
             break;
         }
 
-        int stream = gpustreams->pop();
+        const uint8_t* srcp1[3] = {v1.RGBptrHelper[0], v1.RGBptrHelper[1], v1.RGBptrHelper[2]};
+        const uint8_t* srcp2[3] = {v2.RGBptrHelper[0], v2.RGBptrHelper[1], v2.RGBptrHelper[2]};
 
-        gpustreams->insert(stream);
+        int streamid = gpustreams->pop();
+        hipStream_t stream = streams_d[streamid];
+
+        if (pinnedmempool[streamid] == NULL){
+            //first usage of this stream, let's allocate the pinned mem
+            hipError_t erralloc = hipHostMalloc(pinnedmempool+streamid, pinnedsize);
+            if (erralloc != hipSuccess){
+                std::cout << "Thread " << threadid << " Failed to allocate pinned memory for back buffer" << std::endl;
+                return;
+            }
+        }
+        void* pinnedmem = pinnedmempool[streamid];
+
+        switch (metric){
+            case Butteraugli:
+            {
+            const std::tuple<float, float, float> scorebutter = butter::butterprocess<UINT16>(NULL, 0, srcp1, srcp2, (float*)pinnedmem, *gaussianhandlebutter, v1.RGBstride[0], v1.video_dec_ctx->width, v1.video_dec_ctx->height, intensity_multiplier, maxshared, stream);
+            output->push_back(std::get<0>(scorebutter));
+            output->push_back(std::get<1>(scorebutter));
+            output->push_back(std::get<2>(scorebutter));
+            break;
+            }
+            case SSIMULACRA2:
+            {
+            const double scoressimu2 = ssimu2::ssimu2process<UINT16>(srcp1, srcp2, (float3*)pinnedmem, v1.RGBstride[0], v1.video_dec_ctx->width, v1.video_dec_ctx->height, gaussiankernel_dssimu2, maxshared, stream);
+            output->push_back(scoressimu2);
+            break;
+            }
+        }
+        gpustreams->insert(streamid);
         
         i++;
     }
@@ -246,7 +294,7 @@ void printUsage(){
     std::cout << R"(usage: ./vship [-h] [--source SOURCE] [--encoded ENCODED]
                     [-m {SSIMULACRA2, Butteraugli}]
                     [-t THREADS] [-g gpuThreads] [-gpu gpu_id]
-                    [-e EVERY] [--start START] [--end END]
+                    [--json OUTPUT]
                     [--list-gpu]
                     Specific to Butteraugli: 
                     [--intensity-target Intensity(nits)])" << std::endl;
@@ -265,14 +313,12 @@ int main(int argc, char** argv){
 
     int gpuid = 0;
     int gputhreads = 8;
-    int start = 0;
-    int end = -1;
-    int skip = 1;
     int threads = 12;
     bool metric_set = false;
     METRICS metric = SSIMULACRA2;
     std::string file1;
     std::string file2;
+    std::string jsonout = "";
 
     int intensity_multiplier = 80;
 
@@ -288,24 +334,19 @@ int main(int argc, char** argv){
                 return 1;
             }
             return 0;
-        } else if (args[i] == "-e" || args[i] == "--every"){
-            if (i == args.size()-1){
-                std::cout << "-e needs an argument" << std::endl;
-                return 0;
-            }
-            try {
-                skip = stoi(args[i+1]);
-            } catch (std::invalid_argument& e){
-                std::cout << "invalid value for -e" << std::endl;
-                return 0;
-            }
-            i++;
         } else if (args[i] == "--source") {
             if (i == args.size()-1){
                 std::cout << "--source needs an argument" << std::endl;
                 return 0;
             }
             file1 = args[i+1];
+            i++;
+        } else if (args[i] == "--json") {
+            if (i == args.size()-1){
+                std::cout << "--json needs an argument" << std::endl;
+                return 0;
+            }
+            jsonout = args[i+1];
             i++;
         } else if (args[i] == "--encoded") {
             if (i == args.size()-1){
@@ -378,30 +419,6 @@ int main(int argc, char** argv){
                 return 0;
             }
             i++;
-        } else if (args[i] == "--start"){
-            if (i == args.size()-1){
-                std::cout << "--start needs an argument" << std::endl;
-                return 0;
-            }
-            try {
-                start = stoi(args[i+1]);
-            } catch (std::invalid_argument& e){
-                std::cout << "invalid value for --start" << std::endl;
-                return 0;
-            }
-            i++;
-        } else if (args[i] == "--end"){
-            if (i == args.size()-1){
-                std::cout << "--end needs an argument" << std::endl;
-                return 0;
-            }
-            try {
-                end = stoi(args[i+1]);
-            } catch (std::invalid_argument& e){
-                std::cout << "invalid value for --end" << std::endl;
-                return 0;
-            }
-            i++;
         } else {
             std::cout << "Unrecognized option: " << args[i] << std::endl;
             return 0;
@@ -413,22 +430,218 @@ int main(int argc, char** argv){
 
     auto init = std::chrono::high_resolution_clock::now();
 
+    //prepare objects
+    void** pinnedmempool = (void**)malloc(sizeof(void*)*gputhreads);
+    for (int i = 0; i < gputhreads; i++) pinnedmempool[i] = NULL;
+
+    float* gaussiankernel_dssimu2 = NULL;
+    butter::GaussianHandle gaussianhandlebutter;
+
+    switch (metric){
+        case SSIMULACRA2:
+        float gaussiankernel[2*GAUSSIANSIZE+1];
+        for (int i = 0; i < 2*GAUSSIANSIZE+1; i++){
+            gaussiankernel[i] = std::exp(-(GAUSSIANSIZE-i)*(GAUSSIANSIZE-i)/(2*SIGMA*SIGMA))/(std::sqrt(TAU*SIGMA*SIGMA));
+        }
+
+        hipMalloc(&(gaussiankernel_dssimu2), sizeof(float)*(2*GAUSSIANSIZE+1));
+        hipMemcpyHtoD(gaussiankernel_dssimu2, gaussiankernel, (2*GAUSSIANSIZE+1)*sizeof(float));
+        break;
+        case Butteraugli:
+        gaussianhandlebutter.init();
+        break;
+    }
+
+    int device;
+    hipDeviceProp_t devattr;
+    hipGetDevice(&device);
+    hipGetDeviceProperties(&devattr, device);
+    const int maxshared = devattr.sharedMemPerBlock;
+
     threadSet gpustreams({});
     for (int i = 0; i < gputhreads; i++) gpustreams.insert(i);
 
+    hipStream_t* streams_d = (hipStream_t*)malloc(sizeof(hipStream_t)*gputhreads);
+    for (int i = 0; i < gputhreads; i++) hipStreamCreate(streams_d + i);
+
+    //execute
     std::vector<std::thread> threadlist;
-    std::vector<std::vector<float>> returnlist;
+    std::vector<std::vector<float>> returnlist(threads);
     for (int i = 0; i < threads; i++){
-        returnlist.emplace_back();
-        threadlist.emplace_back(threadwork, file1, file2, i, threads, metric, &gpustreams, std::ref(returnlist[i]));
+        threadlist.emplace_back(threadwork, file1, file2, i, threads, metric, &gpustreams, maxshared, intensity_multiplier, gaussiankernel_dssimu2, &gaussianhandlebutter, pinnedmempool, streams_d, &(returnlist[i]));
     }
 
     for (int i = 0; i < threads; i++){
         threadlist[i].join();
     }
 
-    auto fin = std::chrono::high_resolution_clock::now();
-    std::cout << "Read " << 1339 << " frames at " << 1339*1000/(std::chrono::duration_cast<std::chrono::milliseconds>(fin-init)).count() << std::endl;
+    //flatten
+    std::vector<float> finalreslist;
+    for (const auto& el: returnlist){
+        for (const auto& el2: el){
+            finalreslist.push_back(el2);
+        }
+    }
     
+    auto fin = std::chrono::high_resolution_clock::now();
+    
+    //free
+    for (int i = 0; i < gputhreads; i++) if (pinnedmempool[i] != NULL) hipHostFree(pinnedmempool[i]);
+    free(pinnedmempool);
+    for (int i = 0; i < gputhreads; i++) hipStreamDestroy(streams_d[i]);
+    free(streams_d);
+    switch (metric){
+        case SSIMULACRA2:
+        hipFree(gaussiankernel_dssimu2);
+        break;
+        case Butteraugli:
+        gaussianhandlebutter.destroy();
+        break;
+    }
+
+    //posttreatment
+    int millitaken = std::chrono::duration_cast<std::chrono::milliseconds>(fin-init).count();
+    int frames;
+    switch (metric){
+        case Butteraugli:
+        frames = finalreslist.size()/3;
+        break;
+        case SSIMULACRA2:
+        frames = finalreslist.size();
+        break;
+    }
+    float fps = frames*1000/millitaken;
+
+    //json output
+    if (jsonout != ""){
+        std::ofstream jsonfile(jsonout, std::ios_base::out);
+        if (!jsonfile){
+            std::cout << "Failed to open output file" << std::endl;
+            return 0;
+        }
+        jsonfile << "[";
+        for (int i = 0; i < frames; i++){
+            jsonfile << "[";
+            switch (metric){
+                case Butteraugli:
+                jsonfile << finalreslist[3*i] << ", ";
+                jsonfile << finalreslist[3*i+1] << ", ";
+                jsonfile << finalreslist[3*i+2];
+                break;
+                case SSIMULACRA2:
+                jsonfile << finalreslist[i];
+                break;
+            }
+            if (i == frames-1) {
+                jsonfile << "]";
+            } else {
+                jsonfile << "], ";
+            }
+        }
+        jsonfile << "]";
+    }
+
+    //console output
+    switch (metric){
+        case Butteraugli:
+        {
+            std::vector<float> split1(finalreslist.size()/3);
+            std::vector<float> split2(finalreslist.size()/3);
+            std::vector<float> split3(finalreslist.size()/3);
+
+            for (unsigned int i = 0; i < frames; i++){
+                split1[i] = finalreslist[3*i];
+                split2[i] = finalreslist[3*i+1];
+                split3[i] = finalreslist[3*i+2];
+            }
+
+            std::sort(split1.begin(), split1.end()); //2 norm
+            std::sort(split2.begin(), split2.end()); //3 norm
+            std::sort(split3.begin(), split3.end()); //inf norm
+
+            std::cout << "Butteraugli Result between " << file1 << " and " << file2 << std::endl;
+            std::cout << "Computed " << frames << " at " << fps << " fps" << std::endl;
+            std::cout << std::endl;
+
+            float avg = 0;
+            float avg_squared = 0;
+            for (unsigned int i = 0; i < frames; i++){
+                avg += split1[i];
+                avg_squared += split1[i]*split1[i];
+            }
+            avg /= frames;
+            avg_squared /= frames;
+            float std_dev = std::sqrt(avg_squared - avg*avg);
+
+            std::cout << "----2-Norm----" << std::endl;
+            std::cout << "Average : " << avg << std::endl;
+            std::cout << "Standard Deviation : " << std_dev << std::endl;
+            std::cout << "Median : " << split1[frames/2] << std::endl;
+            std::cout << "5th percentile : " << split1[frames/20] << std::endl;
+            std::cout << "95th percentile : " << split1[frames*19/20] << std::endl;
+            std::cout << "Maximum : " << split1[frames-1] << std::endl;
+            
+            avg = 0;
+            avg_squared = 0;
+            for (unsigned int i = 0; i < frames; i++){
+                avg += split2[i];
+                avg_squared += split2[i]*split2[i];
+            }
+            avg /= frames;
+            avg_squared /= frames;
+            std_dev = std::sqrt(avg_squared - avg*avg);
+
+            std::cout << "----3-Norm----" << std::endl;
+            std::cout << "Average : " << avg << std::endl;
+            std::cout << "Standard Deviation : " << std_dev << std::endl;
+            std::cout << "Median : " << split2[frames/2] << std::endl;
+            std::cout << "5th percentile : " << split2[frames/20] << std::endl;
+            std::cout << "95th percentile : " << split2[frames*19/20] << std::endl;
+            std::cout << "Maximum : " << split2[frames-1] << std::endl;
+
+            avg = 0;
+            avg_squared = 0;
+            for (unsigned int i = 0; i < frames; i++){
+                avg += split3[i];
+                avg_squared += split3[i]*split3[i];
+            }
+            avg /= frames;
+            avg_squared /= frames;
+            std_dev = std::sqrt(avg_squared - avg*avg);
+
+            std::cout << "--INF-Norm----" << std::endl;
+            std::cout << "Average : " << avg << std::endl;
+            std::cout << "Standard Deviation : " << std_dev << std::endl;
+            std::cout << "Median : " << split3[frames/2] << std::endl;
+            std::cout << "5th percentile : " << split3[frames/20] << std::endl;
+            std::cout << "95th percentile : " << split3[frames*19/20] << std::endl;
+            std::cout << "Maximum : " << split3[frames-1] << std::endl;
+        }
+        break;
+        case SSIMULACRA2:
+        {
+            std::sort(finalreslist.begin(), finalreslist.end());
+            float avg = 0;
+            float avg_squared = 0;
+            for (unsigned int i = 0; i < finalreslist.size(); i++){
+                avg += finalreslist[i];
+                avg_squared += finalreslist[i]*finalreslist[i];
+            }
+            avg /= finalreslist.size();
+            avg_squared /= finalreslist.size();
+            const float std_dev = std::sqrt(avg_squared - avg*avg);
+
+            std::cout << "SSIMU2 Result between " << file1 << " and " << file2 << std::endl;
+            std::cout << "Computed " << frames << " at " << fps << " fps" << std::endl;
+            std::cout << "Average : " << avg << std::endl;
+            std::cout << "Standard Deviation : " << std_dev << std::endl;
+            std::cout << "Median : " << finalreslist[finalreslist.size()/2] << std::endl;
+            std::cout << "5th percentile : " << finalreslist[finalreslist.size()/20] << std::endl;
+            std::cout << "95th percentile : " << finalreslist[19*finalreslist.size()/20] << std::endl;
+            std::cout << "Minimum : " << finalreslist[0] << std::endl; 
+        }
+        break;
+    }
+
     return 0;
 }
