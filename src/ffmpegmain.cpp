@@ -572,7 +572,7 @@ int main(int argc, char** argv){
             std::sort(split3.begin(), split3.end()); //inf norm
 
             std::cout << "Butteraugli Result between " << file1 << " and " << file2 << std::endl;
-            std::cout << "Computed " << frames << " at " << fps << " fps" << std::endl;
+            std::cout << "Computed " << frames << " frames at " << fps << " fps" << std::endl;
             std::cout << std::endl;
 
             float avg = 0;
@@ -644,7 +644,7 @@ int main(int argc, char** argv){
             const float std_dev = std::sqrt(avg_squared - avg*avg);
 
             std::cout << "SSIMU2 Result between " << file1 << " and " << file2 << std::endl;
-            std::cout << "Computed " << frames << " at " << fps << " fps" << std::endl;
+            std::cout << "Computed " << frames << " frames at " << fps << " fps" << std::endl;
             std::cout << "Average : " << avg << std::endl;
             std::cout << "Standard Deviation : " << std_dev << std::endl;
             std::cout << "Median : " << finalreslist[finalreslist.size()/2] << std::endl;
