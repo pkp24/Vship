@@ -47,7 +47,7 @@ namespace ssimu2{
             double val;
             const int stream = d->streamSet->pop();
             try{
-                val = ssimu2process(srcp1, srcp2, d->PinnedMemPool[stream], stride, width, height, d->gaussiankernel_d, d->maxshared, d->streams[stream]);
+                val = ssimu2process<FLOAT>(srcp1, srcp2, d->PinnedMemPool[stream], stride, width, height, d->gaussiankernel_d, d->maxshared, d->streams[stream]);
             } catch (const VshipError& e){
                 vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);
                 d->streamSet->insert(stream);

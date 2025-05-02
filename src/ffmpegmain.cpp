@@ -7,15 +7,18 @@
 extern "C"{
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
-#include <libavutil/mem.h>
-#include <libavutil/pixdesc.h>
-#include <libavutil/hwcontext.h>
-#include <libavutil/opt.h>
-#include <libavutil/avassert.h>
+#include <libswscale/swscale.h>
+//#include <libavutil/mem.h>
+//#include <libavutil/pixdesc.h>
+//#include <libavutil/hwcontext.h>
+//#include <libavutil/opt.h>
+//#include <libavutil/avassert.h>
 #include <libavutil/imgutils.h>
 }
 
 class FFmpegVideoManager{
+    SwsContext* sws_ctx = NULL;
+
     AVFormatContext* fmt_ctx = NULL;
     int streamid;
     AVStream *st;
@@ -28,12 +31,14 @@ class FFmpegVideoManager{
     bool packet_end = true;
     bool end_of_video = false; //used for flushing last decoder frames
 
-    int packet_frame = 0;
     uint64_t beginTime = 0;
     uint64_t endTime = 0;
     
 public:
     AVFrame *frame = NULL;
+    uint8_t* outputRGB = NULL;
+    uint8_t* RGBptrHelper[3] = {NULL, NULL, NULL};
+    int RGBstride[3] = {0, 0, 0};
     int error = 0;
     FFmpegVideoManager(std::string file){
         int ret = 0;
@@ -100,6 +105,29 @@ public:
         }
         beginTime = 0;
         endTime = ((fmt_ctx->duration+1)*st->time_base.den)/(st->time_base.num*AV_TIME_BASE);
+
+        auto outputformat = AV_PIX_FMT_RGB48LE;
+        sws_ctx = sws_getContext(video_dec_ctx->width, video_dec_ctx->height, video_dec_ctx->pix_fmt, video_dec_ctx->width, video_dec_ctx->height, outputformat, SWS_FAST_BILINEAR, NULL, NULL, NULL);
+        if (!sws_ctx){
+            std::cout << "FFmpeg failed to create rescale (color conversion) object for file : " << file << std::endl;
+            error = 9;
+            return;
+        }
+        uint64_t bufferSize = av_image_get_buffer_size(outputformat, video_dec_ctx->width, video_dec_ctx->height, 1);
+        hipHostMalloc((void**)&outputRGB, bufferSize); //allocate pinned memory for end buffer for faster gpu send
+        if (!outputRGB){
+            std::cout << "Failed to allocate Pinned RAM for RGB output for file : " << file << " of size " << bufferSize << std::endl;
+            error = 10;
+            return;
+        }
+        RGBptrHelper[0] = outputRGB;
+        RGBptrHelper[1] = outputRGB+bufferSize/3;
+        RGBptrHelper[2] = outputRGB+2*bufferSize/3;
+
+        RGBstride[0] = video_dec_ctx->width;
+        RGBstride[1] = video_dec_ctx->width;
+        RGBstride[2] = video_dec_ctx->width;
+        
     }
     int seek(int num, int den){
         //std::cout << fmt_ctx->duration << " " << st->time_base.num << " " << st->time_base.den << " " << AV_TIME_BASE << std::endl;
@@ -115,7 +143,6 @@ public:
 
         av_frame_unref(frame); //we remove last frame
         if (packet_end){
-            packet_frame = 0;
             av_packet_unref(pkt); //we remove last packet and search a new one
             while (true){
                 if (av_read_frame(fmt_ctx, pkt) < 0){
@@ -149,15 +176,16 @@ public:
             std::cout << "Error during decoding: " <<  av_err2str(ret) << std::endl;
             return -1;
         }
-        packet_frame++;
 
-        //if we are before beginTime, go next
-        if (!end_of_video){
-            const uint64_t currentTime = frame->pts;
-            //std::cout << pkt->pts << "  " << packet_frame << "  " << st->time_base.num << " / " << st->time_base.den << std::endl;
-            if (currentTime < beginTime) return getNextFrame();
-            if (currentTime >= endTime) return -2;
-        }
+        const uint64_t currentTime = frame->pts;
+        //std::cout << pkt->pts << "  " << packet_frame << "  " << st->time_base.num << " / " << st->time_base.den << std::endl;
+        if (currentTime < beginTime) return getNextFrame();
+        if (currentTime >= endTime) return -2;
+
+        //we finally have our frame to return! Let s convert to RGB
+
+        sws_scale(sws_ctx, frame->data, frame->linesize, 0, frame->height, RGBptrHelper, RGBstride);
+
         return 0;
     }
     ~FFmpegVideoManager(){
@@ -165,6 +193,15 @@ public:
         if (video_dec_ctx != NULL) avcodec_free_context(&video_dec_ctx);
         if (pkt != NULL) av_packet_free(&pkt);
         if (frame != NULL) av_frame_free(&frame);
+        if (sws_ctx != NULL) sws_freeContext(sws_ctx);
+        if (outputRGB != NULL) hipFreeHost(outputRGB);
+
+        outputRGB = NULL;
+        sws_ctx = NULL;
+        frame = NULL;
+        pkt = NULL;
+        video_dec_ctx = NULL;
+        fmt_ctx = NULL;
     }
 };
 
@@ -350,8 +387,8 @@ int main(int argc, char** argv){
         return 0;
     }
 
-    v1.seek(5, 24);
-    v2.seek(5, 24);
+    //v1.seek(5, 24);
+    //v2.seek(5, 24);
 
     auto init = std::chrono::high_resolution_clock::now();
     int i = 0;

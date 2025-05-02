@@ -73,11 +73,12 @@ public:
         int bl_y = (height-1)/(2*th_y)+1;
         GaussianBlur_Kernel<<<dim3(bl_x*bl_y), dim3(th_x, th_y), 0, stream>>>(mem_d, dst.mem_d, width, height, gaussianKernel);
     }
+    template <InputMemType T>
     void strideEliminator(float* strided, int stride){
         int wh = width*height;
         int th_x = std::min(256, wh);
         int bl_x = (wh-1)/th_x + 1;
-        strideEliminator_kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(mem_d, (const uint8_t*)strided, stride, width, height);
+        strideEliminator_kernel<T><<<dim3(bl_x), dim3(th_x), 0, stream>>>(mem_d, (const uint8_t*)strided, stride, width, height);
     }
     void strideAdder(float* strided, int stride){
         int wh = width*height;

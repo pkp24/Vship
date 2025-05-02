@@ -194,30 +194,51 @@ void subarray(float* src1, float* src2, float* dst, int width, hipStream_t strea
     GPU_CHECK(hipGetLastError());
 }
 
+template <InputMemType T>
+__device__ inline float convertPointer(const uint8_t* src, int i, int j, int stride);
+
+template <>
+__device__ inline float convertPointer<FLOAT>(const uint8_t* src, int i, int j, int stride){
+    return ((float*)(src + i*stride))[j];
+}
+
+template <>
+__device__ inline float convertPointer<HALF>(const uint8_t* src, int i, int j, int stride){
+    return ((half*)(src + i*stride))[j];
+}
+
+template <>
+__device__ inline float convertPointer<UINT16>(const uint8_t* src, int i, int j, int stride){
+    return ((float)((uint16_t*)(src + i*stride))[j])/((1 << 16)-1);
+}
+
+template <InputMemType T>
 __launch_bounds__(256)
 __global__ void memoryorganizer_kernel(float3* out, const uint8_t *srcp0, const uint8_t *srcp1, const uint8_t *srcp2, int stride, int width, int height){
     size_t x = threadIdx.x + blockIdx.x*blockDim.x;
     if (x >= width*height) return;
     int j = x%width;
     int i = x/width;
-    out[i*width + j].x = ((float*)(srcp0 + i*stride))[j];
-    out[i*width + j].y = ((float*)(srcp1 + i*stride))[j];
-    out[i*width + j].z = ((float*)(srcp2 + i*stride))[j];
+    out[i*width + j].x = convertPointer<T>(srcp0, i, j, stride);
+    out[i*width + j].y = convertPointer<T>(srcp1, i, j, stride);
+    out[i*width + j].z = convertPointer<T>(srcp2, i, j, stride);
 }
 
+template <InputMemType T>
 void memoryorganizer(float3* out, const uint8_t *srcp0, const uint8_t *srcp1, const uint8_t *srcp2, int stride, int width, int height, hipStream_t stream){
     int th_x = std::min(256, width*height);
     int bl_x = (width*height-1)/th_x + 1;
-    memoryorganizer_kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(out, srcp0, srcp1, srcp2, stride, width, height);
+    memoryorganizer_kernel<T><<<dim3(bl_x), dim3(th_x), 0, stream>>>(out, srcp0, srcp1, srcp2, stride, width, height);
 }
 
+template <InputMemType T>
 __launch_bounds__(256)
 __global__ void strideEliminator_kernel(float* mem_d, const uint8_t* src, int stride, int width, int height){
     size_t x = threadIdx.x + blockIdx.x*blockDim.x;
     if (x >= width*height) return;
     int j = x%width;
     int i = x/width;
-    mem_d[i*width+j] = ((float*)(src + i*stride))[j];
+    mem_d[i*width+j] = convertPointer<T>(src, i, j, stride);
 }
 
 __launch_bounds__(256)

@@ -16,7 +16,7 @@ endif
 .FORCE:
 
 buildFFVSHIP: src/ffmpegmain.cpp .FORCE
-	hipcc src/ffmpegmain.cpp -g -Wno-unused-result $(shell pkg-config --libs libavcodec libavdevice libavformat libavfilter libavcodec libswresample libswscale libavutil) -o FFVship
+	hipcc src/ffmpegmain.cpp -g -Wno-unused-result $(shell pkg-config --libs libavcodec libavformat libswscale libavutil) -o FFVship
 
 build: src/vapoursynthPlugin.cpp .FORCE
 	hipcc src/vapoursynthPlugin.cpp --offload-arch=native -I "$(current_dir)include" -Wno-unused-result -Wno-ignored-attributes -shared $(fpicamd) -o "$(current_dir)vship$(dllend)"

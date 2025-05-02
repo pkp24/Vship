@@ -118,6 +118,7 @@ Plane_d getdiffmap(Plane_d* src1_d, Plane_d* src2_d, float* mem_d, int width, in
     return diffmap;
 }
 
+template <InputMemType T>
 std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride, const uint8_t *srcp1[3], const uint8_t *srcp2[3], float* pinned, GaussianHandle& gaussianHandle, int stride, int width, int height, float intensity_multiplier, int maxshared, hipStream_t stream){
     int wh = width*height;
     const int totalscalesize = wh;
@@ -137,18 +138,18 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride
 
     //we put the frame's planes on GPU
     GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp1[0]), stride * height, stream));
-    src1_d[0].strideEliminator(mem_d+6*width*height, stride);
+    src1_d[0].strideEliminator<T>(mem_d+6*width*height, stride);
     GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp1[1]), stride * height, stream));
-    src1_d[1].strideEliminator(mem_d+6*width*height, stride);
+    src1_d[1].strideEliminator<T>(mem_d+6*width*height, stride);
     GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp1[2]), stride * height, stream));
-    src1_d[2].strideEliminator(mem_d+6*width*height, stride);
+    src1_d[2].strideEliminator<T>(mem_d+6*width*height, stride);
 
     GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp2[0]), stride * height, stream));
-    src2_d[0].strideEliminator(mem_d+6*width*height, stride);
+    src2_d[0].strideEliminator<T>(mem_d+6*width*height, stride);
     GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp2[1]), stride * height, stream));
-    src2_d[1].strideEliminator(mem_d+6*width*height, stride);
+    src2_d[1].strideEliminator<T>(mem_d+6*width*height, stride);
     GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp2[2]), stride * height, stream));
-    src2_d[2].strideEliminator(mem_d+6*width*height, stride);
+    src2_d[2].strideEliminator<T>(mem_d+6*width*height, stride);
 
     //computing downscaled before we overwrite src in getdiffmap (it s better for memory)
     int nwidth = (width-1)/2+1;
