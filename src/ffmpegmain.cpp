@@ -195,7 +195,7 @@ public:
         if (pkt != NULL) av_packet_free(&pkt);
         if (frame != NULL) av_frame_free(&frame);
         if (sws_ctx != NULL) sws_freeContext(sws_ctx);
-        if (outputRGB != NULL) hipFreeHost(outputRGB);
+        if (outputRGB != NULL) hipHostFree(outputRGB);
 
         outputRGB = NULL;
         sws_ctx = NULL;
