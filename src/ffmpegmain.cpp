@@ -3,16 +3,12 @@
 #include "util/VshipExceptions.hpp"
 
 #include "util/preprocessor.hpp"
+#include "util/threadsafeset.hpp"
 
 extern "C"{
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
-//#include <libavutil/mem.h>
-//#include <libavutil/pixdesc.h>
-//#include <libavutil/hwcontext.h>
-//#include <libavutil/opt.h>
-//#include <libavutil/avassert.h>
 #include <libavutil/imgutils.h>
 }
 
@@ -205,6 +201,47 @@ public:
     }
 };
 
+enum METRICS{SSIMULACRA2, Butteraugli};
+
+void threadwork(std::string file1, std::string file2, int threadid, int threadnum, METRICS metric, threadSet* gpustreams, std::vector<float>& output){ //for butteraugli, return 2norm, 3norm, Infnorm, 2norm, ...
+
+    av_log_set_level(AV_LOG_ERROR);
+    
+    FFmpegVideoManager v1(file1);
+    if (v1.error){
+        std::cout << "Thread " << threadid << " Failed to open file " << file1 << std::endl;
+        return;
+    }
+    FFmpegVideoManager v2(file2);
+    if (v2.error){
+        std::cout << "Thread " << threadid << " Failed to open file " << file2 << std::endl;
+        return;
+    }
+    if (v1.seek(threadid, threadnum) != 0){
+        std::cout << "Thread " << threadid << " Failed to seek file " << file1 << std::endl;
+        return;
+    }
+    if (v2.seek(threadid, threadnum) != 0){
+        std::cout << "Thread " << threadid << " Failed to seek file " << file2 << std::endl;
+        return;
+    }
+    
+    int i = 0;
+    while (v1.getNextFrame() == 0){
+        if (v2.getNextFrame() != 0){
+            std::cout << "premature end of distorded, are both stream of the same size?" << std::endl;
+            break;
+        }
+
+        int stream = gpustreams->pop();
+
+        gpustreams->insert(stream);
+        
+        i++;
+    }
+    return;
+}
+
 void printUsage(){
     std::cout << R"(usage: ./vship [-h] [--source SOURCE] [--encoded ENCODED]
                     [-m {SSIMULACRA2, Butteraugli}]
@@ -214,8 +251,6 @@ void printUsage(){
                     Specific to Butteraugli: 
                     [--intensity-target Intensity(nits)])" << std::endl;
 }
-
-enum METRICS{SSIMULACRA2, Butteraugli};
 
 int main(int argc, char** argv){
     std::vector<std::string> args(argc-1);
@@ -233,7 +268,7 @@ int main(int argc, char** argv){
     int start = 0;
     int end = -1;
     int skip = 1;
-    int threads = -1;
+    int threads = 12;
     bool metric_set = false;
     METRICS metric = SSIMULACRA2;
     std::string file1;
@@ -375,36 +410,25 @@ int main(int argc, char** argv){
 
     //gpu sanity check
     helper::gpuFullCheck(gpuid);
-    
-    FFmpegVideoManager v1(file1);
-    if (v1.error){
-        std::cout << "Failed to open file " << file1 << std::endl;
-        return 0;
-    }
-    FFmpegVideoManager v2(file2);
-    if (v2.error){
-        std::cout << "Failed to open file " << file2 << std::endl;
-        return 0;
-    }
-
-    //v1.seek(5, 24);
-    //v2.seek(5, 24);
 
     auto init = std::chrono::high_resolution_clock::now();
-    int i = 0;
-    while (v1.getNextFrame() == 0){
-        i++;
-    }
-    auto fin = std::chrono::high_resolution_clock::now();
-    std::cout << "Read " << i << " frames at " << i*1000/(std::chrono::duration_cast<std::chrono::milliseconds>(fin-init)).count() << std::endl;
 
-    init = std::chrono::high_resolution_clock::now();
-    i = 0;
-    while (v2.getNextFrame() == 0){
-        i++;
+    threadSet gpustreams({});
+    for (int i = 0; i < gputhreads; i++) gpustreams.insert(i);
+
+    std::vector<std::thread> threadlist;
+    std::vector<std::vector<float>> returnlist;
+    for (int i = 0; i < threads; i++){
+        returnlist.emplace_back();
+        threadlist.emplace_back(threadwork, file1, file2, i, threads, metric, &gpustreams, std::ref(returnlist[i]));
     }
-    fin = std::chrono::high_resolution_clock::now();
-    std::cout << "Read " << i << " frames at " << i*1000/(std::chrono::duration_cast<std::chrono::milliseconds>(fin-init)).count() << std::endl;
+
+    for (int i = 0; i < threads; i++){
+        threadlist[i].join();
+    }
+
+    auto fin = std::chrono::high_resolution_clock::now();
+    std::cout << "Read " << 1339 << " frames at " << 1339*1000/(std::chrono::duration_cast<std::chrono::milliseconds>(fin-init)).count() << std::endl;
     
     return 0;
 }
