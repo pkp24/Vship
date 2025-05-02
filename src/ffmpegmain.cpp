@@ -174,7 +174,7 @@ public:
                 return getNextFrame(); //still needs to track the next one
             }
  
-            std::cout << "Error during decoding: " <<  av_err2str(ret) << std::endl;
+            std::cout << "Error during decoding: " << ret << std::endl;
             return -1;
         }
 
@@ -268,21 +268,26 @@ void threadwork(std::string file1, std::string file2, int threadid, int threadnu
         }
         void* pinnedmem = pinnedmempool[streamid];
 
-        switch (metric){
-            case Butteraugli:
-            {
-            const std::tuple<float, float, float> scorebutter = butter::butterprocess<UINT16>(NULL, 0, srcp1, srcp2, (float*)pinnedmem, *gaussianhandlebutter, v1.RGBstride[0], v1.video_dec_ctx->width, v1.video_dec_ctx->height, intensity_multiplier, maxshared, stream);
-            output->push_back(std::get<0>(scorebutter));
-            output->push_back(std::get<1>(scorebutter));
-            output->push_back(std::get<2>(scorebutter));
-            break;
+        try{
+            switch (metric){
+                case Butteraugli:
+                {
+                const std::tuple<float, float, float> scorebutter = butter::butterprocess<UINT16>(NULL, 0, srcp1, srcp2, (float*)pinnedmem, *gaussianhandlebutter, v1.RGBstride[0], v1.video_dec_ctx->width, v1.video_dec_ctx->height, intensity_multiplier, maxshared, stream);
+                output->push_back(std::get<0>(scorebutter));
+                output->push_back(std::get<1>(scorebutter));
+                output->push_back(std::get<2>(scorebutter));
+                break;
+                }
+                case SSIMULACRA2:
+                {
+                const double scoressimu2 = ssimu2::ssimu2process<UINT16>(srcp1, srcp2, (float3*)pinnedmem, v1.RGBstride[0], v1.video_dec_ctx->width, v1.video_dec_ctx->height, gaussiankernel_dssimu2, maxshared, stream);
+                output->push_back(scoressimu2);
+                break;
+                }
             }
-            case SSIMULACRA2:
-            {
-            const double scoressimu2 = ssimu2::ssimu2process<UINT16>(srcp1, srcp2, (float3*)pinnedmem, v1.RGBstride[0], v1.video_dec_ctx->width, v1.video_dec_ctx->height, gaussiankernel_dssimu2, maxshared, stream);
-            output->push_back(scoressimu2);
-            break;
-            }
+        } catch (const VshipError& e){
+            std::cout << "Thread " << i << " Got an Vship Exception : " << e.getErrorMessage() << std::endl;
+            return;
         }
         gpustreams->insert(streamid);
         
@@ -318,7 +323,6 @@ int main(int argc, char** argv){
     int gpuid = 0;
     int gputhreads = 8;
     int threads = 12;
-    bool metric_set = false;
     METRICS metric = SSIMULACRA2;
     std::string file1;
     std::string file2;
@@ -413,10 +417,8 @@ int main(int argc, char** argv){
                 return 0;
             }
             if (args[i+1] == "SSIMULACRA2"){
-                metric_set = true;
                 metric = SSIMULACRA2;
             } else if (args[i+1] == "Butteraugli"){
-                metric_set = true;
                 metric = Butteraugli;
             } else {
                 std::cout << "unrecognized metric : " << args[i+1] << std::endl;
@@ -430,7 +432,13 @@ int main(int argc, char** argv){
     }
 
     //gpu sanity check
-    helper::gpuFullCheck(gpuid);
+    try{
+        //if succeed, this function also does hipSetDevice
+        helper::gpuFullCheck(gpuid);
+    } catch (const VshipError& e){
+        std::cout << e.getErrorMessage() << std::endl;
+        return 0;
+    }
 
     auto init = std::chrono::high_resolution_clock::now();
 

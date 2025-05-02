@@ -14,6 +14,7 @@
 #include<set>
 #include <mutex>
 #include <condition_variable>
+#include <cassert>
 
 
 #ifdef __HIPCC__
@@ -64,6 +65,7 @@
     #define hipMallocAsync cudaMallocAsync
     #define hipFreeAsync cudaFreeAsync
     #define hipHostFree cudaFreeHost
+    #define hipFreeHost cudaFreeHost
     #define hipHostMalloc cudaMallocHost
     #define hipStreamSynchronize cudaStreamSynchronize
 #endif
