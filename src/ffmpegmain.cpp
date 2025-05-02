@@ -133,6 +133,7 @@ public:
         //std::cout << fmt_ctx->duration << " " << st->time_base.num << " " << st->time_base.den << " " << AV_TIME_BASE << std::endl;
         uint64_t totaltimeunit = ((fmt_ctx->duration+1)*st->time_base.den)/(st->time_base.num*AV_TIME_BASE);
         uint64_t requested = ((int64_t)totaltimeunit*(int64_t)num-1)/den+1;
+        if (num == 0) requested = 0;
         int ret = avformat_seek_file(fmt_ctx, streamid, INT64_MIN, requested, INT64_MAX, 0);
         beginTime = requested;
         endTime = ((int64_t)totaltimeunit*(int64_t)(num+1)-1)/den+1;
@@ -287,13 +288,16 @@ void threadwork(std::string file1, std::string file2, int threadid, int threadnu
         
         i++;
     }
+    if (v2.getNextFrame() == 0){
+        std::cout << "premature end of reference, are both stream of the same size?" << std::endl;
+    }
     return;
 }
 
 void printUsage(){
-    std::cout << R"(usage: ./vship [-h] [--source SOURCE] [--encoded ENCODED]
+    std::cout << R"(usage: ./FFVship [-h] [--source SOURCE] [--encoded ENCODED]
                     [-m {SSIMULACRA2, Butteraugli}]
-                    [-t THREADS] [-g gpuThreads] [-gpu gpu_id]
+                    [-t THREADS] [-g gpuThreads] [--gpu-id gpu_id]
                     [--json OUTPUT]
                     [--list-gpu]
                     Specific to Butteraugli: 
