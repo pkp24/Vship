@@ -1,5 +1,6 @@
 #include<fstream>
 #include<algorithm>
+#include <cstdlib>
 
 #include "util/preprocessor.hpp"
 #include "util/gpuhelper.hpp"
@@ -12,13 +13,29 @@
 extern "C"{
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
-#include <libswscale/swscale.h>
-#include <libavutil/imgutils.h>
+#include <zimg.h>
+}
+
+#include "util/ffmpegToZimgFormat.hpp"
+
+void print_zimg_error(void)
+{
+	char err_msg[1024];
+	int err_code = zimg_get_last_error(err_msg, sizeof(err_msg));
+
+	fprintf(stderr, "zimg error %d: %s\n", err_code, err_msg);
 }
 
 class FFmpegVideoManager{
 public:
-    SwsContext* sws_ctx = NULL;
+    //zimg data
+    zimg_filter_graph *zimg_graph = NULL;
+	zimg_image_buffer_const zimg_src_buf = { ZIMG_API_VERSION };
+	zimg_image_buffer zimg_dst_buf = { ZIMG_API_VERSION };
+	zimg_image_format zimg_src_format;
+	zimg_image_format zimg_dst_format;
+	size_t zimg_tmp_size = 0;
+	void *zimg_tmp = NULL;
 
     AVFormatContext* fmt_ctx = NULL;
     int streamid;
@@ -106,28 +123,65 @@ public:
         beginTime = 0;
         endTime = ((fmt_ctx->duration+1)*st->time_base.den)/(st->time_base.num*AV_TIME_BASE);
 
-        auto outputformat = AV_PIX_FMT_RGB48LE;
-        sws_ctx = sws_getContext(video_dec_ctx->width, video_dec_ctx->height, video_dec_ctx->pix_fmt, video_dec_ctx->width, video_dec_ctx->height, outputformat, SWS_FAST_BILINEAR, NULL, NULL, NULL);
-        if (!sws_ctx){
-            std::cout << "FFmpeg failed to create rescale (color conversion) object for file : " << file << std::endl;
-            error = 9;
-            return;
-        }
-        uint64_t bufferSize = av_image_get_buffer_size(outputformat, video_dec_ctx->width, video_dec_ctx->height, 1);
-        hipHostMalloc((void**)&outputRGB, bufferSize); //allocate pinned memory for end buffer for faster gpu send
+        hipHostMalloc((void**)&outputRGB, video_dec_ctx->width*video_dec_ctx->height*sizeof(uint16_t)*3); //allocate pinned memory for end buffer for faster gpu send
         if (!outputRGB){
-            std::cout << "Failed to allocate Pinned RAM for RGB output for file : " << file << " of size " << bufferSize << std::endl;
+            std::cout << "Failed to allocate Pinned RAM for RGB output for file : " << file << " of size " << video_dec_ctx->width*video_dec_ctx->height*sizeof(uint16_t)*3 << std::endl;
             error = 10;
             return;
         }
         RGBptrHelper[0] = outputRGB;
-        RGBptrHelper[1] = outputRGB+bufferSize/3;
-        RGBptrHelper[2] = outputRGB+2*bufferSize/3;
+        RGBptrHelper[1] = outputRGB+video_dec_ctx->width*video_dec_ctx->height*sizeof(uint16_t);
+        RGBptrHelper[2] = outputRGB+2*video_dec_ctx->width*video_dec_ctx->height*sizeof(uint16_t);
 
         RGBstride[0] = video_dec_ctx->width;
         RGBstride[1] = video_dec_ctx->width;
         RGBstride[2] = video_dec_ctx->width;
         
+        //zimg init
+        if (ffmpegToZimgFormat(zimg_src_format, fmt_ctx, video_dec_ctx) != 0){
+            std::cout << "Failed to convert ffmpeg input format to zimg processing format" << std::endl;
+            error = 10;
+            return;
+        }
+
+        //destination format
+        zimg_image_format_default(&zimg_dst_format, ZIMG_API_VERSION);
+        zimg_dst_format.width = video_dec_ctx->width;
+        zimg_dst_format.height = video_dec_ctx->height;
+        zimg_dst_format.pixel_type = ZIMG_PIXEL_WORD;
+
+        zimg_dst_format.subsample_w = 0;
+        zimg_dst_format.subsample_h = 0;
+
+        zimg_dst_format.color_family = ZIMG_COLOR_RGB;
+        zimg_dst_format.matrix_coefficients = ZIMG_MATRIX_RGB;
+        zimg_dst_format.transfer_characteristics = ZIMG_TRANSFER_BT709;
+        zimg_dst_format.color_primaries = ZIMG_PRIMARIES_BT709;
+        zimg_dst_format.depth = 16;
+        zimg_dst_format.pixel_range = ZIMG_RANGE_FULL;
+
+        zimg_graph = zimg_filter_graph_build(&zimg_src_format, &zimg_dst_format, 0);
+        if (!zimg_graph){
+            std::cout << "Failed to generate zimg conversion graph for file : " << file << std::endl;
+            print_zimg_error();
+            error = 11;
+            return;
+        }
+
+        zimg_src_buf = { ZIMG_API_VERSION };
+        zimg_dst_buf = { ZIMG_API_VERSION };
+        for (int p = 0; p < 3; p++){
+            zimg_dst_buf.plane[p].data = RGBptrHelper[p];
+            zimg_dst_buf.plane[p].stride = RGBstride[p];
+            zimg_dst_buf.plane[p].mask = ZIMG_BUFFER_MAX;
+        }
+
+        if ((ret = zimg_filter_graph_get_tmp_size(zimg_graph, &zimg_tmp_size))) {
+            print_zimg_error();
+            error = 12;
+            return;
+        }
+        zimg_tmp = aligned_alloc(32, zimg_tmp_size);
     }
     int seek(int num, int den){
         //std::cout << fmt_ctx->duration << " " << st->time_base.num << " " << st->time_base.den << " " << AV_TIME_BASE << std::endl;
@@ -185,7 +239,17 @@ public:
 
         //we finally have our frame to return! Let s convert to RGB
 
-        sws_scale(sws_ctx, frame->data, frame->linesize, 0, frame->height, RGBptrHelper, RGBstride);
+        //int height = sws_scale(sws_ctx, frame->data, frame->linesize, 0, frame->height, RGBptrHelper, RGBstride);
+        //std::cout << "newheight " << height << " " << ((uint16_t*)RGBptrHelper[0])[(540+2)*1920+960] << std::endl;
+        for (int p = 0; p < 3; p++){
+            zimg_src_buf.plane[p].data = frame->data[p];
+            zimg_src_buf.plane[p].stride = frame->linesize[p];
+            zimg_src_buf.plane[p].mask = ZIMG_BUFFER_MAX;
+        }
+        if ((ret = zimg_filter_graph_process(zimg_graph, &zimg_src_buf, &zimg_dst_buf, zimg_tmp, 0, 0, 0, 0))) {
+            print_zimg_error();
+            return -1;
+        }
 
         return 0;
     }
@@ -194,11 +258,13 @@ public:
         if (video_dec_ctx != NULL) avcodec_free_context(&video_dec_ctx);
         if (pkt != NULL) av_packet_free(&pkt);
         if (frame != NULL) av_frame_free(&frame);
-        if (sws_ctx != NULL) sws_freeContext(sws_ctx);
         if (outputRGB != NULL) hipHostFree(outputRGB);
+        if (zimg_graph != NULL) zimg_filter_graph_free(zimg_graph);
+        if (zimg_tmp != NULL) free(zimg_tmp);
 
+        zimg_tmp = NULL;
+        zimg_graph = NULL;
         outputRGB = NULL;
-        sws_ctx = NULL;
         frame = NULL;
         pkt = NULL;
         video_dec_ctx = NULL;
@@ -509,6 +575,11 @@ int main(int argc, char** argv){
         case Butteraugli:
         gaussianhandlebutter.destroy();
         break;
+    }
+
+    if (finalreslist.size() == 0){
+        std::cout << "Error: No scores were detected" << std::endl;
+        return 0;
     }
 
     //posttreatment

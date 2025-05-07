@@ -16,10 +16,10 @@ endif
 .FORCE:
 
 buildFFVSHIP: src/ffmpegmain.cpp .FORCE
-	hipcc src/ffmpegmain.cpp --offload-arch=native -Wno-unused-result -Wno-ignored-attributes $(shell pkg-config --libs libavcodec libavformat libswscale libavutil) -o FFVship
+	hipcc src/ffmpegmain.cpp --offload-arch=native -Wno-unused-result -Wno-ignored-attributes $(shell pkg-config --libs libavcodec libavformat libswscale libavutil zimg) -o FFVship
 
 buildFFVSHIPcuda: src/ffmpegmain.cpp .FORCE
-	nvcc -x cu src/ffmpegmain.cpp -arch=native $(subst -pthread,-Xcompiler="-pthread",$(shell pkg-config --libs libavcodec libavformat libswscale libavutil)) -o FFVship
+	nvcc -x cu src/ffmpegmain.cpp -arch=native $(subst -pthread,-Xcompiler="-pthread",$(shell pkg-config --libs libavcodec libavformat libswscale libavutil zimg)) -o FFVship
 
 build: src/vapoursynthPlugin.cpp .FORCE
 	hipcc src/vapoursynthPlugin.cpp --offload-arch=native -I "$(current_dir)include" -Wno-unused-result -Wno-ignored-attributes -shared $(fpicamd) -o "$(current_dir)vship$(dllend)"
