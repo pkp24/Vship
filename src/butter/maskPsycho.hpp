@@ -110,32 +110,28 @@ void fuzzyerrosion(float* src, float* dst, int width, int height, hipStream_t st
     GPU_CHECK(hipGetLastError());
 }
 
-void MaskPsychoImage(Plane_d* hf1, Plane_d* uhf1, Plane_d* hf2, Plane_d* uhf2, Plane_d mask_xyb0, Plane_d mask_xyb1, Plane_d mask, Plane_d* block_diff_ac, GaussianHandle& gaussianHandle) {
-    const hipStream_t stream = hf1[0].stream;
-    const int width = hf1[0].width;
-    const int height = hf1[0].height;
-
+void MaskPsychoImage(float* hf1[3], float* uhf1[3], float* hf2[3], float* uhf2[3], float* mask_xyb0, float* mask_xyb1, float* mask, float* block_diff_ac[3], int width, int height, GaussianHandle& gaussianHandle, hipStream_t stream) {
     const float muls[3] = {
       2.5f,
       0.4f,
       0.4f,
     };
 
-    maskinit(hf1[0].mem_d, uhf1[0].mem_d, hf1[1].mem_d, uhf1[1].mem_d, mask_xyb0.mem_d, width*height, muls[0], muls[1], muls[2], stream);
-    maskinit(hf2[0].mem_d, uhf2[0].mem_d, hf2[1].mem_d, uhf2[1].mem_d, mask_xyb1.mem_d, width*height, muls[0], muls[1], muls[2], stream);
+    maskinit(hf1[0], uhf1[0], hf1[1], uhf1[1], mask_xyb0, width*height, muls[0], muls[1], muls[2], stream);
+    maskinit(hf2[0], uhf2[0], hf2[1], uhf2[1], mask_xyb1, width*height, muls[0], muls[1], muls[2], stream);
     
     //hf and uhf are not used anymore and can serve as temporary planes
-    Plane_d diff0 = hf1[0];
-    Plane_d diff1 = hf1[1];
+    float* diff0 = hf1[0];
+    float* diff1 = hf1[1];
 
-    diffPrecompute(mask_xyb0.mem_d, diff0.mem_d, width, height, 6.19424080439f, 12.61050594197f, stream);
-    diffPrecompute(mask_xyb1.mem_d, diff1.mem_d, width, height, 6.19424080439f, 12.61050594197f, stream);
-    Plane_d blurred0 = mask_xyb0;
-    Plane_d blurred1 = mask_xyb1;
-    diff0.blurDstNoTemp(blurred0, gaussianHandle, 2);
-    diff1.blurDstNoTemp(blurred1, gaussianHandle, 2);
-    fuzzyerrosion(blurred0.mem_d, mask.mem_d, width, height, stream);
-    L2diff(blurred0.mem_d, blurred1.mem_d, block_diff_ac[1].mem_d, width*height, 10.0f, stream);
+    diffPrecompute(mask_xyb0, diff0, width, height, 6.19424080439f, 12.61050594197f, stream);
+    diffPrecompute(mask_xyb1, diff1, width, height, 6.19424080439f, 12.61050594197f, stream);
+    float* blurred0 = mask_xyb0;
+    float* blurred1 = mask_xyb1;
+    blurDstNoTemp(blurred0, diff0, width, height, gaussianHandle, 2, stream);
+    blurDstNoTemp(blurred1, diff1, width, height, gaussianHandle, 2, stream);
+    fuzzyerrosion(blurred0, mask, width, height, stream);
+    L2diff(blurred0, blurred1, block_diff_ac[1], width*height, 10.0f, stream);
 }
 
 }

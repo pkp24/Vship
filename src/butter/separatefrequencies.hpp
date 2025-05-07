@@ -157,51 +157,48 @@ namespace butter{
         GPU_CHECK(hipGetLastError());
     }
 
-    void separateFrequencies(Plane_d src[3], Plane_d temp[3], Plane_d lf[3], Plane_d mf[3], Plane_d hf[2], Plane_d uhf[2], GaussianHandle& gaussianHandle){
-        int width = src[0].width; int height = src[0].height;
-        hipStream_t stream = src[0].stream;
-        
+    void separateFrequencies(float* src[3], float* temp[3], float* lf[3], float* mf[3], float* hf[2], float* uhf[2], int width, int height, GaussianHandle& gaussianHandle, hipStream_t stream){
         for (int i = 0; i < 3; i++){
             //we separate lf to get mf BUT we put mf on hf if i != 2 for later reasons
-            src[i].blur(lf[i], temp[i], gaussianHandle, 4);
+            blur(lf[i], src[i], temp[i], width, height, gaussianHandle, 4, stream);
 
             if (i == 2){
                 //mf = blur(xyb-lf)
-                subarray(src[i].mem_d, lf[i].mem_d, mf[i].mem_d, width*height, stream);
-                mf[i].blur(temp[i], gaussianHandle, 3);
+                subarray(src[i], lf[i], mf[i], width*height, stream);
+                blur(mf[i], temp[i], width, height, gaussianHandle, 3, stream);
                 break;
             }
             //mf (hf (uhf)) = xyb-lf //mf is stored on hf which is stored in uhf
             //same thing here, we will put the real hf into uhf to avoid later copy
-            subarray(src[i].mem_d, lf[i].mem_d, uhf[i].mem_d, width*height, stream);
+            subarray(src[i], lf[i], uhf[i], width*height, stream);
             //mf = blur(mf (hf (uhf))) //we blur mf BUT mf is on hf which is on uhf. After this, mf is stored in mf but hf is on uhf
             //the real mf is blurred and we avoid the need to copy the unblurred mf to hf (uhf)
-            uhf[i].blur(mf[i], temp[i], gaussianHandle, 3);
+            blur(mf[i], uhf[i], temp[i], width, height, gaussianHandle, 3, stream);
 
             //hf (uhf) = op(mf, hf (uhf))
             if (i == 0){
-                subarray_removerangearound0(mf[i].mem_d, uhf[i].mem_d, width*height, 0.29f, stream); 
+                subarray_removerangearound0(mf[i], uhf[i], width*height, 0.29f, stream); 
             } else {
-                subarray_amplifyrangearound0(mf[i].mem_d, uhf[i].mem_d, width*height, 0.1f, stream);
+                subarray_amplifyrangearound0(mf[i], uhf[i], width*height, 0.1f, stream);
             }
 
         }
         //using uhf which contains hf in reality
-        supressXbyY(uhf[0].mem_d, uhf[1].mem_d, width*height, 46.0f, stream);
+        supressXbyY(uhf[0], uhf[1], width*height, 46.0f, stream);
 
         for (int i = 0; i < 2; i++){
             //original does uhf = hf but hf is already in uhf.
             //next is hf = blur(hf (uhf)) -> hf is now at its place and uhf has the old hf copy
-            uhf[i].blurDstNoTemp(hf[i], gaussianHandle, 1);
+            blurDstNoTemp(hf[i], uhf[i], width, height, gaussianHandle, 1, stream);
 
             if (i == 0){
-                subarray_removerangearound0(hf[i].mem_d, uhf[i].mem_d, width*height, 1.5f, stream);
-                removerangearound0(uhf[i].mem_d, width*height, 0.04f, stream);
+                subarray_removerangearound0(hf[i], uhf[i], width*height, 1.5f, stream);
+                removerangearound0(uhf[i], width*height, 0.04f, stream);
             } else {
-                separateHf_Uhf(hf[i].mem_d, uhf[i].mem_d, width*height, stream);
+                separateHf_Uhf(hf[i], uhf[i], width*height, stream);
             }
         }
 
-        XybLowFreqToVals(lf[0].mem_d, lf[1].mem_d, lf[2].mem_d, width*height, stream);        
+        XybLowFreqToVals(lf[0], lf[1], lf[2], width*height, stream);        
     }
 }

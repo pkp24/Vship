@@ -181,6 +181,60 @@ __global__ void GaussianBlur_Kernel(float* src, float* dst, int width, int heigh
     }
 }
 
+void blur(float* mem_d, float* temp, int width, int height, GaussianHandle& gaussianHandle, int i, hipStream_t stream){
+    const int gaussiansize = gaussianHandle.getWindow(i);
+    float* gaussianKernel = gaussianHandle.get(i);
+
+    int wh = width*height;
+    int th_x = std::min(256, wh);
+    int bl_x = (wh-1)/th_x + 1;
+
+    int verticalth_x = 8;
+    int verticalth_y = 32;
+    int verticalbl_x = (width-1)/verticalth_x+1;
+    int verticalbl_y = (height-1)/verticalth_y+1;
+
+    horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp, mem_d, width, height, gaussianKernel, gaussiansize);
+    verticalBlur_Kernel<<<dim3(verticalbl_x, verticalbl_y), dim3(verticalth_x, verticalth_y), 0, stream>>>(mem_d, temp, width, height, gaussianKernel, gaussiansize);
+}
+
+void blur(float* dst, float* mem_d, float* temp, int width, int height, GaussianHandle& gaussianHandle, int i, hipStream_t stream){
+    const int gaussiansize = gaussianHandle.getWindow(i);
+    float* gaussianKernel = gaussianHandle.get(i);
+
+    int wh = width*height;
+
+    if (gaussiansize == 8){ //special gaussian blur! It doesnt even use temp
+        int th_x = 16;
+        int th_y = 16;
+        int bl_x = (width-1)/(2*th_x)+1;
+        int bl_y = (height-1)/(2*th_y)+1;
+        GaussianBlur_Kernel<<<dim3(bl_x*bl_y), dim3(th_x, th_y), 0, stream>>>(mem_d, dst, width, height, gaussianKernel);
+    } else {
+        int th_x = std::min(256, wh);
+        int bl_x = (wh-1)/th_x + 1;
+
+        int verticalth_x = 8;
+        int verticalth_y = 32;
+        int verticalbl_x = (width-1)/verticalth_x+1;
+        int verticalbl_y = (height-1)/verticalth_y+1;
+        horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp, mem_d, width, height, gaussianKernel, gaussiansize);
+        verticalBlur_Kernel<<<dim3(verticalbl_x, verticalbl_y), dim3(verticalth_x, verticalth_y), 0, stream>>>(dst, temp, width, height, gaussianKernel, gaussiansize);
+    }
+}
+void blurDstNoTemp(float* dst, float* mem_d, int width, int height, GaussianHandle& gaussianHandle, int i, hipStream_t stream){
+    const int gaussiansize = gaussianHandle.getWindow(i);
+    float* gaussianKernel = gaussianHandle.get(i);
+
+    assert(gaussiansize == 8);
+    //special gaussian blur! It doesnt even use temp
+    int th_x = 16;
+    int th_y = 16;
+    int bl_x = (width-1)/(2*th_x)+1;
+    int bl_y = (height-1)/(2*th_y)+1;
+    GaussianBlur_Kernel<<<dim3(bl_x*bl_y), dim3(th_x, th_y), 0, stream>>>(mem_d, dst, width, height, gaussianKernel);
+}
+
 //all gaussian sigmas:
 /*
 1.2

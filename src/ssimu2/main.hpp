@@ -13,6 +13,25 @@
 namespace ssimu2{
 
 template <InputMemType T>
+__launch_bounds__(256)
+__global__ void memoryorganizer_kernel(float3* out, const uint8_t *srcp0, const uint8_t *srcp1, const uint8_t *srcp2, int stride, int width, int height){
+    size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+    if (x >= width*height) return;
+    int j = x%width;
+    int i = x/width;
+    out[i*width + j].x = convertPointer<T>(srcp0, i, j, stride);
+    out[i*width + j].y = convertPointer<T>(srcp1, i, j, stride);
+    out[i*width + j].z = convertPointer<T>(srcp2, i, j, stride);
+}
+
+template <InputMemType T>
+void memoryorganizer(float3* out, const uint8_t *srcp0, const uint8_t *srcp1, const uint8_t *srcp2, int stride, int width, int height, hipStream_t stream){
+    int th_x = std::min(256, width*height);
+    int bl_x = (width*height-1)/th_x + 1;
+    memoryorganizer_kernel<T><<<dim3(bl_x), dim3(th_x), 0, stream>>>(out, srcp0, srcp1, srcp2, stride, width, height);
+}
+
+template <InputMemType T>
 double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* pinned, int stride, int width, int height, float* gaussiankernel, int maxshared, hipStream_t stream){
 
     int wh = width*height;
