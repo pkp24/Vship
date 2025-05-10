@@ -112,6 +112,32 @@ float* getdiffmap(float* src1_d[3], float* src2_d[3], float* mem_d, int width, i
     return diffmap_;
 }
 
+//expects linear planar RGB as input, mem_d must contain 25 planes (srcs are rewritten so they are unusable after execution)
+float* getmultiscalediffmap(float* src1_d[3], float* src2_d[3], float* mem_d, int width, int height, float intensity_multiplier, int maxshared, GaussianHandle& gaussianHandle, hipStream_t stream){
+    //computing downscaled before we overwrite src in getdiffmap (it s better for memory)
+    int nwidth = (width-1)/2+1;
+    int nheight = (height-1)/2+1;
+    float* nmem_d = mem_d; //allow usage up to mem_d+2*width*height;
+    float* nsrc1_d[3] = {nmem_d, nmem_d+nwidth*nheight, nmem_d+2*nwidth*nheight};
+    float* nsrc2_d[3] = {nmem_d+3*nwidth*nheight, nmem_d+4*nwidth*nheight, nmem_d+5*nwidth*nheight};
+
+    //using 6 smaller planes is equivalent to 1.5 standard planes, so it fits within the 2 planes given here!)
+    for (int i = 0; i < 3; i++){
+        downsample(src1_d[i], nsrc1_d[i], width, height, stream);
+        downsample(src2_d[i], nsrc2_d[i], width, height, stream);
+    }
+
+    float* diffmap = getdiffmap(src1_d, src2_d, mem_d+2*width*height, width, height, intensity_multiplier, maxshared, gaussianHandle, stream);
+    //diffmap is stored at mem_d+8*width*height so we can build after that the second smaller scale
+    //smaller scale now
+    nmem_d = mem_d+3*width*height;
+    float* diffmapsmall = getdiffmap(nsrc1_d, nsrc2_d, nmem_d+6*nwidth*nheight, nwidth, nheight, intensity_multiplier, maxshared, gaussianHandle, stream);
+
+    addsupersample2X(diffmap, diffmapsmall, width, height, 0.5f, stream);
+
+    return diffmap;
+}
+
 template <InputMemType T>
 std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride, const uint8_t *srcp1[3], const uint8_t *srcp2[3], float* pinned, GaussianHandle& gaussianHandle, int stride, int width, int height, float intensity_multiplier, int maxshared, hipStream_t stream){
     int wh = width*height;
@@ -145,35 +171,15 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride
     GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp2[2]), stride * height, stream));
     strideEliminator<T>(src2_d[2], mem_d+6*width*height, stride, width, height, stream);
 
-    //computing downscaled before we overwrite src in getdiffmap (it s better for memory)
-    int nwidth = (width-1)/2+1;
-    int nheight = (height-1)/2+1;
-    float* nmem_d = mem_d+6*width*height; //allow usage up to mem_d+8*width*height;
-    float* nsrc1_d[3] = {nmem_d, nmem_d+nwidth*nheight, nmem_d+2*nwidth*nheight};
-    float* nsrc2_d[3] = {nmem_d+3*nwidth*nheight, nmem_d+4*nwidth*nheight, nmem_d+5*nwidth*nheight};
-
-    //we need to convert to linear rgb before downsampling
     linearRGB(src1_d, width, height, stream);
     linearRGB(src2_d, width, height, stream);
 
-    //using 6 smaller planes is equivalent to 1.5 standard planes, so it fits within the 2 planes given here!)
-    for (int i = 0; i < 3; i++){
-        downsample(src1_d[i], nsrc1_d[i], width, height, stream);
-        downsample(src2_d[i], nsrc2_d[i], width, height, stream);
-    }
-
-    float* diffmap = getdiffmap(src1_d, src2_d, mem_d+8*width*height, width, height, intensity_multiplier, maxshared, gaussianHandle, stream);
-    //diffmap is stored at mem_d+8*width*height so we can build after that the second smaller scale
-    //smaller scale now
-    nmem_d = mem_d+9*width*height;
-    float* diffmapsmall = getdiffmap(nsrc1_d, nsrc2_d, nmem_d+6*nwidth*nheight, nwidth, nheight, intensity_multiplier, maxshared, gaussianHandle, stream);
-
-    addsupersample2X(diffmap, diffmapsmall, width, height, 0.5f, stream);
+    float* diffmap = getmultiscalediffmap(src1_d, src2_d, mem_d+6*width*height, width, height, intensity_multiplier, maxshared, gaussianHandle, stream);
 
     //diffmap is in its final form
     if (dstp != NULL){
-        strideAdder(diffmap, nmem_d, dststride, width, height, stream);
-        GPU_CHECK(hipMemcpyDtoHAsync((void*)(dstp), nmem_d, dststride * height, stream));
+        strideAdder(diffmap, mem_d+6*width*height, dststride, width, height, stream);
+        GPU_CHECK(hipMemcpyDtoHAsync((void*)(dstp), mem_d+6*width*height, dststride * height, stream));
     }
 
     std::tuple<float, float, float> finalres;

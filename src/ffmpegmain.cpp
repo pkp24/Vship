@@ -48,9 +48,15 @@ public:
     AVPacket *pkt = NULL;
     bool packet_end = true;
     bool end_of_video = false; //used for flushing last decoder frames
+    int frame_decoded_count = 0;
 
-    uint64_t beginTime = 0;
+    uint64_t first_time = 0; //automatically gotten via init
+    uint64_t last_time = 0;
+    uint64_t beginTime = 0; //set for decoding guide
     uint64_t endTime = 0;
+
+    uint64_t maxTime = 0;
+    int nbframe = 0;
     
     AVFrame *frame = NULL;
     uint8_t* outputRGB = NULL;
@@ -120,8 +126,6 @@ public:
             error = 8;
             return;
         }
-        beginTime = 0;
-        endTime = ((fmt_ctx->duration+1)*st->time_base.den)/(st->time_base.num*AV_TIME_BASE);
 
         hipHostMalloc((void**)&outputRGB, video_dec_ctx->width*video_dec_ctx->height*sizeof(uint16_t)*3); //allocate pinned memory for end buffer for faster gpu send
         if (!outputRGB){
@@ -182,18 +186,103 @@ public:
             return;
         }
         zimg_tmp = aligned_alloc(32, zimg_tmp_size);
+
+        //let's set nbframe + maxTime
+        beginTime = 0;
+        endTime = ~0llu; //free to explore, no time limit
+        //ret = av_seek_frame(fmt_ctx, streamid, INT64_MAX, 0);
+        //if (ret != 0){
+        //    //it will fail, it is expected since INT64_MAX doesnt exist
+        //    std::cout << "Seeking to last keyframe failed for file : " << file << " with error message : " << av_err2str(ret) << std::endl;
+        //    error = 13;
+        //    return;
+        //}
+
+        last_time = ~0llu;
+
+        //get first frame timing
+        ret = getNextFrame(false);
+        if (ret != 0) {
+            std::cout << "failed to output frames for file : " << file << std::endl;
+            error = 17;
+            return;
+        }
+        first_time = frame->pts;
+
+        //reset
+        if (reset() < 0){
+            error = 15;
+            return;
+        }
+
+        video_dec_ctx->skip_frame = AVDISCARD_NONKEY;
+        //seek to last acceptable position on keyframes
+        avformat_seek_file(fmt_ctx, streamid, INT64_MIN, ((fmt_ctx->duration+1)*st->time_base.den)/(st->time_base.num*AV_TIME_BASE), INT64_MAX, 0);
+        
+        ret = 0;
+        while (!(ret = getNextFrame(false))){
+            last_time = frame->pts;
+        }
+        if (ret != -2 || last_time == ~0llu){
+            std::cout << "an error occured while computing last frames in file (ret : " << ret << "): " << file << std::endl;
+            error = 14;
+            return;
+        }
+
+        //reset
+        if (reset() < 0){
+            error = 15;
+            return;
+        }
+
+        //seek to last keyframe
+        avformat_seek_file(fmt_ctx, streamid, INT64_MIN, last_time, INT64_MAX, 0);
+
+        video_dec_ctx->skip_frame = AVDISCARD_DEFAULT;
+        //decode last frames
+        ret = 0;
+        while (!(ret = getNextFrame(false))){
+            last_time = frame->pts;
+        }
+        if (ret != -2 || last_time == ~0llu){
+            std::cout << "an error occured while computing last frames in file (ret : " << ret << "): " << file << std::endl;
+            error = 14;
+            return;
+        }
+
+        video_dec_ctx->skip_frame = AVDISCARD_DEFAULT;
+        if (reset() < 0){
+            error = 15;
+            return;
+        }
+
+        //now we got first_time and last_time
+        std::cout << fmt_ctx->duration*st->time_base.den/st->time_base.num/AV_TIME_BASE << " / " << last_time-first_time << std::endl;
+
+        beginTime = first_time;
+        endTime = last_time;
+    }
+    int reset(){
+        avcodec_flush_buffers(video_dec_ctx);
+        int ret = av_seek_frame(fmt_ctx, streamid, 0, 0);
+        if (ret < 0){
+            std::cout << "Failed to seek back to beginning" << std::endl;
+            return ret;
+        }
+        packet_end = true;
+        end_of_video = false;
+        frame_decoded_count = 0;
+        return 0;
     }
     int seek(int num, int den){
-        //std::cout << fmt_ctx->duration << " " << st->time_base.num << " " << st->time_base.den << " " << AV_TIME_BASE << std::endl;
-        uint64_t totaltimeunit = ((fmt_ctx->duration+1)*st->time_base.den)/(st->time_base.num*AV_TIME_BASE);
-        uint64_t requested = ((int64_t)totaltimeunit*(int64_t)num-1)/den+1;
-        if (num == 0) requested = 0;
+        uint64_t totaltimeunit = last_time-first_time; //include last_time
+        uint64_t requested = totaltimeunit*num/den+first_time;
         int ret = avformat_seek_file(fmt_ctx, streamid, INT64_MIN, requested, INT64_MAX, 0);
         beginTime = requested;
-        endTime = ((int64_t)totaltimeunit*(int64_t)(num+1)-1)/den+1;
+        endTime = totaltimeunit*(num+1)/den+first_time;
         return ret;
     }
-    int getNextFrame(){ //access result with object.frame. return 0 if success, -2 is EndOfVideo
+    int getNextFrame(bool convert = true){ //access result with object.frame. return 0 if success, -2 is EndOfVideo
         int ret;
 
         av_frame_unref(frame); //we remove last frame
@@ -233,23 +322,30 @@ public:
         }
 
         const uint64_t currentTime = frame->pts;
-        //std::cout << pkt->pts << "  " << packet_frame << "  " << st->time_base.num << " / " << st->time_base.den << std::endl;
-        if (currentTime < beginTime) return getNextFrame();
-        if (currentTime >= endTime) return -2;
+        if (currentTime < beginTime) {
+            return getNextFrame();
+        }
+        if (currentTime >= endTime) {
+            return -2;
+        }
 
         //we finally have our frame to return! Let s convert to RGB
 
         //int height = sws_scale(sws_ctx, frame->data, frame->linesize, 0, frame->height, RGBptrHelper, RGBstride);
         //std::cout << "newheight " << height << " " << ((uint16_t*)RGBptrHelper[0])[(540+2)*1920+960] << std::endl;
-        for (int p = 0; p < 3; p++){
-            zimg_src_buf.plane[p].data = frame->data[p];
-            zimg_src_buf.plane[p].stride = frame->linesize[p];
-            zimg_src_buf.plane[p].mask = ZIMG_BUFFER_MAX;
+        if (convert){
+            for (int p = 0; p < 3; p++){
+                zimg_src_buf.plane[p].data = frame->data[p];
+                zimg_src_buf.plane[p].stride = frame->linesize[p];
+                zimg_src_buf.plane[p].mask = ZIMG_BUFFER_MAX;
+            }
+            if ((ret = zimg_filter_graph_process(zimg_graph, &zimg_src_buf, &zimg_dst_buf, zimg_tmp, 0, 0, 0, 0))) {
+                print_zimg_error();
+                return -1;
+            }
         }
-        if ((ret = zimg_filter_graph_process(zimg_graph, &zimg_src_buf, &zimg_dst_buf, zimg_tmp, 0, 0, 0, 0))) {
-            print_zimg_error();
-            return -1;
-        }
+
+        frame_decoded_count++;
 
         return 0;
     }
