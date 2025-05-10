@@ -1,10 +1,10 @@
 #pragma once
 
-int ffmpegToZimgFormat(zimg_image_format& out, AVFormatContext* fmt_ctx, AVCodecContext *video_dec_ctx){
+int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
     zimg_image_format_default(&out, ZIMG_API_VERSION);
 
-    out.width = video_dec_ctx->width;
-    out.height = video_dec_ctx->height;
+    out.width = in->EncodedWidth;
+    out.height = in->EncodedHeight;
 
     //default values
     out.color_family = ZIMG_COLOR_YUV;
@@ -13,7 +13,7 @@ int ffmpegToZimgFormat(zimg_image_format& out, AVFormatContext* fmt_ctx, AVCodec
     out.transfer_characteristics = ZIMG_TRANSFER_BT709;
     out.color_primaries = ZIMG_PRIMARIES_BT709;
     out.pixel_range = ZIMG_RANGE_LIMITED;
-    switch (video_dec_ctx->pix_fmt){
+    switch ((AVPixelFormat)in->EncodedPixelFormat){
         case AV_PIX_FMT_YUV420P:
             out.depth = 8;
             out.subsample_w = 1;
@@ -143,41 +143,35 @@ int ffmpegToZimgFormat(zimg_image_format& out, AVFormatContext* fmt_ctx, AVCodec
         return 1;
     }
 
-    switch (video_dec_ctx->field_order){
-        case AV_FIELD_PROGRESSIVE:
-            out.field_parity = ZIMG_FIELD_PROGRESSIVE;
-            break;
-        case AV_FIELD_TT:
+    if (in->InterlacedFrame){
+        if (in->TopFieldFirst){
             out.field_parity = ZIMG_FIELD_TOP;
-            break;
-        case AV_FIELD_BB:
+        } else {
             out.field_parity = ZIMG_FIELD_BOTTOM;
-            break;
-
-        default:
-            std::cout << "Unhandled LibAV field" << std::endl;
-            return 1;
+        }
+    } else {
+        out.field_parity = ZIMG_FIELD_PROGRESSIVE;
     }
 
-    switch (video_dec_ctx->chroma_sample_location){
-        case AVCHROMA_LOC_UNSPECIFIED:
+    switch ((FFMS_ChromaLocations)in->ChromaLocation){
+        case FFMS_LOC_UNSPECIFIED:
             //std::cout << "unspecifed chroma location, defaulting on left" << std::endl;
-        case AVCHROMA_LOC_LEFT:
+        case FFMS_LOC_LEFT:
             out.chroma_location = ZIMG_CHROMA_LEFT;
             break;
-        case AVCHROMA_LOC_CENTER:
+        case FFMS_LOC_CENTER:
             out.chroma_location = ZIMG_CHROMA_CENTER;
             break;
-        case AVCHROMA_LOC_TOPLEFT:
+        case FFMS_LOC_TOPLEFT:
             out.chroma_location = ZIMG_CHROMA_TOP_LEFT;
             break;
-        case AVCHROMA_LOC_TOP:
+        case FFMS_LOC_TOP:
             out.chroma_location = ZIMG_CHROMA_TOP;
             break;
-        case AVCHROMA_LOC_BOTTOMLEFT:
+        case FFMS_LOC_BOTTOMLEFT:
             out.chroma_location = ZIMG_CHROMA_BOTTOM_LEFT;
             break;
-        case AVCHROMA_LOC_BOTTOM:
+        case FFMS_LOC_BOTTOM:
             out.chroma_location = ZIMG_CHROMA_BOTTOM;
             break;
 
@@ -186,7 +180,7 @@ int ffmpegToZimgFormat(zimg_image_format& out, AVFormatContext* fmt_ctx, AVCodec
             return 1;
     }
     
-    switch (video_dec_ctx->colorspace){
+    switch ((AVColorSpace)in->ColorSpace){
         case AVCOL_SPC_RGB:        
             out.matrix_coefficients = ZIMG_MATRIX_RGB; 
             break;
@@ -234,8 +228,8 @@ int ffmpegToZimgFormat(zimg_image_format& out, AVFormatContext* fmt_ctx, AVCodec
             std::cout << "Unhandled LibAV YUV color matrix" << std::endl;
             return 1;
     }
-
-    switch (video_dec_ctx->color_trc){
+    
+    switch (in->TransferCharateristics){
         case AVCOL_TRC_UNSPECIFIED:
             //std::cout << "missing transfer function, using BT709" << std::endl;;
         case AVCOL_TRC_BT709:
@@ -291,8 +285,8 @@ int ffmpegToZimgFormat(zimg_image_format& out, AVFormatContext* fmt_ctx, AVCodec
             std::cout << "Unhandled LibAV color transfer function" << std::endl;
             return 1;
     }
-
-    switch (video_dec_ctx->color_primaries){
+    
+    switch (in->ColorPrimaries){
         case AVCOL_PRI_UNSPECIFIED:
             //std::cout << "unspecified primaries, defaulting to BT709" << std::endl;
         case AVCOL_PRI_BT709:
@@ -334,7 +328,7 @@ int ffmpegToZimgFormat(zimg_image_format& out, AVFormatContext* fmt_ctx, AVCodec
             return 1;
     }
 
-    switch (video_dec_ctx->color_range){
+    switch (in->ColorRange){
         case AVCOL_RANGE_UNSPECIFIED:
             //std::cout << "Warning: unspecified color range, defaulting to full" << std::endl;
         case AVCOL_RANGE_MPEG:

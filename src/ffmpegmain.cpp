@@ -11,9 +11,9 @@
 #include "butter/main.hpp"
 
 extern "C"{
-#include <libavcodec/avcodec.h>
-#include <libavformat/avformat.h>
 #include <zimg.h>
+#include <ffms.h>
+#include<libavutil/pixfmt.h>
 }
 
 #include "util/ffmpegToZimgFormat.hpp"
@@ -28,6 +28,7 @@ void print_zimg_error(void)
 
 class FFmpegVideoManager{
 public:
+    int ret = 0;
     //zimg data
     zimg_filter_graph *zimg_graph = NULL;
 	zimg_image_buffer_const zimg_src_buf = { ZIMG_API_VERSION };
@@ -37,112 +38,69 @@ public:
 	size_t zimg_tmp_size = 0;
 	void *zimg_tmp = NULL;
 
-    AVFormatContext* fmt_ctx = NULL;
-    int streamid;
-    AVStream *st;
-    AVCodecParameters *dec_param;
-    const AVCodec *dec;
-    AVCodecContext *video_dec_ctx = NULL;
-
-    //active decoding context
-    AVPacket *pkt = NULL;
-    bool packet_end = true;
-    bool end_of_video = false; //used for flushing last decoder frames
-    int frame_decoded_count = 0;
-
-    uint64_t first_time = 0; //automatically gotten via init
-    uint64_t last_time = 0;
-    uint64_t beginTime = 0; //set for decoding guide
-    uint64_t endTime = 0;
-
-    uint64_t maxTime = 0;
-    int nbframe = 0;
+    char errmsg[1024];
+    FFMS_ErrorInfo errinfo;
+    FFMS_VideoSource* ffms_source = NULL;
+    const FFMS_VideoProperties* ffms_props = NULL;
+    int numframe = 0;
+    int width = 0;
+    int height = 0;
+    AVPixelFormat pix_fmt = AV_PIX_FMT_NONE;
     
-    AVFrame *frame = NULL;
+    const FFMS_Frame *frame = NULL;
     uint8_t* outputRGB = NULL;
     uint8_t* RGBptrHelper[3] = {NULL, NULL, NULL};
     int RGBstride[3] = {0, 0, 0};
     int error = 0;
-    FFmpegVideoManager(std::string file){
-        int ret = 0;
+    FFmpegVideoManager(std::string file, FFMS_Index* index, int trackno){
 
-        ret = avformat_open_input(&fmt_ctx, file.c_str(), NULL, NULL);
-        if (ret < 0) {
-            std::cout << "FFmpeg failed to read file (Error : " << ret << ") : " << file << std::endl;
+        errinfo.Buffer      = errmsg;
+        errinfo.BufferSize  = sizeof(errmsg);
+        errinfo.ErrorType   = FFMS_ERROR_SUCCESS;
+        errinfo.SubType     = FFMS_ERROR_SUCCESS;
+
+        //ffms2 part
+        ffms_source = FFMS_CreateVideoSource(file.c_str(), trackno, index, 1, FFMS_SEEK_NORMAL, &errinfo);
+        if (ffms_source == NULL) {
+            std::cout << "FFMS, failed to create video source of " << file << " with error " << errmsg << std::endl;
             error = 1;
             return;
         }
-
-        ret = avformat_find_stream_info(fmt_ctx, NULL);
-        if (ret < 0){
-            std::cout << "FFmpeg failed to read streams from file (Error : " << ret << ") : " << file << std::endl;
+        ffms_props = FFMS_GetVideoProperties(ffms_source);
+        numframe = ffms_props->NumFrames;
+        if (numframe == 0){
+            std::cout << "Got an empty video..." << std::endl;
             error = 2;
             return;
         }
+        frame = FFMS_GetFrame(ffms_source, 0, &errinfo);
+        pix_fmt = (AVPixelFormat)frame->EncodedPixelFormat;
+        width = frame->EncodedWidth;
+        height = frame->EncodedHeight;
 
-        ret = av_find_best_stream(fmt_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
-        if (ret < 0){
-            std::cout << "FFmpeg failed to find a video stream for file (Error : " << ret << ") : " << file << std::endl;
+        if (FFMS_SetOutputFormatV2(ffms_source, (int*)&pix_fmt, width, height,
+            FFMS_RESIZER_BICUBIC, &errinfo)) {
+            std::cout << "Failed to set the output format in FFMS for file : " << file << " with error " << errmsg << std::endl;
             error = 3;
             return;
         }
 
-        streamid = ret;
-        st = fmt_ctx->streams[streamid];
-        dec_param = st->codecpar;
-
-        dec = avcodec_find_decoder(dec_param->codec_id);
-        if (!dec){
-            std::cout << "FFmpeg failed to find " << file << " codec" << std::endl;
-            error = 4;
-            return;
-        }
-
-        video_dec_ctx = avcodec_alloc_context3(dec);
-        if (!video_dec_ctx){
-            std::cout << "FFmpeg failed to allocate codec context" << std::endl;
-            error = 5;
-            return;
-        }
-
-        avcodec_parameters_to_context(video_dec_ctx, dec_param);
-
-        ret = avcodec_open2(video_dec_ctx, dec, NULL);
-        if (ret < 0){
-            std::cout << "FFmpeg failed to open " << file << " codec" << std::endl;
-            error = 6;
-            return;
-        }
-
-        frame = av_frame_alloc();
-        if (!frame){
-            std::cout << "FFmpeg failed to allocate frame" << std::endl;
-            error = 7;
-            return;
-        }
-        pkt = av_packet_alloc();
-        if (!pkt){
-            std::cout << "FFmpeg failed to allocate packet" << std::endl;
-            error = 8;
-            return;
-        }
-
-        hipHostMalloc((void**)&outputRGB, video_dec_ctx->width*video_dec_ctx->height*sizeof(uint16_t)*3); //allocate pinned memory for end buffer for faster gpu send
+        hipHostMalloc((void**)&outputRGB, width*height*sizeof(uint16_t)*3); //allocate pinned memory for end buffer for faster gpu send
         if (!outputRGB){
-            std::cout << "Failed to allocate Pinned RAM for RGB output for file : " << file << " of size " << video_dec_ctx->width*video_dec_ctx->height*sizeof(uint16_t)*3 << std::endl;
+            std::cout << "Failed to allocate Pinned RAM for RGB output for file : " << file << " of size " << width*height*sizeof(uint16_t)*3 << std::endl;
             error = 10;
             return;
         }
         RGBptrHelper[0] = outputRGB;
-        RGBptrHelper[1] = outputRGB+video_dec_ctx->width*video_dec_ctx->height*sizeof(uint16_t);
-        RGBptrHelper[2] = outputRGB+2*video_dec_ctx->width*video_dec_ctx->height*sizeof(uint16_t);
+        RGBptrHelper[1] = outputRGB+width*height*sizeof(uint16_t);
+        RGBptrHelper[2] = outputRGB+2*width*height*sizeof(uint16_t);
 
-        RGBstride[0] = video_dec_ctx->width;
-        RGBstride[1] = video_dec_ctx->width;
-        RGBstride[2] = video_dec_ctx->width;
+        RGBstride[0] = width;
+        RGBstride[1] = width;
+        RGBstride[2] = width;
         
         //zimg init
-        if (ffmpegToZimgFormat(zimg_src_format, fmt_ctx, video_dec_ctx) != 0){
+        if (ffmpegToZimgFormat(zimg_src_format, frame) != 0){
             std::cout << "Failed to convert ffmpeg input format to zimg processing format" << std::endl;
             error = 10;
             return;
@@ -150,8 +108,8 @@ public:
 
         //destination format
         zimg_image_format_default(&zimg_dst_format, ZIMG_API_VERSION);
-        zimg_dst_format.width = video_dec_ctx->width;
-        zimg_dst_format.height = video_dec_ctx->height;
+        zimg_dst_format.width = width;
+        zimg_dst_format.height = height;
         zimg_dst_format.pixel_type = ZIMG_PIXEL_WORD;
 
         zimg_dst_format.subsample_w = 0;
@@ -186,157 +144,21 @@ public:
             return;
         }
         zimg_tmp = aligned_alloc(32, zimg_tmp_size);
-
-        //let's set nbframe + maxTime
-        beginTime = 0;
-        endTime = ~0llu; //free to explore, no time limit
-        //ret = av_seek_frame(fmt_ctx, streamid, INT64_MAX, 0);
-        //if (ret != 0){
-        //    //it will fail, it is expected since INT64_MAX doesnt exist
-        //    std::cout << "Seeking to last keyframe failed for file : " << file << " with error message : " << av_err2str(ret) << std::endl;
-        //    error = 13;
-        //    return;
-        //}
-
-        last_time = ~0llu;
-
-        //get first frame timing
-        ret = getNextFrame(false);
-        if (ret != 0) {
-            std::cout << "failed to output frames for file : " << file << std::endl;
-            error = 17;
-            return;
-        }
-        first_time = frame->pts;
-
-        //reset
-        if (reset() < 0){
-            error = 15;
-            return;
-        }
-
-        video_dec_ctx->skip_frame = AVDISCARD_NONKEY;
-        //seek to last acceptable position on keyframes
-        avformat_seek_file(fmt_ctx, streamid, INT64_MIN, ((fmt_ctx->duration+1)*st->time_base.den)/(st->time_base.num*AV_TIME_BASE), INT64_MAX, 0);
-        
-        ret = 0;
-        while (!(ret = getNextFrame(false))){
-            last_time = frame->pts;
-        }
-        if (ret != -2 || last_time == ~0llu){
-            std::cout << "an error occured while computing last frames in file (ret : " << ret << "): " << file << std::endl;
-            error = 14;
-            return;
-        }
-
-        //reset
-        if (reset() < 0){
-            error = 15;
-            return;
-        }
-
-        //seek to last keyframe
-        avformat_seek_file(fmt_ctx, streamid, INT64_MIN, last_time, INT64_MAX, 0);
-
-        video_dec_ctx->skip_frame = AVDISCARD_DEFAULT;
-        //decode last frames
-        ret = 0;
-        while (!(ret = getNextFrame(false))){
-            last_time = frame->pts;
-        }
-        if (ret != -2 || last_time == ~0llu){
-            std::cout << "an error occured while computing last frames in file (ret : " << ret << "): " << file << std::endl;
-            error = 14;
-            return;
-        }
-
-        video_dec_ctx->skip_frame = AVDISCARD_DEFAULT;
-        if (reset() < 0){
-            error = 15;
-            return;
-        }
-
-        //now we got first_time and last_time
-        std::cout << fmt_ctx->duration*st->time_base.den/st->time_base.num/AV_TIME_BASE << " / " << last_time-first_time << std::endl;
-
-        beginTime = first_time;
-        endTime = last_time;
     }
-    int reset(){
-        avcodec_flush_buffers(video_dec_ctx);
-        int ret = av_seek_frame(fmt_ctx, streamid, 0, 0);
-        if (ret < 0){
-            std::cout << "Failed to seek back to beginning" << std::endl;
-            return ret;
-        }
-        packet_end = true;
-        end_of_video = false;
-        frame_decoded_count = 0;
-        return 0;
-    }
-    int seek(int num, int den){
-        uint64_t totaltimeunit = last_time-first_time; //include last_time
-        uint64_t requested = totaltimeunit*num/den+first_time;
-        int ret = avformat_seek_file(fmt_ctx, streamid, INT64_MIN, requested, INT64_MAX, 0);
-        beginTime = requested;
-        endTime = totaltimeunit*(num+1)/den+first_time;
-        return ret;
-    }
-    int getNextFrame(bool convert = true){ //access result with object.frame. return 0 if success, -2 is EndOfVideo
-        int ret;
+    int getFrame(int i, bool convert = true){ //access result with object.frame. return 0 if success, -2 is EndOfVideo
 
-        av_frame_unref(frame); //we remove last frame
-        if (packet_end){
-            av_packet_unref(pkt); //we remove last packet and search a new one
-            while (true){
-                if (av_read_frame(fmt_ctx, pkt) < 0){
-                    if (end_of_video) return -2; //we ve been there already so we are flushed
-                    packet_end = false;
-                    ret = avcodec_send_packet(video_dec_ctx, NULL);
-                    if (ret < 0){
-                        std::cout << "Error submitting a packet to the decoder" << std::endl;
-                    }
-                    end_of_video = true;
-                    return getNextFrame();
-                } else {
-                    if (pkt->stream_index == streamid){
-                        packet_end = false;
-                        ret = avcodec_send_packet(video_dec_ctx, pkt);
-                        if (ret < 0){
-                            std::cout << "Error submitting a packet to the decoder" << std::endl;
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-        ret = avcodec_receive_frame(video_dec_ctx, frame);
-        if (ret < 0) {
-            if (ret == AVERROR_EOF || ret == AVERROR(EAGAIN)){ //end of packet
-                packet_end = true;
-                return getNextFrame(); //still needs to track the next one
-            }
- 
-            std::cout << "Error during decoding: " << ret << std::endl;
+        //ffms2 get frame
+        frame = FFMS_GetFrame(ffms_source, i, &errinfo);
+        if (frame == NULL){
+            std::cout << "Error retrieving frame " << i << " with error " << errmsg << std::endl;
+            error = 6;
             return -1;
         }
 
-        const uint64_t currentTime = frame->pts;
-        if (currentTime < beginTime) {
-            return getNextFrame();
-        }
-        if (currentTime >= endTime) {
-            return -2;
-        }
-
-        //we finally have our frame to return! Let s convert to RGB
-
-        //int height = sws_scale(sws_ctx, frame->data, frame->linesize, 0, frame->height, RGBptrHelper, RGBstride);
-        //std::cout << "newheight " << height << " " << ((uint16_t*)RGBptrHelper[0])[(540+2)*1920+960] << std::endl;
         if (convert){
             for (int p = 0; p < 3; p++){
-                zimg_src_buf.plane[p].data = frame->data[p];
-                zimg_src_buf.plane[p].stride = frame->linesize[p];
+                zimg_src_buf.plane[p].data = frame->Data[p];
+                zimg_src_buf.plane[p].stride = frame->Linesize[p];
                 zimg_src_buf.plane[p].mask = ZIMG_BUFFER_MAX;
             }
             if ((ret = zimg_filter_graph_process(zimg_graph, &zimg_src_buf, &zimg_dst_buf, zimg_tmp, 0, 0, 0, 0))) {
@@ -345,15 +167,10 @@ public:
             }
         }
 
-        frame_decoded_count++;
-
         return 0;
     }
     ~FFmpegVideoManager(){
-        if (fmt_ctx != NULL) avformat_close_input(&fmt_ctx);
-        if (video_dec_ctx != NULL) avcodec_free_context(&video_dec_ctx);
-        if (pkt != NULL) av_packet_free(&pkt);
-        if (frame != NULL) av_frame_free(&frame);
+        if (ffms_source != NULL) FFMS_DestroyVideoSource(ffms_source);
         if (outputRGB != NULL) hipHostFree(outputRGB);
         if (zimg_graph != NULL) zimg_filter_graph_free(zimg_graph);
         if (zimg_tmp != NULL) free(zimg_tmp);
@@ -361,58 +178,46 @@ public:
         zimg_tmp = NULL;
         zimg_graph = NULL;
         outputRGB = NULL;
-        frame = NULL;
-        pkt = NULL;
-        video_dec_ctx = NULL;
-        fmt_ctx = NULL;
+        ffms_source = NULL;
     }
 };
 
 enum METRICS{SSIMULACRA2, Butteraugli};
 
-void threadwork(std::string file1, std::string file2, int threadid, int threadnum, METRICS metric, threadSet* gpustreams, int maxshared, float intensity_multiplier, float* gaussiankernel_dssimu2, butter::GaussianHandle* gaussianhandlebutter, void** pinnedmempool, hipStream_t* streams_d, std::vector<float>* output){ //for butteraugli, return 2norm, 3norm, Infnorm, 2norm, ...
-
-    av_log_set_level(AV_LOG_ERROR);
+void threadwork(std::string file1, FFMS_Index* index1, int trackno1, std::string file2, FFMS_Index* index2, int trackno2, int threadid, int threadnum, METRICS metric, threadSet* gpustreams, int maxshared, float intensity_multiplier, float* gaussiankernel_dssimu2, butter::GaussianHandle* gaussianhandlebutter, void** pinnedmempool, hipStream_t* streams_d, std::vector<float>* output){ //for butteraugli, return 2norm, 3norm, Infnorm, 2norm, ...
     
-    FFmpegVideoManager v1(file1);
+    FFmpegVideoManager v1(file1, index1, trackno1);
     if (v1.error){
         std::cout << "Thread " << threadid << " Failed to open file " << file1 << std::endl;
         return;
     }
-    FFmpegVideoManager v2(file2);
+    FFmpegVideoManager v2(file2, index2, trackno2);
     if (v2.error){
         std::cout << "Thread " << threadid << " Failed to open file " << file2 << std::endl;
         return;
     }
-    if (v1.video_dec_ctx->width != v2.video_dec_ctx->width || v1.video_dec_ctx->height != v2.video_dec_ctx->height){
-        std::cout << "the 2 videos do not have the same sizes" << std::endl;
+    if (v1.width != v2.width || v1.height != v2.height){
+        std::cout << "the 2 videos do not have the same sizes (" << v1.width << "x" << v1.height << " vs " << v2.width << "x" << v2.height <<")" << std::endl;
         return;
     }
-    if (v1.seek(threadid, threadnum) != 0){
-        std::cout << "Thread " << threadid << " Failed to seek file " << file1 << std::endl;
-        return;
-    }
-    if (v2.seek(threadid, threadnum) != 0){
-        std::cout << "Thread " << threadid << " Failed to seek file " << file2 << std::endl;
+    if (v1.numframe != v2.numframe){
+        std::cout << "both videos do not have the same amount of frame" << std::endl;
         return;
     }
 
     int pinnedsize = 0;
     switch (metric){
         case SSIMULACRA2:
-        pinnedsize = ssimu2::allocsizeScore(v2.video_dec_ctx->width, v1.video_dec_ctx->height, maxshared)*sizeof(float3);
+        pinnedsize = ssimu2::allocsizeScore(v2.width, v1.height, maxshared)*sizeof(float3);
         break;
         case Butteraugli:
-        pinnedsize = butter::allocsizeScore(v2.video_dec_ctx->width, v1.video_dec_ctx->height)*sizeof(float);
+        pinnedsize = butter::allocsizeScore(v2.width, v1.height)*sizeof(float);
         break;
     }
     
-    int i = 0;
-    while (v1.getNextFrame() == 0){
-        if (v2.getNextFrame() != 0){
-            std::cout << "premature end of distorded, are both stream of the same size?" << std::endl;
-            break;
-        }
+    for (int i = v1.numframe*threadid/threadnum; i < v1.numframe*(threadid+1)/threadnum; i++){
+        v1.getFrame(i);
+        v2.getFrame(i);
 
         const uint8_t* srcp1[3] = {v1.RGBptrHelper[0], v1.RGBptrHelper[1], v1.RGBptrHelper[2]};
         const uint8_t* srcp2[3] = {v2.RGBptrHelper[0], v2.RGBptrHelper[1], v2.RGBptrHelper[2]};
@@ -434,7 +239,7 @@ void threadwork(std::string file1, std::string file2, int threadid, int threadnu
             switch (metric){
                 case Butteraugli:
                 {
-                const std::tuple<float, float, float> scorebutter = butter::butterprocess<UINT16>(NULL, 0, srcp1, srcp2, (float*)pinnedmem, *gaussianhandlebutter, v1.RGBstride[0], v1.video_dec_ctx->width, v1.video_dec_ctx->height, intensity_multiplier, maxshared, stream);
+                const std::tuple<float, float, float> scorebutter = butter::butterprocess<UINT16>(NULL, 0, srcp1, srcp2, (float*)pinnedmem, *gaussianhandlebutter, v1.RGBstride[0], v1.width, v1.height, intensity_multiplier, maxshared, stream);
                 output->push_back(std::get<0>(scorebutter));
                 output->push_back(std::get<1>(scorebutter));
                 output->push_back(std::get<2>(scorebutter));
@@ -442,7 +247,7 @@ void threadwork(std::string file1, std::string file2, int threadid, int threadnu
                 }
                 case SSIMULACRA2:
                 {
-                const double scoressimu2 = ssimu2::ssimu2process<UINT16>(srcp1, srcp2, (float3*)pinnedmem, v1.RGBstride[0], v1.video_dec_ctx->width, v1.video_dec_ctx->height, gaussiankernel_dssimu2, maxshared, stream);
+                const double scoressimu2 = ssimu2::ssimu2process<UINT16>(srcp1, srcp2, (float3*)pinnedmem, v1.RGBstride[0], v1.width, v1.height, gaussiankernel_dssimu2, maxshared, stream);
                 output->push_back(scoressimu2);
                 break;
                 }
@@ -452,11 +257,6 @@ void threadwork(std::string file1, std::string file2, int threadid, int threadnu
             return;
         }
         gpustreams->insert(streamid);
-        
-        i++;
-    }
-    if (v2.getNextFrame() == 0){
-        std::cout << "premature end of reference, are both stream of the same size?" << std::endl;
     }
     return;
 }
@@ -604,6 +404,48 @@ int main(int argc, char** argv){
 
     auto init = std::chrono::high_resolution_clock::now();
 
+    //FFMS2 indexer init
+    FFMS_Init(0, 0);
+    char errmsg[1024];
+    FFMS_ErrorInfo errinfo;
+    errinfo.Buffer      = errmsg;
+    errinfo.BufferSize  = sizeof(errmsg);
+    errinfo.ErrorType   = FFMS_ERROR_SUCCESS;
+    errinfo.SubType     = FFMS_ERROR_SUCCESS;
+
+    FFMS_Indexer *indexer1 = FFMS_CreateIndexer(file1.c_str(), &errinfo);
+    if (indexer1 == NULL) {
+        std::cout << "FFMS2, failed to create indexer of file " << file1 << " with error : " << errmsg << std::endl;
+        return 0;
+    }
+    FFMS_Indexer *indexer2 = FFMS_CreateIndexer(file2.c_str(), &errinfo);
+    if (indexer2 == NULL) {
+        std::cout << "FFMS2, failed to create indexer of file " << file2 << " with error : " << errmsg << std::endl;
+        return 0;
+    }
+
+    FFMS_Index *index1 = FFMS_DoIndexing2(indexer1, FFMS_IEH_ABORT, &errinfo);
+    if (index1 == NULL) {
+        std::cout << "FFMS2, failed to index file " << file1 << " with error : " << errmsg << std::endl;
+        return 0;
+    } 
+    FFMS_Index *index2 = FFMS_DoIndexing2(indexer2, FFMS_IEH_ABORT, &errinfo);
+    if (index2 == NULL) {
+        std::cout << "FFMS2, failed to index file " << file2 << " with error : " << errmsg << std::endl;
+        return 0;
+    } 
+
+    int trackno1 = FFMS_GetFirstTrackOfType(index1, FFMS_TYPE_VIDEO, &errinfo);
+    if (trackno1 < 0) {
+        std::cout << "FFMS2, found no video track in " << file1 << " with error : " << errmsg << std::endl;
+        return 0;
+    }
+    int trackno2 = FFMS_GetFirstTrackOfType(index2, FFMS_TYPE_VIDEO, &errinfo);
+    if (trackno2 < 0) {
+        std::cout << "FFMS2, found no video track in " << file2 << " with error : " << errmsg << std::endl;
+        return 0;
+    }
+
     //prepare objects
     void** pinnedmempool = (void**)malloc(sizeof(void*)*gputhreads);
     for (int i = 0; i < gputhreads; i++) pinnedmempool[i] = NULL;
@@ -642,7 +484,7 @@ int main(int argc, char** argv){
     std::vector<std::thread> threadlist;
     std::vector<std::vector<float>> returnlist(threads);
     for (int i = 0; i < threads; i++){
-        threadlist.emplace_back(threadwork, file1, file2, i, threads, metric, &gpustreams, maxshared, intensity_multiplier, gaussiankernel_dssimu2, &gaussianhandlebutter, pinnedmempool, streams_d, &(returnlist[i]));
+        threadlist.emplace_back(threadwork, file1, index1, trackno1, file2, index2, trackno2, i, threads, metric, &gpustreams, maxshared, intensity_multiplier, gaussiankernel_dssimu2, &gaussianhandlebutter, pinnedmempool, streams_d, &(returnlist[i]));
     }
 
     for (int i = 0; i < threads; i++){
@@ -658,8 +500,22 @@ int main(int argc, char** argv){
     }
     
     auto fin = std::chrono::high_resolution_clock::now();
+
+    int millitaken = std::chrono::duration_cast<std::chrono::milliseconds>(fin-init).count();
+    int frames;
+    switch (metric){
+        case Butteraugli:
+        frames = finalreslist.size()/3;
+        break;
+        case SSIMULACRA2:
+        frames = finalreslist.size();
+        break;
+    }
+    float fps = frames*1000/millitaken;
     
     //free
+    FFMS_DestroyIndex(index1);
+    FFMS_DestroyIndex(index2);
     for (int i = 0; i < gputhreads; i++) if (pinnedmempool[i] != NULL) hipHostFree(pinnedmempool[i]);
     free(pinnedmempool);
     for (int i = 0; i < gputhreads; i++) hipStreamDestroy(streams_d[i]);
@@ -679,17 +535,6 @@ int main(int argc, char** argv){
     }
 
     //posttreatment
-    int millitaken = std::chrono::duration_cast<std::chrono::milliseconds>(fin-init).count();
-    int frames;
-    switch (metric){
-        case Butteraugli:
-        frames = finalreslist.size()/3;
-        break;
-        case SSIMULACRA2:
-        frames = finalreslist.size();
-        break;
-    }
-    float fps = frames*1000/millitaken;
 
     //json output
     if (jsonout != ""){
