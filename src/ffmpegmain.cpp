@@ -117,7 +117,7 @@ public:
 
         zimg_dst_format.color_family = ZIMG_COLOR_RGB;
         zimg_dst_format.matrix_coefficients = ZIMG_MATRIX_RGB;
-        zimg_dst_format.transfer_characteristics = ZIMG_TRANSFER_BT709;
+        zimg_dst_format.transfer_characteristics = ZIMG_TRANSFER_IEC_61966_2_1;
         zimg_dst_format.color_primaries = ZIMG_PRIMARIES_BT709;
         zimg_dst_format.depth = 16;
         zimg_dst_format.pixel_range = ZIMG_RANGE_FULL;
@@ -184,7 +184,7 @@ public:
 
 enum METRICS{SSIMULACRA2, Butteraugli};
 
-void threadwork(std::string file1, FFMS_Index* index1, int trackno1, std::string file2, FFMS_Index* index2, int trackno2, int threadid, int threadnum, METRICS metric, threadSet* gpustreams, int maxshared, float intensity_multiplier, float* gaussiankernel_dssimu2, butter::GaussianHandle* gaussianhandlebutter, void** pinnedmempool, hipStream_t* streams_d, std::vector<float>* output){ //for butteraugli, return 2norm, 3norm, Infnorm, 2norm, ...
+void threadwork(std::string file1, FFMS_Index* index1, int trackno1, std::string file2, FFMS_Index* index2, int trackno2, int start, int end, int every, int threadid, int threadnum, METRICS metric, threadSet* gpustreams, int maxshared, float intensity_multiplier, float* gaussiankernel_dssimu2, butter::GaussianHandle* gaussianhandlebutter, void** pinnedmempool, hipStream_t* streams_d, std::vector<float>* output){ //for butteraugli, return 2norm, 3norm, Infnorm, 2norm, ...
     
     FFmpegVideoManager v1(file1, index1, trackno1);
     if (v1.error){
@@ -200,7 +200,12 @@ void threadwork(std::string file1, FFMS_Index* index1, int trackno1, std::string
         std::cout << "the 2 videos do not have the same sizes (" << v1.width << "x" << v1.height << " vs " << v2.width << "x" << v2.height <<")" << std::endl;
         return;
     }
-    if (v1.numframe != v2.numframe){
+    
+    if (end < 0) end = v1.numframe;
+    if (end < start) end = start;
+    if (start < 0) start = 0;
+    
+    if (std::min(v1.numframe, end) != std::min(v2.numframe, end)){
         std::cout << "both videos do not have the same amount of frame" << std::endl;
         return;
     }
@@ -215,7 +220,12 @@ void threadwork(std::string file1, FFMS_Index* index1, int trackno1, std::string
         break;
     }
     
-    for (int i = v1.numframe*threadid/threadnum; i < v1.numframe*(threadid+1)/threadnum; i++){
+    int threadbegin = (end-start)*threadid/threadnum + start -1;
+    threadbegin /= every;
+    threadbegin += 1;
+    if (threadid == 0) threadbegin = 0; //fix negative division not being what we expect
+    threadbegin *= every;
+    for (int i = threadbegin ; i < (end-start)*(threadid+1)/threadnum + start; i += every){
         v1.getFrame(i);
         v2.getFrame(i);
 
@@ -264,6 +274,7 @@ void threadwork(std::string file1, FFMS_Index* index1, int trackno1, std::string
 void printUsage(){
     std::cout << R"(usage: ./FFVship [-h] [--source SOURCE] [--encoded ENCODED]
                     [-m {SSIMULACRA2, Butteraugli}]
+                    [--start start] [--end end] [-e --every every]
                     [-t THREADS] [-g gpuThreads] [--gpu-id gpu_id]
                     [--json OUTPUT]
                     [--list-gpu]
@@ -282,6 +293,9 @@ int main(int argc, char** argv){
         return 0;
     }
 
+    int start = 0;
+    int end = -1;
+    int every = 1;
     int gpuid = 0;
     int gputhreads = 8;
     int threads = 12;
@@ -334,6 +348,42 @@ int main(int argc, char** argv){
                 threads = stoi(args[i+1]);
             } catch (std::invalid_argument& e){
                 std::cout << "invalid value for -t" << std::endl;
+                return 0;
+            }
+            i++;
+        } else if (args[i] == "--start"){
+            if (i == args.size()-1){
+                std::cout << "--start needs an argument" << std::endl;
+                return 0;
+            }
+            try {
+                start = stoi(args[i+1]);
+            } catch (std::invalid_argument& e){
+                std::cout << "invalid value for --start" << std::endl;
+                return 0;
+            }
+            i++;
+        } else if (args[i] == "--end"){
+            if (i == args.size()-1){
+                std::cout << "--end needs an argument" << std::endl;
+                return 0;
+            }
+            try {
+                end = stoi(args[i+1]);
+            } catch (std::invalid_argument& e){
+                std::cout << "invalid value for --end" << std::endl;
+                return 0;
+            }
+            i++;
+        } else if (args[i] == "-e" || args[i] == "--every"){
+            if (i == args.size()-1){
+                std::cout << "--every needs an argument" << std::endl;
+                return 0;
+            }
+            try {
+                every = stoi(args[i+1]);
+            } catch (std::invalid_argument& e){
+                std::cout << "invalid value for --every" << std::endl;
                 return 0;
             }
             i++;
@@ -484,7 +534,7 @@ int main(int argc, char** argv){
     std::vector<std::thread> threadlist;
     std::vector<std::vector<float>> returnlist(threads);
     for (int i = 0; i < threads; i++){
-        threadlist.emplace_back(threadwork, file1, index1, trackno1, file2, index2, trackno2, i, threads, metric, &gpustreams, maxshared, intensity_multiplier, gaussiankernel_dssimu2, &gaussianhandlebutter, pinnedmempool, streams_d, &(returnlist[i]));
+        threadlist.emplace_back(threadwork, file1, index1, trackno1, file2, index2, trackno2, start, end, every, i, threads, metric, &gpustreams, maxshared, intensity_multiplier, gaussiankernel_dssimu2, &gaussianhandlebutter, pinnedmempool, streams_d, &(returnlist[i]));
     }
 
     for (int i = 0; i < threads; i++){
