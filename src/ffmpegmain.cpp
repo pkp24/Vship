@@ -78,7 +78,11 @@ public:
         width = frame->EncodedWidth;
         height = frame->EncodedHeight;
 
-        if (FFMS_SetOutputFormatV2(ffms_source, (int*)&pix_fmt, width, height,
+        int pixfmts[2];
+        pixfmts[0] = (int)pix_fmt;
+        pixfmts[1] = -1;
+
+        if (FFMS_SetOutputFormatV2(ffms_source, pixfmts, width, height,
             FFMS_RESIZER_BICUBIC, &errinfo)) {
             std::cout << "Failed to set the output format in FFMS for file : " << file << " with error " << errmsg << std::endl;
             error = 3;
@@ -220,11 +224,12 @@ void threadwork(std::string file1, FFMS_Index* index1, int trackno1, std::string
         break;
     }
     
-    int threadbegin = (end-start)*threadid/threadnum + start -1;
+    int threadbegin = (end-start)*threadid/threadnum-1;
     threadbegin /= every;
     threadbegin += 1;
     if (threadid == 0) threadbegin = 0; //fix negative division not being what we expect
     threadbegin *= every;
+    threadbegin += start;
     for (int i = threadbegin ; i < (end-start)*(threadid+1)/threadnum + start; i += every){
         v1.getFrame(i);
         v2.getFrame(i);
