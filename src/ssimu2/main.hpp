@@ -18,7 +18,7 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* p
     size_t whs[6] = {wh, ((height-1)/2 + 1)*((width-1)/2 + 1), ((height-1)/4 + 1)*((width-1)/4 + 1), ((height-1)/8 + 1)*((width-1)/8 + 1), ((height-1)/16 + 1)*((width-1)/16 + 1), ((height-1)/32 + 1)*((width-1)/32 + 1)};
     size_t whs_integral[7];
     whs_integral[0] = 0;
-    for (int i = 0; i < 7; i++){
+    for (int i = 0; i < 6; i++){
         whs_integral[i+1] = whs_integral[i] + whs[i];
     }
     size_t totalscalesize = whs_integral[6];
