@@ -20,7 +20,7 @@
 
 namespace butter{
 
-Plane_d getdiffmap(Plane_d* src1_d, Plane_d* src2_d, float* mem_d, int width, int height, float intensity_multiplier, int maxshared, GaussianHandle& gaussianHandle, hipStream_t stream){
+Plane_d getdiffmap(Plane_d* src1_d, Plane_d* src2_d, float* mem_d, size_t width, size_t height, float intensity_multiplier, size_t maxshared, GaussianHandle& gaussianHandle, hipStream_t stream){
     //temporary planes
     Plane_d temp[3] = {Plane_d(mem_d, width, height, stream), Plane_d(mem_d+1*width*height, width, height, stream), Plane_d(mem_d+2*width*height, width, height, stream)};
 
@@ -118,9 +118,9 @@ Plane_d getdiffmap(Plane_d* src1_d, Plane_d* src2_d, float* mem_d, int width, in
     return diffmap;
 }
 
-std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride, const uint8_t *srcp1[3], const uint8_t *srcp2[3], float* pinned, GaussianHandle& gaussianHandle, int stride, int width, int height, float intensity_multiplier, int maxshared, hipStream_t stream){
-    int wh = width*height;
-    const int totalscalesize = wh;
+std::tuple<float, float, float> butterprocess(const uint8_t *dstp, size_t dststride, const uint8_t *srcp1[3], const uint8_t *srcp2[3], float* pinned, GaussianHandle& gaussianHandle, size_t stride, size_t width, size_t height, float intensity_multiplier, size_t maxshared, hipStream_t stream){
+    size_t wh = width*height;
+    const size_t totalscalesize = wh;
 
     //big memory allocation, we will try it multiple time if failed to save when too much threads are used
     hipError_t erralloc;
@@ -151,8 +151,8 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int dststride
     src2_d[2].strideEliminator(mem_d+6*width*height, stride);
 
     //computing downscaled before we overwrite src in getdiffmap (it s better for memory)
-    int nwidth = (width-1)/2+1;
-    int nheight = (height-1)/2+1;
+    size_t nwidth = (width-1)/2+1;
+    size_t nheight = (height-1)/2+1;
     float* nmem_d = mem_d+6*width*height; //allow usage up to mem_d+8*width*height;
     Plane_d nsrc1_d[3] = {Plane_d(nmem_d, nwidth, nheight, stream), Plane_d(nmem_d+nwidth*nheight, nwidth, nheight, stream), Plane_d(nmem_d+2*nwidth*nheight, nwidth, nheight, stream)};
     Plane_d nsrc2_d[3] = {Plane_d(nmem_d+3*nwidth*nheight, nwidth, nheight, stream), Plane_d(nmem_d+4*nwidth*nheight, nwidth, nheight, stream), Plane_d(nmem_d+5*nwidth*nheight, nwidth, nheight, stream)};
