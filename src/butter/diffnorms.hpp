@@ -1,19 +1,19 @@
 namespace butter{
 
-int allocsizeScore(int width, int height){
-    int w = width*height;
+int64_t allocsizeScore(int64_t width, int64_t height){
+    int64_t w = width*height;
     while (w > 1024){
         w = (w - 1)/1024 + 1;
     }
     return w*3;
 }
 
-__global__ void sumreduce(float* dst, float* src, int width){
+__global__ void sumreduce(float* dst, float* src, int64_t width){
     //dst must be of size 3*sizeof(float)*blocknum at least
     //shared memory needed is 3*sizeof(float)*threadnum at least
-    const int x = threadIdx.x + blockIdx.x*blockDim.x;
-    const int thx = threadIdx.x;
-    const int threadnum = blockDim.x;
+    const int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
+    const int64_t thx = threadIdx.x;
+    const int64_t threadnum = blockDim.x;
     
     __shared__ float sharedmem[1024*3];
 
@@ -45,12 +45,12 @@ __global__ void sumreduce(float* dst, float* src, int width){
     }
 }
 
-__global__ void sumreducenorm(float* dst, float* src, int width){
+__global__ void sumreducenorm(float* dst, float* src, int64_t width){
     //dst must be of size 3*sizeof(float)*blocknum at least
     //shared memory needed is sizeof(float)*threadnum at least
-    const int x = threadIdx.x + blockIdx.x*blockDim.x;
-    const int thx = threadIdx.x;
-    const int threadnum = blockDim.x;
+    const int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
+    const int64_t thx = threadIdx.x;
+    const int64_t threadnum = blockDim.x;
     
     __shared__ float sharedmem[1024*3];
 
@@ -82,13 +82,13 @@ __global__ void sumreducenorm(float* dst, float* src, int width){
     }
 }
 
-std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float* temp2, float* pinned, int width, hipStream_t stream){
+std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float* temp2, float* pinned, int64_t width, hipStream_t stream){
     bool first = true;
-    int basewidth = width;
+    int64_t basewidth = width;
     float* src = diffmap;
     float* temps[2] = {temp, temp2};
     int oscillate = 0;
-    int th_x, bl_x;
+    int64_t th_x, bl_x;
     while (width > 1024){
         th_x = 1024;
         bl_x = (width - 1)/th_x + 1;

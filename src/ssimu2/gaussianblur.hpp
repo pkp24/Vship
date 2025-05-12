@@ -1,6 +1,6 @@
 //launch in 16*16
 __launch_bounds__(256)
-__global__ void GaussianBlur_Kernel(float3* src, float3* dst, int width, int height, float* gaussiankernel){
+__global__ void GaussianBlur_Kernel(float3* src, float3* dst, int64_t width, int64_t height, float* gaussiankernel){
     int originalBl_X = blockIdx.x;
     //let's determine which scale our block is in and adjust our input parameters accordingly
     for (int scale = 0; scale <= 5; scale++){
@@ -17,8 +17,8 @@ __global__ void GaussianBlur_Kernel(float3* src, float3* dst, int width, int hei
 
     const int blockwidth = (width-1)/16+1;
 
-    const int x = threadIdx.x + 16*(originalBl_X%blockwidth);
-    const int y = threadIdx.y + 16*(originalBl_X/blockwidth);
+    const int64_t x = threadIdx.x + 16*(originalBl_X%blockwidth);
+    const int64_t y = threadIdx.y + 16*(originalBl_X/blockwidth);
     const int thx = threadIdx.x;
     const int thy = threadIdx.y;
 
@@ -75,11 +75,11 @@ __global__ void GaussianBlur_Kernel(float3* src, float3* dst, int width, int hei
     if (tampon_base_x + thx +8 >= 0 && tampon_base_x + thx +8 < width && tampon_base_y + thy +8 >= 0 && tampon_base_y + thy +8 < height) dst[(tampon_base_y+thy+8)*width + tampon_base_x+thx+8] = tampon[(thy+8)*32+thx+8];
 }
 
-void gaussianBlur(float3* src, float3* dst, int totalscalesize, int basewidth, int baseheight, float* gaussiankernel_d, hipStream_t stream){
-    int w = basewidth;
-    int h = baseheight;
+void gaussianBlur(float3* src, float3* dst, int64_t totalscalesize, int64_t basewidth, int64_t baseheight, float* gaussiankernel_d, hipStream_t stream){
+    int64_t w = basewidth;
+    int64_t h = baseheight;
 
-    int bl_x = 0;
+    int64_t bl_x = 0;
     for (int scale = 0; scale <= 5; scale++){
         bl_x += ((w-1)/16+1)*((h-1)/16+1);
         w = (w-1)/2+1;

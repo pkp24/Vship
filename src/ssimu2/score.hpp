@@ -1,12 +1,12 @@
 namespace ssimu2{
 
-int allocsizeScore(int width, int height, int maxshared){
-    int w = width;
-    int h = height;
-    int th_x, bl_x;
-    int pinnedsize = 0;
+int64_t allocsizeScore(int64_t width, int64_t height, int maxshared){
+    int64_t w = width;
+    int64_t h = height;
+    int64_t th_x, bl_x;
+    int64_t pinnedsize = 0;
     for (int i = 0; i < 6; i++){
-        th_x = std::min((int)(maxshared/(6*sizeof(float3)))/32*32, std::min(1024, w*h));
+        th_x = std::min((int64_t)(maxshared/(6*sizeof(float3)))/32*32, std::min((int64_t)1024, w*h));
         bl_x = (w*h-1)/th_x + 1;
         while (bl_x >= th_x){
             bl_x = (bl_x -1)/th_x + 1;
@@ -22,9 +22,9 @@ int allocsizeScore(int width, int height, int maxshared){
 __global__ void sumreduce(float3* dst, float3* src, int bl_x){
     //dst must be of size 6*sizeof(float3)*blocknum at least
     //shared memory needed is 6*sizeof(float3)*threadnum at least
-    const int x = threadIdx.x + blockIdx.x*blockDim.x;
-    const int thx = threadIdx.x;
-    const int threadnum = blockDim.x;
+    const int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
+    const int64_t thx = threadIdx.x;
+    const int64_t threadnum = blockDim.x;
     
     extern __shared__ float3 sharedmem[];
     float3* sumssim1 = sharedmem; //size sizeof(float3)*threadnum
@@ -88,12 +88,12 @@ __global__ void sumreduce(float3* dst, float3* src, int bl_x){
     }
 }
 
-__global__ void allscore_map_Kernel(float3* dst, float3* im1, float3* im2, float3* mu1, float3* mu2, float3* s11, float3* s22, float3* s12, int width, int height){
+__global__ void allscore_map_Kernel(float3* dst, float3* im1, float3* im2, float3* mu1, float3* mu2, float3* s11, float3* s22, float3* s12, int64_t width, int64_t height){
     //dst must be of size 6*sizeof(float3)*blocknum at least
     //shared memory needed is 6*sizeof(float3)*threadnum at least
-    const int x = threadIdx.x + blockIdx.x*blockDim.x;
-    const int thx = threadIdx.x;
-    const int threadnum = blockDim.x;
+    const int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
+    const int64_t thx = threadIdx.x;
+    const int64_t threadnum = blockDim.x;
     
     extern __shared__ float3 sharedmem[];
     float3* sumssim1 = sharedmem; //size sizeof(float3)*threadnum
@@ -165,28 +165,28 @@ __global__ void allscore_map_Kernel(float3* dst, float3* im1, float3* im2, float
     }
 }
 
-std::vector<float3> allscore_map(float3* im1, float3* im2, float3* mu1, float3* mu2, float3* s11, float3* s22, float3* s12, float3* temp, float3* pinned, int basewidth, int baseheight, int maxshared, hipStream_t stream){
+std::vector<float3> allscore_map(float3* im1, float3* im2, float3* mu1, float3* mu2, float3* s11, float3* s22, float3* s12, float3* temp, float3* pinned, int64_t basewidth, int64_t baseheight, int64_t maxshared, hipStream_t stream){
     //output is {normssim1scale1, normssim4scale1, norma1scale1, norma4scale1, normad1scale1, normd4scale1, norm1scale2, ...}
     std::vector<float3> result(2*6*3);
     for (int i = 0; i < 2*6*3; i++) {result[i].x = 0.0f; result[i].y = 0.0f; result[i].z = 0.0f;}
 
-    int w = basewidth;
-    int h = baseheight;
-    int th_x;
-    int bl_x;
-    int index = 0;
+    int64_t w = basewidth;
+    int64_t h = baseheight;
+    int64_t th_x;
+    int64_t bl_x;
+    int64_t index = 0;
     std::vector<int> scaleoutdone(7);
     scaleoutdone[0] = 0;
     for (int scale = 0; scale < 6; scale++){
-        th_x = std::min((int)(maxshared/(6*sizeof(float3)))/32*32, std::min(1024, w*h));
+        th_x = std::min((int64_t)(maxshared/(6*sizeof(float3)))/32*32, std::min((int64_t)1024, w*h));
         bl_x = (w*h-1)/th_x + 1;
-        int blr_x = bl_x;
+        int64_t blr_x = bl_x;
         allscore_map_Kernel<<<dim3(bl_x), dim3(th_x), 6*sizeof(float3)*th_x, stream>>>(temp+scaleoutdone[scale]+((blr_x >= th_x) ? 6*bl_x : 0), im1+index, im2+index, mu1+index, mu2+index, s11+index, s22+index, s12+index, w, h);
         //printf("I got %s with %d\n", hipGetErrorString(hipGetLastError()), 6*sizeof(float3)*th_x);
         GPU_CHECK(hipGetLastError());
 
         int oscillate = 0; //3 sets of memory: real destination at 0, first at 6*bl_x for oscillate 0 and last at 12*bl_x for oscillate 1;
-        int oldblr_x = bl_x;
+        int64_t oldblr_x = bl_x;
         while (blr_x >= th_x){
             blr_x = (bl_x -1)/th_x + 1;
             //sum reduce

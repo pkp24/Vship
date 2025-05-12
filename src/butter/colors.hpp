@@ -20,8 +20,8 @@ __device__ inline void rgb_to_linrgbfunc(float& a){
     }
 }
 
-__global__ void linearrgb_kernel(float* src1, float* src2, float* src3, int width, int height){
-    size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+__global__ void linearrgb_kernel(float* src1, float* src2, float* src3, int64_t width, int64_t height){
+    int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
     if (x >= width*height) return;
     rgb_to_linrgbfunc(src1[x]);
     rgb_to_linrgbfunc(src2[x]);
@@ -56,8 +56,8 @@ __device__ inline void butterOpsinAbsorbance(float3& a, bool clamp = false){
     a = out;
 }
 
-__global__ void opsinDynamicsImage_kernel(float* src1, float* src2, float* src3, float* blurred1, float* blurred2, float* blurred3, int width, int height, float intensity_multiplier){
-    size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+__global__ void opsinDynamicsImage_kernel(float* src1, float* src2, float* src3, float* blurred1, float* blurred2, float* blurred3, int64_t width, int64_t height, float intensity_multiplier){
+    int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
     if (x >= width*height) return;
 
     float3 sensitivity;
@@ -86,10 +86,10 @@ __global__ void opsinDynamicsImage_kernel(float* src1, float* src2, float* src3,
     //if ((x == 376098 && width*height == 1080*1920)) printf("%f, %f, %f and %f, %f, %f to %f, %f, %f with %f, %f, %f sens\n", oldsrc.x, oldsrc.y, oldsrc.z, oldblurred.x, oldblurred.y, oldblurred.z, src1[x], src2[x], src3[x], sensitivity.x, sensitivity.y, sensitivity.z);
 }
 
-void opsinDynamicsImage(float* src[3], float* temp[3], int width, int height, GaussianHandle& gaussianHandle, float intensity_multiplier, hipStream_t stream){
+void opsinDynamicsImage(float* src[3], float* temp[3], int64_t width, int64_t height, GaussianHandle& gaussianHandle, float intensity_multiplier, hipStream_t stream){
     //change src from SRGB to opsin dynamic XYB
-    int th_x = std::min(256, width*height);
-    int bl_x = (width*height-1)/th_x + 1;
+    int64_t th_x = std::min((int64_t)256, width*height);
+    int64_t bl_x = (width*height-1)/th_x + 1;
     //printf("initial adress: %llu\n", (unsigned long long)src[0].mem_d);
     for (int i = 0; i < 3; i++){
         blurDstNoTemp(temp[i], src[i], width, height, gaussianHandle, 0, stream);
@@ -98,9 +98,9 @@ void opsinDynamicsImage(float* src[3], float* temp[3], int width, int height, Ga
     GPU_CHECK(hipGetLastError());
 }
 
-void linearRGB(float* src[3], int width, int height, hipStream_t stream){
-    int th_x = std::min(256, width*height);
-    int bl_x = (width*height-1)/th_x + 1;
+void linearRGB(float* src[3], int64_t width, int64_t height, hipStream_t stream){
+    int64_t th_x = std::min((int64_t)256, width*height);
+    int64_t bl_x = (width*height-1)/th_x + 1;
     linearrgb_kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(src[0], src[1], src[2], width, height);
 }
 

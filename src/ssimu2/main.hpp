@@ -14,8 +14,8 @@ namespace ssimu2{
 
 template <InputMemType T>
 __launch_bounds__(256)
-__global__ void memoryorganizer_kernel(float3* out, const uint8_t *srcp0, const uint8_t *srcp1, const uint8_t *srcp2, int stride, int width, int height){
-    size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+__global__ void memoryorganizer_kernel(float3* out, const uint8_t *srcp0, const uint8_t *srcp1, const uint8_t *srcp2, int64_t stride, int64_t width, int64_t height){
+    int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
     if (x >= width*height) return;
     int j = x%width;
     int i = x/width;
@@ -25,23 +25,23 @@ __global__ void memoryorganizer_kernel(float3* out, const uint8_t *srcp0, const 
 }
 
 template <InputMemType T>
-void memoryorganizer(float3* out, const uint8_t *srcp0, const uint8_t *srcp1, const uint8_t *srcp2, int stride, int width, int height, hipStream_t stream){
-    int th_x = std::min(256, width*height);
+void memoryorganizer(float3* out, const uint8_t *srcp0, const uint8_t *srcp1, const uint8_t *srcp2, int64_t stride, int64_t width, int64_t height, hipStream_t stream){
+    int th_x = std::min((int64_t)256, width*height);
     int bl_x = (width*height-1)/th_x + 1;
     memoryorganizer_kernel<T><<<dim3(bl_x), dim3(th_x), 0, stream>>>(out, srcp0, srcp1, srcp2, stride, width, height);
 }
 
 template <InputMemType T>
-double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* pinned, size_t stride, size_t width, size_t height, float* gaussiankernel, size_t maxshared, hipStream_t stream){
+double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* pinned, int64_t stride, int64_t width, int64_t height, float* gaussiankernel, int64_t maxshared, hipStream_t stream){
 
-    size_t wh = width*height;
-    size_t whs[6] = {wh, ((height-1)/2 + 1)*((width-1)/2 + 1), ((height-1)/4 + 1)*((width-1)/4 + 1), ((height-1)/8 + 1)*((width-1)/8 + 1), ((height-1)/16 + 1)*((width-1)/16 + 1), ((height-1)/32 + 1)*((width-1)/32 + 1)};
-    size_t whs_integral[7];
+    int64_t wh = width*height;
+    int64_t whs[6] = {wh, ((height-1)/2 + 1)*((width-1)/2 + 1), ((height-1)/4 + 1)*((width-1)/4 + 1), ((height-1)/8 + 1)*((width-1)/8 + 1), ((height-1)/16 + 1)*((width-1)/16 + 1), ((height-1)/32 + 1)*((width-1)/32 + 1)};
+    int64_t whs_integral[7];
     whs_integral[0] = 0;
     for (int i = 0; i < 7; i++){
         whs_integral[i+1] = whs_integral[i] + whs[i];
     }
-    size_t totalscalesize = whs_integral[6];
+    int64_t totalscalesize = whs_integral[6];
 
     //big memory allocation, we will try it multiple time if failed to save when too much threads are used
     hipError_t erralloc;
@@ -77,8 +77,8 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* p
     rgb_to_linear(src2_d, totalscalesize, stream);
 
     //step 1 : fill the downsample part
-    size_t nw = width;
-    size_t nh = height;
+    int64_t nw = width;
+    int64_t nh = height;
     for (int scale = 1; scale <= 5; scale++){
         downsample(src1_d+whs_integral[scale-1], src1_d+whs_integral[scale], nw, nh, stream);
         nw = (nw -1)/2 + 1;

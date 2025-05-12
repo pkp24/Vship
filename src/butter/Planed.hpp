@@ -2,8 +2,8 @@ namespace butter {
 
 template <InputMemType T>
 __launch_bounds__(256)
-__global__ void strideEliminator_kernel(float* mem_d, const uint8_t* src, int stride, int width, int height){
-    size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+__global__ void strideEliminator_kernel(float* mem_d, const uint8_t* src, int64_t stride, int64_t width, int64_t height){
+    int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
     if (x >= width*height) return;
     int j = x%width;
     int i = x/width;
@@ -11,8 +11,8 @@ __global__ void strideEliminator_kernel(float* mem_d, const uint8_t* src, int st
 }
 
 __launch_bounds__(256)
-__global__ void strideAdder_kernel(const uint8_t* dst, float* mem_d, int stride, int width, int height){
-    size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+__global__ void strideAdder_kernel(const uint8_t* dst, float* mem_d, int64_t stride, int64_t width, int64_t height){
+    int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
     if (x >= width*height) return;
     int j = x%width;
     int i = x/width;
@@ -20,16 +20,16 @@ __global__ void strideAdder_kernel(const uint8_t* dst, float* mem_d, int stride,
 }
 
 template <InputMemType T>
-void strideEliminator(float* mem_d, float* strided, int stride, int width, int height, hipStream_t stream){
-    int wh = width*height;
-    int th_x = std::min(256, wh);
-    int bl_x = (wh-1)/th_x + 1;
+void strideEliminator(float* mem_d, float* strided, int64_t stride, int64_t width, int64_t height, hipStream_t stream){
+    int64_t wh = width*height;
+    int64_t th_x = std::min((int64_t)256, wh);
+    int64_t bl_x = (wh-1)/th_x + 1;
     strideEliminator_kernel<T><<<dim3(bl_x), dim3(th_x), 0, stream>>>(mem_d, (const uint8_t*)strided, stride, width, height);
 }
-void strideAdder(float* mem_d, float* strided, int stride, int width, int height, hipStream_t stream){
-    int wh = width*height;
-    int th_x = std::min(256, wh);
-    int bl_x = (wh-1)/th_x + 1;
+void strideAdder(float* mem_d, float* strided, int64_t stride, int64_t width, int64_t height, hipStream_t stream){
+    int64_t wh = width*height;
+    int64_t th_x = std::min((int64_t)256, wh);
+    int64_t bl_x = (wh-1)/th_x + 1;
     strideAdder_kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>((const uint8_t*)strided, mem_d, stride, width, height);
 }
 

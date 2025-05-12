@@ -47,9 +47,9 @@ public:
 
 //transpose the result at the end
 __launch_bounds__(256)
-__global__ void horizontalBlur_Kernel(float* dst, float* src, int w, int h, float* gaussiankernel, int gaussiansize){
-    int x = threadIdx.x + blockIdx.x*blockDim.x;
-    int size = w*h;
+__global__ void horizontalBlur_Kernel(float* dst, float* src, int64_t w, int64_t h, float* gaussiankernel, int gaussiansize){
+    int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
+    int64_t size = w*h;
     if (x >= size) return;
 
     int current_line = x/w;
@@ -67,15 +67,15 @@ __global__ void horizontalBlur_Kernel(float* dst, float* src, int w, int h, floa
 
 //best is to use 8x32 rectangle 
 __launch_bounds__(256)
-__global__ void verticalBlur_Kernel(float* dst, float* src, int w, int h, float* gaussiankernel, int gaussiansize){
-    int x = threadIdx.x + blockIdx.x*blockDim.x;
-    int y = threadIdx.y + blockIdx.y*blockDim.y;
+__global__ void verticalBlur_Kernel(float* dst, float* src, int64_t w, int64_t h, float* gaussiankernel, int gaussiansize){
+    int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
+    int64_t y = threadIdx.y + blockIdx.y*blockDim.y;
     if (x >= w) return;
     if (y >= h) return;
 
     float weight = 0.0f;
     float out = 0.0f;
-    for (int i = max(y-gaussiansize, 0); i <= min(y+gaussiansize, h-1); i++){
+    for (int64_t i = max(y-gaussiansize, (int64_t)0); i <= min(y+gaussiansize, h-1); i++){
         //if (x == 423 && y == 323) printf("%f at %d for %f\n", gaussiankernel[gaussiansize+i-y], gaussiansize+i-y, src[i*w+x]);
         out += src[i * w + x]*gaussiankernel[gaussiansize+i-y];
         weight += gaussiankernel[gaussiansize+i-y];
@@ -87,16 +87,16 @@ __global__ void verticalBlur_Kernel(float* dst, float* src, int w, int h, float*
 //launch in 16*16
 //manage a block of 32*32
 __launch_bounds__(256)
-__global__ void GaussianBlur_Kernel(float* src, float* dst, int width, int height, float* gaussiankernel){
-    int originalBl_X = blockIdx.x;
+__global__ void GaussianBlur_Kernel(float* src, float* dst, int64_t width, int64_t height, float* gaussiankernel){
+    int64_t originalBl_X = blockIdx.x;
     //let's determine which scale our block is in and adjust our input parameters accordingly
 
-    const int blockwidth = (width-1)/32+1;
+    const int64_t blockwidth = (width-1)/32+1;
 
-    const int x = threadIdx.x + 32*(originalBl_X%blockwidth);
-    const int y = threadIdx.y + 32*(originalBl_X/blockwidth);
-    const int thx = threadIdx.x;
-    const int thy = threadIdx.y;
+    const int64_t x = threadIdx.x + 32*(originalBl_X%blockwidth);
+    const int64_t y = threadIdx.y + 32*(originalBl_X/blockwidth);
+    const int64_t thx = threadIdx.x;
+    const int64_t thy = threadIdx.y;
 
     __shared__ float tampon[48*48]; //we import into tampon, compute onto tampon and then put into dst
     //tampon has 8 of border on each side with no thread
@@ -181,57 +181,57 @@ __global__ void GaussianBlur_Kernel(float* src, float* dst, int width, int heigh
     }
 }
 
-void blur(float* mem_d, float* temp, int width, int height, GaussianHandle& gaussianHandle, int i, hipStream_t stream){
+void blur(float* mem_d, float* temp, int64_t width, int64_t height, GaussianHandle& gaussianHandle, int i, hipStream_t stream){
     const int gaussiansize = gaussianHandle.getWindow(i);
     float* gaussianKernel = gaussianHandle.get(i);
 
-    int wh = width*height;
-    int th_x = std::min(256, wh);
-    int bl_x = (wh-1)/th_x + 1;
+    int64_t wh = width*height;
+    int64_t th_x = std::min((int64_t)256, wh);
+    int64_t bl_x = (wh-1)/th_x + 1;
 
-    int verticalth_x = 8;
-    int verticalth_y = 32;
-    int verticalbl_x = (width-1)/verticalth_x+1;
-    int verticalbl_y = (height-1)/verticalth_y+1;
+    int64_t verticalth_x = 8;
+    int64_t verticalth_y = 32;
+    int64_t verticalbl_x = (width-1)/verticalth_x+1;
+    int64_t verticalbl_y = (height-1)/verticalth_y+1;
 
     horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp, mem_d, width, height, gaussianKernel, gaussiansize);
     verticalBlur_Kernel<<<dim3(verticalbl_x, verticalbl_y), dim3(verticalth_x, verticalth_y), 0, stream>>>(mem_d, temp, width, height, gaussianKernel, gaussiansize);
 }
 
-void blur(float* dst, float* mem_d, float* temp, int width, int height, GaussianHandle& gaussianHandle, int i, hipStream_t stream){
+void blur(float* dst, float* mem_d, float* temp, int64_t width, int64_t height, GaussianHandle& gaussianHandle, int i, hipStream_t stream){
     const int gaussiansize = gaussianHandle.getWindow(i);
     float* gaussianKernel = gaussianHandle.get(i);
 
-    int wh = width*height;
+    int64_t wh = width*height;
 
     if (gaussiansize == 8){ //special gaussian blur! It doesnt even use temp
-        int th_x = 16;
-        int th_y = 16;
-        int bl_x = (width-1)/(2*th_x)+1;
-        int bl_y = (height-1)/(2*th_y)+1;
+        int64_t th_x = 16;
+        int64_t th_y = 16;
+        int64_t bl_x = (width-1)/(2*th_x)+1;
+        int64_t bl_y = (height-1)/(2*th_y)+1;
         GaussianBlur_Kernel<<<dim3(bl_x*bl_y), dim3(th_x, th_y), 0, stream>>>(mem_d, dst, width, height, gaussianKernel);
     } else {
-        int th_x = std::min(256, wh);
-        int bl_x = (wh-1)/th_x + 1;
+        int64_t th_x = std::min((int64_t)256, wh);
+        int64_t bl_x = (wh-1)/th_x + 1;
 
-        int verticalth_x = 8;
-        int verticalth_y = 32;
-        int verticalbl_x = (width-1)/verticalth_x+1;
-        int verticalbl_y = (height-1)/verticalth_y+1;
+        int64_t verticalth_x = 8;
+        int64_t verticalth_y = 32;
+        int64_t verticalbl_x = (width-1)/verticalth_x+1;
+        int64_t verticalbl_y = (height-1)/verticalth_y+1;
         horizontalBlur_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temp, mem_d, width, height, gaussianKernel, gaussiansize);
         verticalBlur_Kernel<<<dim3(verticalbl_x, verticalbl_y), dim3(verticalth_x, verticalth_y), 0, stream>>>(dst, temp, width, height, gaussianKernel, gaussiansize);
     }
 }
-void blurDstNoTemp(float* dst, float* mem_d, int width, int height, GaussianHandle& gaussianHandle, int i, hipStream_t stream){
+void blurDstNoTemp(float* dst, float* mem_d, int64_t width, int64_t height, GaussianHandle& gaussianHandle, int i, hipStream_t stream){
     const int gaussiansize = gaussianHandle.getWindow(i);
     float* gaussianKernel = gaussianHandle.get(i);
 
     assert(gaussiansize == 8);
     //special gaussian blur! It doesnt even use temp
-    int th_x = 16;
-    int th_y = 16;
-    int bl_x = (width-1)/(2*th_x)+1;
-    int bl_y = (height-1)/(2*th_y)+1;
+    int64_t th_x = 16;
+    int64_t th_y = 16;
+    int64_t bl_x = (width-1)/(2*th_x)+1;
+    int64_t bl_y = (height-1)/(2*th_y)+1;
     GaussianBlur_Kernel<<<dim3(bl_x*bl_y), dim3(th_x, th_y), 0, stream>>>(mem_d, dst, width, height, gaussianKernel);
 }
 

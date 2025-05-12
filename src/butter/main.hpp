@@ -20,7 +20,7 @@
 
 namespace butter{
 
-float* getdiffmap(float* src1_d[3], float* src2_d[3], float* mem_d, size_t width, size_t height, float intensity_multiplier, size_t maxshared, GaussianHandle& gaussianHandle, hipStream_t stream){
+float* getdiffmap(float* src1_d[3], float* src2_d[3], float* mem_d, int64_t width, int64_t height, float intensity_multiplier, int64_t maxshared, GaussianHandle& gaussianHandle, hipStream_t stream){
     //Psycho Image planes
 
     float* temp[3] = {mem_d, mem_d+1*width*height, mem_d+2*width*height};
@@ -113,10 +113,10 @@ float* getdiffmap(float* src1_d[3], float* src2_d[3], float* mem_d, size_t width
 }
 
 //expects linear planar RGB as input, mem_d must contain 25 planes (srcs are rewritten so they are unusable after execution)
-float* getmultiscalediffmap(float* src1_d[3], float* src2_d[3], float* mem_d, size_t width, size_t height, float intensity_multiplier, size_t maxshared, GaussianHandle& gaussianHandle, hipStream_t stream){
+float* getmultiscalediffmap(float* src1_d[3], float* src2_d[3], float* mem_d, int64_t width, int64_t height, float intensity_multiplier, int64_t maxshared, GaussianHandle& gaussianHandle, hipStream_t stream){
     //computing downscaled before we overwrite src in getdiffmap (it s better for memory)
-    size_t nwidth = (width-1)/2+1;
-    size_t nheight = (height-1)/2+1;
+    int64_t nwidth = (width-1)/2+1;
+    int64_t nheight = (height-1)/2+1;
     float* nmem_d = mem_d; //allow usage up to mem_d+2*width*height;
     float* nsrc1_d[3] = {nmem_d, nmem_d+nwidth*nheight, nmem_d+2*nwidth*nheight};
     float* nsrc2_d[3] = {nmem_d+3*nwidth*nheight, nmem_d+4*nwidth*nheight, nmem_d+5*nwidth*nheight};
@@ -139,9 +139,9 @@ float* getmultiscalediffmap(float* src1_d[3], float* src2_d[3], float* mem_d, si
 }
 
 template <InputMemType T>
-std::tuple<float, float, float> butterprocess(const uint8_t *dstp, size_t dststride, const uint8_t *srcp1[3], const uint8_t *srcp2[3], float* pinned, GaussianHandle& gaussianHandle, size_t stride, size_t width, size_t height, float intensity_multiplier, size_t maxshared, hipStream_t stream){
-    size_t wh = width*height;
-    const size_t totalscalesize = wh;
+std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int64_t dststride, const uint8_t *srcp1[3], const uint8_t *srcp2[3], float* pinned, GaussianHandle& gaussianHandle, int64_t stride, int64_t width, int64_t height, float intensity_multiplier, int64_t maxshared, hipStream_t stream){
+    int64_t wh = width*height;
+    const int64_t totalscalesize = wh;
 
     //big memory allocation, we will try it multiple time if failed to save when too much threads are used
     hipError_t erralloc;

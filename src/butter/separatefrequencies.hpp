@@ -50,8 +50,8 @@ namespace butter{
         x = x > w ? x - w : x < -w ? x + w : 0.0f;
     }
 
-    __global__ void subarray_removerangearound0_Kernel(float* first, float* second, float width, float w){
-        size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+    __global__ void subarray_removerangearound0_Kernel(float* first, float* second, int64_t width, float w){
+        int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
 
         if (x >= width) return;
 
@@ -59,30 +59,30 @@ namespace butter{
         RemoveRangeAroundZero(first[x], w);
     }
 
-    void subarray_removerangearound0(float* first, float* second, int width, float w, hipStream_t stream){
-        int th_x = std::min(256, width);
-        int bl_x = (width-1)/th_x + 1;
+    void subarray_removerangearound0(float* first, float* second, int64_t width, float w, hipStream_t stream){
+        int64_t th_x = std::min((int64_t)256, width);
+        int64_t bl_x = (width-1)/th_x + 1;
         subarray_removerangearound0_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(first, second, width, w);
         GPU_CHECK(hipGetLastError());
     }
 
-    __global__ void removerangearound0_Kernel(float* first, float width, float w){
-        size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+    __global__ void removerangearound0_Kernel(float* first, int64_t width, float w){
+        int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
 
         if (x >= width) return;
 
         RemoveRangeAroundZero(first[x], w);
     }
 
-    void removerangearound0(float* first, int width, float w, hipStream_t stream){
-        int th_x = std::min(256, width);
-        int bl_x = (width-1)/th_x + 1;
+    void removerangearound0(float* first, int64_t width, float w, hipStream_t stream){
+        int64_t th_x = std::min((int64_t)256, width);
+        int64_t bl_x = (width-1)/th_x + 1;
         removerangearound0_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(first, width, w);
         GPU_CHECK(hipGetLastError());
     }
 
-    __global__ void subarray_amplifyrangearound0_Kernel(float* first, float* second, float width, float w){
-        size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+    __global__ void subarray_amplifyrangearound0_Kernel(float* first, float* second, int64_t width, float w){
+        int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
 
         if (x >= width) return;
 
@@ -91,15 +91,15 @@ namespace butter{
         //printf("res : %f and %f\n", first[x], second[x]);
     }
 
-    void subarray_amplifyrangearound0(float* first, float* second, int width, float w, hipStream_t stream){
-        int th_x = std::min(256, width);
-        int bl_x = (width-1)/th_x + 1;
+    void subarray_amplifyrangearound0(float* first, float* second, int64_t width, float w, hipStream_t stream){
+        int64_t th_x = std::min((int64_t)256, width);
+        int64_t bl_x = (width-1)/th_x + 1;
         subarray_amplifyrangearound0_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(first, second, width, w);
         GPU_CHECK(hipGetLastError());
     }
 
-    __global__ void supressXbyY_Kernel(float* first, float* second, float width, float yw){
-        size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+    __global__ void supressXbyY_Kernel(float* first, float* second, int64_t width, float yw){
+        int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
 
         if (x >= width) return;
 
@@ -107,15 +107,15 @@ namespace butter{
         //printf("res : %f and %f\n", first[x], second[x]);
     }
 
-    void supressXbyY(float* first, float* second, int width, float yw, hipStream_t stream){
-        int th_x = std::min(256, width);
-        int bl_x = (width-1)/th_x + 1;
+    void supressXbyY(float* first, float* second, int64_t width, float yw, hipStream_t stream){
+        int64_t th_x = std::min((int64_t)256, width);
+        int64_t bl_x = (width-1)/th_x + 1;
         supressXbyY_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(first, second, width, yw);
         GPU_CHECK(hipGetLastError());
     }
 
-    __global__ void separateHf_Uhf_Kernel(float* hf, float* uhf, float width){
-        size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+    __global__ void separateHf_Uhf_Kernel(float* hf, float* uhf, int64_t width){
+        int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
 
         if (x >= width) return;
 
@@ -132,15 +132,15 @@ namespace butter{
         //printf("res : %f and %f\n", first[x], second[x]);
     }
 
-    void separateHf_Uhf(float* hf, float* uhf, int width, hipStream_t stream){
-        int th_x = std::min(256, width);
-        int bl_x = (width-1)/th_x + 1;
+    void separateHf_Uhf(float* hf, float* uhf, int64_t width, hipStream_t stream){
+        int64_t th_x = std::min((int64_t)256, width);
+        int64_t bl_x = (width-1)/th_x + 1;
         separateHf_Uhf_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(hf, uhf, width);
         GPU_CHECK(hipGetLastError());
     }
 
-    __global__ void XybLowFreqToVals_Kernel(float* xplane, float* yplane, float* bplane, int width){
-        size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+    __global__ void XybLowFreqToVals_Kernel(float* xplane, float* yplane, float* bplane, int64_t width){
+        int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
 
         if (x >= width) return;
 
@@ -150,14 +150,14 @@ namespace butter{
         //printf("res : %f and %f\n", first[x], second[x]);
     }
 
-    void XybLowFreqToVals(float* xplane, float* yplane, float* bplane, int width, hipStream_t stream){
-        int th_x = std::min(256, width);
-        int bl_x = (width-1)/th_x + 1;
+    void XybLowFreqToVals(float* xplane, float* yplane, float* bplane, int64_t width, hipStream_t stream){
+        int64_t th_x = std::min((int64_t)256, width);
+        int64_t bl_x = (width-1)/th_x + 1;
         XybLowFreqToVals_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(xplane, yplane, bplane, width);
         GPU_CHECK(hipGetLastError());
     }
 
-    void separateFrequencies(float* src[3], float* temp[3], float* lf[3], float* mf[3], float* hf[2], float* uhf[2], int width, int height, GaussianHandle& gaussianHandle, hipStream_t stream){
+    void separateFrequencies(float* src[3], float* temp[3], float* lf[3], float* mf[3], float* hf[2], float* uhf[2], int64_t width, int64_t height, GaussianHandle& gaussianHandle, hipStream_t stream){
         for (int i = 0; i < 3; i++){
             //we separate lf to get mf BUT we put mf on hf if i != 2 for later reasons
             blur(lf[i], src[i], temp[i], width, height, gaussianHandle, 4, stream);

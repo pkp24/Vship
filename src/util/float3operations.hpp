@@ -12,7 +12,7 @@ __device__ __host__ void inline operator/=(float3& a, const float b){
     a.y /= b;
     a.z /= b;
 }
-__device__ __host__ float3 inline operator/(const float3&a, const int b){
+__device__ __host__ float3 inline operator/(const float3&a, const int64_t b){
     float3 out;
     out.x = a.x/b;
     out.y = a.y/b;
@@ -163,52 +163,52 @@ __device__ __host__ float3 tothe4th(float3 x){
 }
 
 __launch_bounds__(256)
-__global__ void multarray_Kernel(float3* src1, float3* src2, float3* dst, int width){
-    size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+__global__ void multarray_Kernel(float3* src1, float3* src2, float3* dst, int64_t width){
+    int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
 
     if (x >= width) return;
 
     dst[x] = src1[x]*src2[x];
 }
 
-void multarray(float3* src1, float3* src2, float3* dst, int width, hipStream_t stream){
-    int th_x = std::min(256, width);
-    int bl_x = (width-1)/th_x + 1;
+void multarray(float3* src1, float3* src2, float3* dst, int64_t width, hipStream_t stream){
+    int64_t th_x = std::min((int64_t)256, width);
+    int64_t bl_x = (width-1)/th_x + 1;
     multarray_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(src1, src2, dst, width);
     GPU_CHECK(hipGetLastError());
 }
 
 __launch_bounds__(256)
-__global__ void subarray_Kernel(float* src1, float* src2, float* dst, int width){
-    size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+__global__ void subarray_Kernel(float* src1, float* src2, float* dst, int64_t width){
+    int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
 
     if (x >= width) return;
 
     dst[x] = src1[x]-src2[x];
 }
 
-void subarray(float* src1, float* src2, float* dst, int width, hipStream_t stream){
-    int th_x = std::min(256, width);
-    int bl_x = (width-1)/th_x + 1;
+void subarray(float* src1, float* src2, float* dst, int64_t width, hipStream_t stream){
+    int64_t th_x = std::min((int64_t)256, width);
+    int64_t bl_x = (width-1)/th_x + 1;
     subarray_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(src1, src2, dst, width);
     GPU_CHECK(hipGetLastError());
 }
 
 template <InputMemType T>
-__device__ inline float convertPointer(const uint8_t* src, int i, int j, int stride);
+__device__ inline float convertPointer(const uint8_t* src, int i, int j, int64_t stride);
 
 template <>
-__device__ inline float convertPointer<FLOAT>(const uint8_t* src, int i, int j, int stride){
+__device__ inline float convertPointer<FLOAT>(const uint8_t* src, int i, int j, int64_t stride){
     return ((float*)(src + i*stride))[j];
 }
 
 template <>
-__device__ inline float convertPointer<HALF>(const uint8_t* src, int i, int j, int stride){
+__device__ inline float convertPointer<HALF>(const uint8_t* src, int i, int j, int64_t stride){
     return ((half*)(src + i*stride))[j];
 }
 
 template <>
-__device__ inline float convertPointer<UINT16>(const uint8_t* src, int i, int j, int stride){
+__device__ inline float convertPointer<UINT16>(const uint8_t* src, int i, int j, int64_t stride){
     return ((float)((uint16_t*)(src + i*stride))[j])/((1 << 16)-1);
 }
 
