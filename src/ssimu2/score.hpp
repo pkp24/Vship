@@ -88,37 +88,63 @@ __global__ void sumreduce(float3* dst, float3* src, int bl_x){
     }
 }
 
-__global__ void allscore_map_Kernel(float3* dst, float3* im1, float3* im2, float3* mu1, float3* mu2, float3* s11, float3* s22, float3* s12, int64_t width, int64_t height){
+__global__ void allscore_map_Kernel(float3* dst, float3* im1, float3* im2, int64_t width, int64_t height, float* gaussiankernel){
     //dst must be of size 6*sizeof(float3)*blocknum at least
     //shared memory needed is 6*sizeof(float3)*threadnum at least
-    const int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
-    const int64_t thx = threadIdx.x;
-    const int64_t threadnum = blockDim.x;
+    const int64_t x = (threadIdx.x + blockIdx.x*blockDim.x);
+    const int64_t y = (threadIdx.y + blockIdx.y*blockDim.y);
+    const int64_t id = y*width + x;
+
+    const int64_t threadnum = blockDim.y*blockDim.x;
+    const int64_t blid = threadIdx.y*blockDim.x + threadIdx.x;
     
     extern __shared__ float3 sharedmem[];
     float3* sumssim1 = sharedmem; //size sizeof(float3)*threadnum
-    float3* sumssim4 = sharedmem+blockDim.x; //size sizeof(float3)*threadnum
-    float3* suma1 = sharedmem+2*blockDim.x; //size sizeof(float3)*threadnum
-    float3* suma4 = sharedmem+3*blockDim.x; //size sizeof(float3)*threadnum
-    float3* sumd1 = sharedmem+4*blockDim.x; //size sizeof(float3)*threadnum
-    float3* sumd4 = sharedmem+5*blockDim.x; //size sizeof(float3)*threadnum
-    
+    float3* sumssim4 = sharedmem+threadnum; //size sizeof(float3)*threadnum
+    float3* suma1 = sharedmem+2*threadnum; //size sizeof(float3)*threadnum
+    float3* suma4 = sharedmem+3*threadnum; //size sizeof(float3)*threadnum
+    float3* sumd1 = sharedmem+4*threadnum; //size sizeof(float3)*threadnum
+    float3* sumd4 = sharedmem+5*threadnum; //size sizeof(float3)*threadnum
+
+    GaussianSmartSharedLoad(sharedmem, im1, x, y, width, height);
+    GaussianSmart_Device(sharedmem, x, y, width, height, gaussiankernel);
+    const float3 m1 = sharedmem[(threadIdx.y+8)*32+threadIdx.x+8];
+    __syncthreads();
+
+    GaussianSmartSharedLoad(sharedmem, im2, x, y, width, height);
+    GaussianSmart_Device(sharedmem, x, y, width, height, gaussiankernel);
+    const float3 m2 = sharedmem[(threadIdx.y+8)*32+threadIdx.x+8];
+    __syncthreads();
+
+    GaussianSmartSharedLoadProduct(sharedmem, im1, im1, x, y, width, height);
+    GaussianSmart_Device(sharedmem, x, y, width, height, gaussiankernel);
+    const float3 su11 = sharedmem[(threadIdx.y+8)*32+threadIdx.x+8];
+    __syncthreads();
+
+    GaussianSmartSharedLoadProduct(sharedmem, im2, im2, x, y, width, height);
+    GaussianSmart_Device(sharedmem, x, y, width, height, gaussiankernel);
+    const float3 su22 = sharedmem[(threadIdx.y+8)*32+threadIdx.x+8];
+    __syncthreads();
+
+    GaussianSmartSharedLoadProduct(sharedmem, im1, im2, x, y, width, height);
+    GaussianSmart_Device(sharedmem, x, y, width, height, gaussiankernel);
+    const float3 su12 = sharedmem[(threadIdx.y+8)*32+threadIdx.x+8];
+    __syncthreads();
 
     float3 d0, d1, d2;
-    if (x < width*height){
+    if (x < width && y < height){
         //ssim
-        const float3 m1 = mu1[x]; const float3 m2 = mu2[x];
         const float3 m11 = m1*m1;
         const float3 m22 = m2*m2;
         const float3 m12 = m1*m2;
         const float3 m_diff = m1-m2;
         const float3 num_m = fmaf(m_diff, m_diff*-1.0f, 1.0f);
-        const float3 num_s = fmaf(s12[x] - m12, 2.0f, 0.0009f);
-        const float3 denom_s = (s11[x] - m11) + (s22[x] - m22) + 0.0009f;
+        const float3 num_s = fmaf(su12 - m12, 2.0f, 0.0009f);
+        const float3 denom_s = (su11 - m11) + (su22 - m22) + 0.0009f;
         d0 = max(1.0f - ((num_m * num_s)/denom_s), 0.0f);
 
         //edge diff
-        const float3 v1 = (abs(im2[x] - mu2[x])+1.0f) / (abs(im1[x] - mu1[x])+1.0f) - 1.0f;
+        const float3 v1 = (abs(im2[id] - m2)+1.0f) / (abs(im1[id] - m1)+1.0f) - 1.0f;
         const float3 artifact = max(v1, 0.0f);
         const float3 detailloss = max(v1*-1.0f, 0.0f);
         d1 = artifact; d2 = detailloss;
@@ -134,63 +160,66 @@ __global__ void allscore_map_Kernel(float3* dst, float3* im1, float3* im2, float
         d2.z = 0.0f;
     }
 
-    sumssim1[thx] = d0;
-    sumssim4[thx] = tothe4th(d0);
-    suma1[thx] = d1;
-    suma4[thx] = tothe4th(d1);
-    sumd1[thx] = d2;
-    sumd4[thx] = tothe4th(d2);
+    sumssim1[blid] = d0;
+    sumssim4[blid] = tothe4th(d0);
+    suma1[blid] = d1;
+    suma4[blid] = tothe4th(d1);
+    sumd1[blid] = d2;
+    sumd4[blid] = tothe4th(d2);
     __syncthreads();
     //now we need to do some pointer jumping to regroup every block sums;
     int next = 1;
     while (next < threadnum){
-        if (thx + next < threadnum && (thx%(next*2) == 0)){
-            sumssim1[thx] += sumssim1[thx+next];
-            sumssim4[thx] += sumssim4[thx+next];
-            suma1[thx] += suma1[thx+next];
-            suma4[thx] += suma4[thx+next];
-            sumd1[thx] += sumd1[thx+next];
-            sumd4[thx] += sumd4[thx+next];
+        if (blid + next < threadnum && (blid%(next*2) == 0)){
+            sumssim1[blid] += sumssim1[blid+next];
+            sumssim4[blid] += sumssim4[blid+next];
+            suma1[blid] += suma1[blid+next];
+            suma4[blid] += suma4[blid+next];
+            sumd1[blid] += sumd1[blid+next];
+            sumd4[blid] += sumd4[blid+next];
         }
         next *= 2;
         __syncthreads();
     }
-    if (thx == 0){
-        dst[blockIdx.x] = sumssim1[0]/(width*height);
-        dst[gridDim.x + blockIdx.x] = sumssim4[0]/(width*height);
-        dst[2*gridDim.x + blockIdx.x] = suma1[0]/(width*height);
-        dst[3*gridDim.x + blockIdx.x] = suma4[0]/(width*height);
-        dst[4*gridDim.x + blockIdx.x] = sumd1[0]/(width*height);
-        dst[5*gridDim.x + blockIdx.x] = sumd4[0]/(width*height);
+    if (blid == 0){
+        dst[blockIdx.y*gridDim.x + blockIdx.x] = sumssim1[0]/(width*height);
+        dst[gridDim.x*gridDim.y + blockIdx.y*gridDim.x + blockIdx.x] = sumssim4[0]/(width*height);
+        dst[2*gridDim.x*gridDim.y + blockIdx.y*gridDim.x + blockIdx.x] = suma1[0]/(width*height);
+        dst[3*gridDim.x*gridDim.y + blockIdx.y*gridDim.x + blockIdx.x] = suma4[0]/(width*height);
+        dst[4*gridDim.x*gridDim.y + blockIdx.y*gridDim.x + blockIdx.x] = sumd1[0]/(width*height);
+        dst[5*gridDim.x*gridDim.y + blockIdx.y*gridDim.x + blockIdx.x] = sumd4[0]/(width*height);
     }
 }
 
-std::vector<float3> allscore_map(float3* im1, float3* im2, float3* mu1, float3* mu2, float3* s11, float3* s22, float3* s12, float3* temp, float3* pinned, int64_t basewidth, int64_t baseheight, int64_t maxshared, hipStream_t stream){
+std::vector<float3> allscore_map(float3* im1, float3* im2, float3* temp, float3* pinned, int64_t basewidth, int64_t baseheight, int64_t maxshared, float* gaussiankernel, hipStream_t stream){
     //output is {normssim1scale1, normssim4scale1, norma1scale1, norma4scale1, normad1scale1, normd4scale1, norm1scale2, ...}
     std::vector<float3> result(2*6*3);
     for (int i = 0; i < 2*6*3; i++) {result[i].x = 0.0f; result[i].y = 0.0f; result[i].z = 0.0f;}
 
     int64_t w = basewidth;
     int64_t h = baseheight;
-    int64_t th_x;
-    int64_t bl_x;
+    int64_t th_x, th_y;
+    int64_t bl_x, bl_y;
     int64_t index = 0;
     std::vector<int> scaleoutdone(7);
     scaleoutdone[0] = 0;
     for (int scale = 0; scale < 6; scale++){
-        th_x = std::min((int64_t)(maxshared/(6*sizeof(float3)))/32*32, std::min((int64_t)1024, w*h));
-        bl_x = (w*h-1)/th_x + 1;
-        int64_t blr_x = bl_x;
-        allscore_map_Kernel<<<dim3(bl_x), dim3(th_x), 6*sizeof(float3)*th_x, stream>>>(temp+scaleoutdone[scale]+((blr_x >= th_x) ? 6*bl_x : 0), im1+index, im2+index, mu1+index, mu2+index, s11+index, s22+index, s12+index, w, h);
+        th_x = 16;
+        th_y = 16;
+        bl_x = (w-1)/th_x + 1;
+        bl_y = (h-1)/th_y + 1;
+        int64_t blr_x = bl_x*bl_y;
+        allscore_map_Kernel<<<dim3(bl_x, bl_y), dim3(th_x, th_y), std::max(6*sizeof(float3)*th_x*th_y, 32*32*sizeof(float3)), stream>>>(temp+scaleoutdone[scale]+((blr_x >= 1024) ? 6*bl_x*bl_y : 0), im1+index, im2+index, w, h, gaussiankernel);
         //printf("I got %s with %d\n", hipGetErrorString(hipGetLastError()), 6*sizeof(float3)*th_x);
         GPU_CHECK(hipGetLastError());
 
+        th_x = std::min((int64_t)(maxshared/(6*sizeof(float3)))/32*32, std::min((int64_t)1024, w*h));
         int oscillate = 0; //3 sets of memory: real destination at 0, first at 6*bl_x for oscillate 0 and last at 12*bl_x for oscillate 1;
-        int64_t oldblr_x = bl_x;
-        while (blr_x >= th_x){
-            blr_x = (bl_x -1)/th_x + 1;
+        int64_t oldblr_x = blr_x;
+        while (blr_x >= 1024){
+            blr_x = (blr_x -1)/th_x + 1;
             //sum reduce
-            sumreduce<<<dim3(blr_x), dim3(th_x), 6*sizeof(float3)*th_x, stream>>>(temp+scaleoutdone[scale]+((blr_x >= th_x) ? (oscillate+1)*6*bl_x : 0), temp+scaleoutdone[scale]+ (oscillate+1)*6*bl_x, oldblr_x);
+            sumreduce<<<dim3(blr_x), dim3(th_x), 6*sizeof(float3)*th_x, stream>>>(temp+scaleoutdone[scale]+((blr_x >= 1024) ? (oscillate+1)*6*bl_x*bl_y : 0), temp+scaleoutdone[scale]+ (oscillate+1)*6*bl_x*bl_y, oldblr_x);
             oscillate ^= 1;
             oldblr_x = blr_x;
         }

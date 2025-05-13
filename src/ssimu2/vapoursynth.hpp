@@ -155,7 +155,7 @@ namespace ssimu2{
         }
     
         d.streamnum = std::min(d.streamnum, infos.numThreads); // vs threads < numStream would make no sense
-        d.streamnum = std::min((int64_t)d.streamnum, (int64_t)((int64_t)devattr.totalGlobalMem/(32llu*4llu*(int64_t)viref->width*(int64_t)viref->height))); //VRAM overcommit partial protection
+        d.streamnum = std::min((int64_t)d.streamnum, (int64_t)((int64_t)devattr.totalGlobalMem/(12llu*4llu*(int64_t)viref->width*(int64_t)viref->height))); //VRAM overcommit partial protection
         d.streamnum = std::max(d.streamnum, 1); //at least one stream to not just wait indefinitely
         d.streams = (hipStream_t*)malloc(sizeof(hipStream_t)*d.streamnum);
         for (int i = 0; i < d.streamnum; i++){

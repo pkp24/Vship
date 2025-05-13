@@ -47,7 +47,7 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* p
     hipError_t erralloc;
 
     float3* mem_d;
-    erralloc = hipMallocAsync(&mem_d, sizeof(float3)*totalscalesize*(2 + 6), stream); //2 base image and 6 working buffers
+    erralloc = hipMallocAsync(&mem_d, sizeof(float3)*totalscalesize*(2) + std::max((int64_t)sizeof(float3)*totalscalesize, stride*height*3), stream); //2 base image and 1 reduction+copy buffer
     if (erralloc != hipSuccess){
         throw VshipError(OutOfVRAM, __FILE__, __LINE__);
     }
@@ -56,11 +56,6 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* p
     float3* src2_d = mem_d + totalscalesize;
 
     float3* temp_d = mem_d + 2*totalscalesize;
-    float3* temps11_d = mem_d + 3*totalscalesize;
-    float3* temps22_d = mem_d + 4*totalscalesize;
-    float3* temps12_d = mem_d + 5*totalscalesize;
-    float3* tempb1_d = mem_d + 6*totalscalesize;
-    float3* tempb2_d = mem_d + 7*totalscalesize;
 
     uint8_t *memory_placeholder[3] = {(uint8_t*)temp_d, (uint8_t*)temp_d+stride*height, (uint8_t*)temp_d+2*stride*height};
     GPU_CHECK(hipMemcpyHtoDAsync(memory_placeholder[0], (void*)srcp1[0], stride * height, stream));
@@ -96,25 +91,12 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* p
     rgb_to_positive_xyb(src1_d, totalscalesize, stream);
     rgb_to_positive_xyb(src2_d, totalscalesize, stream);
 
-    //step 3 : fill buffer s11 s22 and s12 and blur everything
-    multarray(src1_d, src1_d, temp_d, totalscalesize, stream);
-    gaussianBlur(temp_d, temps11_d, totalscalesize, width, height, gaussiankernel, stream);
-
-    multarray(src1_d, src2_d, temp_d, totalscalesize, stream);
-    gaussianBlur(temp_d, temps12_d, totalscalesize, width, height, gaussiankernel, stream);
-
-    multarray(src2_d, src2_d, temp_d, totalscalesize, stream);
-    gaussianBlur(temp_d, temps22_d, totalscalesize, width, height, gaussiankernel, stream);
-
-    gaussianBlur(src1_d, tempb1_d, totalscalesize, width, height, gaussiankernel, stream);
-    gaussianBlur(src2_d, tempb2_d, totalscalesize, width, height, gaussiankernel, stream);
-
     //step 4 : ssim map
     
     //step 5 : edge diff map    
     std::vector<float3> allscore_res;
     try{
-        allscore_res = allscore_map(src1_d, src2_d, tempb1_d, tempb2_d, temps11_d, temps22_d, temps12_d, temp_d, pinned, width, height, maxshared, stream);
+        allscore_res = allscore_map(src1_d, src2_d, temp_d, pinned, width, height, maxshared, gaussiankernel, stream);
     } catch (const VshipError& e){
         hipFree(mem_d);
         throw e;
