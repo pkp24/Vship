@@ -131,7 +131,7 @@ namespace ssimu2{
     
         //hipSetDevice(gpuid);
     
-        hipDeviceSetCacheConfig(hipFuncCachePreferNone);
+        hipDeviceSetCacheConfig(hipFuncCachePreferEqual);
         int device;
         hipDeviceProp_t devattr;
         hipGetDevice(&device);

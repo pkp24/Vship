@@ -3,12 +3,16 @@ namespace ssimu2{
 int64_t allocsizeScore(int64_t width, int64_t height, int maxshared){
     int64_t w = width;
     int64_t h = height;
-    int64_t th_x, bl_x;
+    int64_t th_x, th_y, bl_x, bl_y;
     int64_t pinnedsize = 0;
     for (int i = 0; i < 6; i++){
-        th_x = std::min((int64_t)(maxshared/(6*sizeof(float3)))/32*32, std::min((int64_t)1024, w*h));
-        bl_x = (w*h-1)/th_x + 1;
-        while (bl_x >= th_x){
+        th_x = 16;
+        th_y = 16;
+        bl_x = (w-1)/th_x + 1;
+        bl_y = (h-1)/th_y + 1;
+        bl_x = bl_x*bl_y; //convert to linear
+        th_x = std::min((int64_t)(maxshared/(6*sizeof(float3)))/32*32, std::min((int64_t)1024, bl_x));
+        while (bl_x >= 256){
             bl_x = (bl_x -1)/th_x + 1;
         }
         pinnedsize += 6*bl_x;
@@ -196,6 +200,7 @@ std::vector<float3> allscore_map(float3* im1, float3* im2, float3* temp, float3*
     std::vector<float3> result(2*6*3);
     for (int i = 0; i < 2*6*3; i++) {result[i].x = 0.0f; result[i].y = 0.0f; result[i].z = 0.0f;}
 
+    const int reduce_up_to = 256;
     int64_t w = basewidth;
     int64_t h = baseheight;
     int64_t th_x, th_y;
@@ -209,17 +214,17 @@ std::vector<float3> allscore_map(float3* im1, float3* im2, float3* temp, float3*
         bl_x = (w-1)/th_x + 1;
         bl_y = (h-1)/th_y + 1;
         int64_t blr_x = bl_x*bl_y;
-        allscore_map_Kernel<<<dim3(bl_x, bl_y), dim3(th_x, th_y), std::max(6*sizeof(float3)*th_x*th_y, 32*32*sizeof(float3)), stream>>>(temp+scaleoutdone[scale]+((blr_x >= 1024) ? 6*bl_x*bl_y : 0), im1+index, im2+index, w, h, gaussiankernel);
-        //printf("I got %s with %d\n", hipGetErrorString(hipGetLastError()), 6*sizeof(float3)*th_x);
+        allscore_map_Kernel<<<dim3(bl_x, bl_y), dim3(th_x, th_y), std::max(6*sizeof(float3)*th_x*th_y, 32*32*sizeof(float3)), stream>>>(temp+scaleoutdone[scale]+((blr_x >= reduce_up_to) ? 6*bl_x*bl_y : 0), im1+index, im2+index, w, h, gaussiankernel);
+        //printf("I got %s with %ld %ld %ld\n", hipGetErrorString(hipGetLastError()), 6*sizeof(float3)*th_x*th_y, bl_x, bl_y);
         GPU_CHECK(hipGetLastError());
 
-        th_x = std::min((int64_t)(maxshared/(6*sizeof(float3)))/32*32, std::min((int64_t)1024, w*h));
+        th_x = std::min((int64_t)(maxshared/(6*sizeof(float3)))/32*32, std::min((int64_t)1024, blr_x));
         int oscillate = 0; //3 sets of memory: real destination at 0, first at 6*bl_x for oscillate 0 and last at 12*bl_x for oscillate 1;
         int64_t oldblr_x = blr_x;
-        while (blr_x >= 1024){
+        while (blr_x >= reduce_up_to){
             blr_x = (blr_x -1)/th_x + 1;
             //sum reduce
-            sumreduce<<<dim3(blr_x), dim3(th_x), 6*sizeof(float3)*th_x, stream>>>(temp+scaleoutdone[scale]+((blr_x >= 1024) ? (oscillate+1)*6*bl_x*bl_y : 0), temp+scaleoutdone[scale]+ (oscillate+1)*6*bl_x*bl_y, oldblr_x);
+            sumreduce<<<dim3(blr_x), dim3(th_x), 6*sizeof(float3)*th_x, stream>>>(temp+scaleoutdone[scale]+((blr_x >= reduce_up_to) ? ((oscillate^1)+1)*6*bl_x*bl_y : 0), temp+scaleoutdone[scale]+ (oscillate+1)*6*bl_x*bl_y, oldblr_x);
             oscillate ^= 1;
             oldblr_x = blr_x;
         }
@@ -230,8 +235,9 @@ std::vector<float3> allscore_map(float3* im1, float3* im2, float3* temp, float3*
         h = (h-1)/2+1;
     }
     float3* hostback = pinned;
+    std::cout << "mem " << scaleoutdone[6] << std::endl;
+    //printf("I am sending : %llu %llu %lld %d", hostback, temp, sizeof(float3)*scaleoutdone[6], stream);
     GPU_CHECK(hipMemcpyDtoHAsync(hostback, (hipDeviceptr_t)temp, sizeof(float3)*scaleoutdone[6], stream));
-    //the data as already been reduced by a factor of 512 which can now be reasonably retrieved from GPU
 
     hipStreamSynchronize(stream);
 
