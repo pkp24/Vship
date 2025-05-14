@@ -31,17 +31,83 @@ void memoryorganizer(float3* out, const uint8_t *srcp0, const uint8_t *srcp1, co
     memoryorganizer_kernel<T><<<dim3(bl_x), dim3(th_x), 0, stream>>>(out, srcp0, srcp1, srcp2, stride, width, height);
 }
 
+int64_t getTotalScaleSize(int64_t width, int64_t height){
+    int64_t result = 0;
+    for (int scale = 0; scale < 6; scale++){
+        result += width*height;
+        width = (width-1)/2+1;
+        height = (height-1)/2+1;
+    }
+    return result;
+}
+
+//expects packed linear RGB input. Beware that each src1_d, src2_d and temp_d must be of size "totalscalesize" even if the actual image is contained in a width*height format
+double ssimu2GPUProcess(float3* src1_d, float3* src2_d, float3* temp_d, float3* pinned, int64_t width, int64_t height, float* gaussiankernel, int64_t maxshared, hipStream_t stream){
+    const int64_t totalscalesize = getTotalScaleSize(width, height);
+
+    //step 1 : fill the downsample part
+    int64_t nw = width;
+    int64_t nh = height;
+    int64_t index = 0;
+    for (int scale = 1; scale <= 5; scale++){
+        downsample(src1_d+index, src1_d+index+nw*nh, nw, nh, stream);
+        index += nw*nh;
+        nw = (nw -1)/2 + 1;
+        nh = (nh - 1)/2 + 1;
+    }
+    nw = width;
+    nh = height;
+    index = 0;
+    for (int scale = 1; scale <= 5; scale++){
+        downsample(src2_d+index, src2_d+index+nw*nh, nw, nh, stream);
+        index += nw*nh;
+        nw = (nw -1)/2 + 1;
+        nh = (nh - 1)/2 + 1;
+    }
+
+    //step 2 : positive XYB transition
+    rgb_to_positive_xyb(src1_d, totalscalesize, stream);
+    rgb_to_positive_xyb(src2_d, totalscalesize, stream);
+
+    //step 4 : ssim map
+    
+    //step 5 : edge diff map    
+    std::vector<float3> allscore_res;
+    try{
+        allscore_res = allscore_map(src1_d, src2_d, temp_d, pinned, width, height, maxshared, gaussiankernel, stream);
+    } catch (const VshipError& e){
+        throw e;
+    }
+
+    //step 6 : format the vector
+    std::vector<float> measure_vec(108);
+
+    for (int plane = 0; plane < 3; plane++){
+        for (int scale = 0; scale < 6; scale++){
+            for (int n = 0; n < 2; n++){
+                for (int i = 0; i < 3; i++){
+                    if (plane == 0) measure_vec[plane*6*2*3 + scale*2*3 + n*3 + i] = allscore_res[scale*2*3 + i*2 + n].x;
+                    if (plane == 1) measure_vec[plane*6*2*3 + scale*2*3 + n*3 + i] = allscore_res[scale*2*3 + i*2 + n].y;
+                    if (plane == 2) measure_vec[plane*6*2*3 + scale*2*3 + n*3 + i] = allscore_res[scale*2*3 + i*2 + n].z;
+                }
+            }
+        }
+    }
+
+    //step 7 : enjoy !
+    const float ssim = final_score(measure_vec);
+
+    //hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
+    //hipEventSynchronize(event_d); //when the event is complete, we know our gpu result is ready!
+
+    return ssim;
+}
+
 template <InputMemType T>
 double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* pinned, int64_t stride, int64_t width, int64_t height, float* gaussiankernel, int64_t maxshared, hipStream_t stream){
 
-    int64_t wh = width*height;
-    int64_t whs[6] = {wh, ((height-1)/2 + 1)*((width-1)/2 + 1), ((height-1)/4 + 1)*((width-1)/4 + 1), ((height-1)/8 + 1)*((width-1)/8 + 1), ((height-1)/16 + 1)*((width-1)/16 + 1), ((height-1)/32 + 1)*((width-1)/32 + 1)};
-    int64_t whs_integral[7];
-    whs_integral[0] = 0;
-    for (int i = 0; i < 6; i++){
-        whs_integral[i+1] = whs_integral[i] + whs[i];
-    }
-    int64_t totalscalesize = whs_integral[6];
+    const int64_t wh = width*height;
+    const int64_t totalscalesize = getTotalScaleSize(width, height);
 
     //big memory allocation, we will try it multiple time if failed to save when too much threads are used
     hipError_t erralloc;
@@ -71,62 +137,17 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* p
     rgb_to_linear(src1_d, totalscalesize, stream);
     rgb_to_linear(src2_d, totalscalesize, stream);
 
-    //step 1 : fill the downsample part
-    int64_t nw = width;
-    int64_t nh = height;
-    for (int scale = 1; scale <= 5; scale++){
-        downsample(src1_d+whs_integral[scale-1], src1_d+whs_integral[scale], nw, nh, stream);
-        nw = (nw -1)/2 + 1;
-        nh = (nh - 1)/2 + 1;
-    }
-    nw = width;
-    nh = height;
-    for (int scale = 1; scale <= 5; scale++){
-        downsample(src2_d+whs_integral[scale-1], src2_d+whs_integral[scale], nw, nh, stream);
-        nw = (nw -1)/2 + 1;
-        nh = (nh - 1)/2 + 1;
-    }
-
-    //step 2 : positive XYB transition
-    rgb_to_positive_xyb(src1_d, totalscalesize, stream);
-    rgb_to_positive_xyb(src2_d, totalscalesize, stream);
-
-    //step 4 : ssim map
-    
-    //step 5 : edge diff map    
-    std::vector<float3> allscore_res;
-    try{
-        allscore_res = allscore_map(src1_d, src2_d, temp_d, pinned, width, height, maxshared, gaussiankernel, stream);
+    double res;
+    try {
+        res = ssimu2GPUProcess(src1_d, src2_d, temp_d, pinned, width, height, gaussiankernel, maxshared, stream);
     } catch (const VshipError& e){
         hipFree(mem_d);
         throw e;
     }
 
-    //we are done with the gpu at that point and the synchronization has already been done in allscore_map
     hipFreeAsync(mem_d, stream);
 
-    //step 6 : format the vector
-    std::vector<float> measure_vec(108);
-
-    for (int plane = 0; plane < 3; plane++){
-        for (int scale = 0; scale < 6; scale++){
-            for (int n = 0; n < 2; n++){
-                for (int i = 0; i < 3; i++){
-                    if (plane == 0) measure_vec[plane*6*2*3 + scale*2*3 + n*3 + i] = allscore_res[scale*2*3 + i*2 + n].x;
-                    if (plane == 1) measure_vec[plane*6*2*3 + scale*2*3 + n*3 + i] = allscore_res[scale*2*3 + i*2 + n].y;
-                    if (plane == 2) measure_vec[plane*6*2*3 + scale*2*3 + n*3 + i] = allscore_res[scale*2*3 + i*2 + n].z;
-                }
-            }
-        }
-    }
-
-    //step 7 : enjoy !
-    const float ssim = final_score(measure_vec);
-
-    //hipEventRecord(event_d, stream); //place an event in the stream at the end of all our operations
-    //hipEventSynchronize(event_d); //when the event is complete, we know our gpu result is ready!
-
-    return ssim;
+    return res;
 }
 
 }
