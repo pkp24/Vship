@@ -106,7 +106,6 @@ double ssimu2GPUProcess(float3* src1_d, float3* src2_d, float3* temp_d, float3* 
 template <InputMemType T>
 double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* pinned, int64_t stride, int64_t width, int64_t height, float* gaussiankernel, int64_t maxshared, hipStream_t stream){
 
-    const int64_t wh = width*height;
     const int64_t totalscalesize = getTotalScaleSize(width, height);
 
     //big memory allocation, we will try it multiple time if failed to save when too much threads are used

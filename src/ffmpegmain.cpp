@@ -17,6 +17,7 @@ extern "C"{
 }
 
 #include "util/ffmpegToZimgFormat.hpp"
+#include "gpuColorToLinear/vshipColor.hpp"
 
 void print_zimg_error(void)
 {
@@ -83,7 +84,7 @@ public:
         pixfmts[1] = -1;
 
         if (FFMS_SetOutputFormatV2(ffms_source, pixfmts, width, height,
-            FFMS_RESIZER_BICUBIC, &errinfo)) {
+            FFMS_RESIZER_FAST_BILINEAR, &errinfo)) {
             std::cout << "Failed to set the output format in FFMS for file : " << file << " with error " << errmsg << std::endl;
             error = 3;
             return;
@@ -217,10 +218,10 @@ void threadwork(std::string file1, FFMS_Index* index1, int trackno1, std::string
     int pinnedsize = 0;
     switch (metric){
         case SSIMULACRA2:
-        pinnedsize = ssimu2::allocsizeScore(v2.width, v1.height, maxshared)*sizeof(float3);
+        pinnedsize = ssimu2::allocsizeScore(v1.width, v1.height, maxshared)*sizeof(float3);
         break;
         case Butteraugli:
-        pinnedsize = butter::allocsizeScore(v2.width, v1.height)*sizeof(float);
+        pinnedsize = butter::allocsizeScore(v1.width, v1.height)*sizeof(float);
         break;
     }
     
@@ -262,6 +263,7 @@ void threadwork(std::string file1, FFMS_Index* index1, int trackno1, std::string
                 }
                 case SSIMULACRA2:
                 {
+                    std::cout << ((uint16_t*)(srcp1[1]))[v1.width*v1.height-1] << " " << ((uint16_t*)(srcp2[1]))[v1.width*v1.height-1] << " " << i << std::endl;
                 const double scoressimu2 = ssimu2::ssimu2process<UINT16>(srcp1, srcp2, (float3*)pinnedmem, v1.RGBstride[0], v1.width, v1.height, gaussiankernel_dssimu2, maxshared, stream);
                 output->push_back(scoressimu2);
                 break;

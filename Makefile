@@ -10,7 +10,7 @@ else
 	dllend := .so
 	fpiccuda := -Xcompiler -fPIC
 	fpicamd := -fPIC
-	mvcommand := cp "$(current_dir)vship$(dllend)" /usr/lib/vapoursynth
+	mvcommand := cp ./vship$(dllend) /usr/lib/vapoursynth
 endif
 
 .FORCE:

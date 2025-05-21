@@ -17,10 +17,7 @@
 #include <cassert>
 
 
-#ifdef __HIPCC__
-    #include<hip/hip_runtime.h>
-    #include<hip/hip_fp16.h>
-#elif defined __CUDACC__
+#if defined __CUDACC__
     #include <cuda_fp16.h>
     #define LOWLEVEL
     #define hipMemcpyDtoH(x, y, z) cudaMemcpy(x, y, z, cudaMemcpyDeviceToHost)
@@ -68,6 +65,9 @@
     #define hipFreeHost cudaFreeHost
     #define hipHostMalloc cudaMallocHost
     #define hipStreamSynchronize cudaStreamSynchronize
+#else
+    #include<hip/hip_runtime.h>
+    #include<hip/hip_fp16.h>
 #endif
 
 
