@@ -263,7 +263,6 @@ void threadwork(std::string file1, FFMS_Index* index1, int trackno1, std::string
                 }
                 case SSIMULACRA2:
                 {
-                    std::cout << ((uint16_t*)(srcp1[1]))[v1.width*v1.height-1] << " " << ((uint16_t*)(srcp2[1]))[v1.width*v1.height-1] << " " << i << std::endl;
                 const double scoressimu2 = ssimu2::ssimu2process<UINT16>(srcp1, srcp2, (float3*)pinnedmem, v1.RGBstride[0], v1.width, v1.height, gaussiankernel_dssimu2, maxshared, stream);
                 output->push_back(scoressimu2);
                 break;
