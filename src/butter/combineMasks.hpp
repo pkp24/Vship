@@ -19,8 +19,8 @@ __device__ float MaskDcY(float delta) {
 }
 
 __launch_bounds__(256)
-__global__ void computeDiffmap_Kernel(float* mask, float* block_diff_dc0, float* block_diff_dc1, float* block_diff_dc2, float* block_diff_ac0, float* block_diff_ac1, float* block_diff_ac2, float* dst, int width){
-    size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+__global__ void computeDiffmap_Kernel(float* mask, float* block_diff_dc0, float* block_diff_dc1, float* block_diff_dc2, float* block_diff_ac0, float* block_diff_ac1, float* block_diff_ac2, float* dst, int64_t width){
+    int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
 
     if (x >= width) return;
 
@@ -32,9 +32,9 @@ __global__ void computeDiffmap_Kernel(float* mask, float* block_diff_dc0, float*
     //if ((x == 376098 && width == 1080*1920) || ((x == 59456 && width == 540*960))) printf("final result: %f with ac: %f, %f, %f, dc: %f, %f, %f, mask: %f.\n", dst[x], block_diff_ac0[x], block_diff_ac1[x], block_diff_ac2[x], block_diff_dc0[x], block_diff_dc1[x], block_diff_dc2[x], mask[x]);
 }
 
-void computeDiffmap(float* mask, float* block_diff_dc0, float* block_diff_dc1, float* block_diff_dc2, float* block_diff_ac0, float* block_diff_ac1, float* block_diff_ac2, float* dst, int width, hipStream_t stream){
-    int th_x = std::min(256, width);
-    int bl_x = (width-1)/th_x + 1;
+void computeDiffmap(float* mask, float* block_diff_dc0, float* block_diff_dc1, float* block_diff_dc2, float* block_diff_ac0, float* block_diff_ac1, float* block_diff_ac2, float* dst, int64_t width, hipStream_t stream){
+    int64_t th_x = std::min((int64_t)256, width);
+    int64_t bl_x = (width-1)/th_x + 1;
     computeDiffmap_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(mask, block_diff_dc0, block_diff_dc1, block_diff_dc2, block_diff_ac0, block_diff_ac1, block_diff_ac2, dst, width);
     GPU_CHECK(hipGetLastError());
 }

@@ -511,10 +511,10 @@ __device__ float MaltaUnit(float* d, const int xs) {
     return retval;
 }
 
-__global__ void MaltaDiffMap_Kernel(const float* lum0, const float* lum1, float* block_diff_ac, const int width, const int height, const float w_0gt1, const float w_0lt1, const float norm1, const float len, const float mulli) {
+__global__ void MaltaDiffMap_Kernel(const float* lum0, const float* lum1, float* block_diff_ac, const int64_t width, const int64_t height, const float w_0gt1, const float w_0lt1, const float norm1, const float len, const float mulli) {
     //each block must be 16*16
-    const int x = threadIdx.x + blockIdx.x*blockDim.x;
-    const int y = threadIdx.y + blockIdx.y*blockDim.y;
+    const int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
+    const int64_t y = threadIdx.y + blockIdx.y*blockDim.y;
 
     const float kWeight0 = 0.5f;
     const float kWeight1 = 0.33f;
@@ -530,9 +530,9 @@ __global__ void MaltaDiffMap_Kernel(const float* lum0, const float* lum1, float*
     //shared memory cost: 24*24 = 576 -> 2kB (very small in front of 16kB)
     int topleftx = blockIdx.x*blockDim.x - 4; int toplefty = blockIdx.y*blockDim.y - 4;
 
-    const int serialind = threadIdx.x + threadIdx.y * blockDim.x;
-    const int serialstride = blockDim.x*blockDim.y;
-    for (int i = serialind; i < 24*24; i += serialstride){
+    const int64_t serialind = threadIdx.x + threadIdx.y * blockDim.x;
+    const int64_t serialstride = blockDim.x*blockDim.y;
+    for (int64_t i = serialind; i < 24*24; i += serialstride){
         int workx = topleftx + i%24; int worky = toplefty + i/24;
         if (workx < 0 || workx >= width || worky < 0 || worky >= height){
             diffs[i] = 0.0f;
@@ -586,10 +586,10 @@ __global__ void MaltaDiffMap_Kernel(const float* lum0, const float* lum1, float*
     }
 }
 
-__global__ void MaltaDiffMapLF_Kernel(const float* lum0, const float* lum1, float* block_diff_ac, const int width, const int height, const float w_0gt1, const float w_0lt1, const float norm1, const float len, const float mulli) {
+__global__ void MaltaDiffMapLF_Kernel(const float* lum0, const float* lum1, float* block_diff_ac, const int64_t width, const int64_t height, const float w_0gt1, const float w_0lt1, const float norm1, const float len, const float mulli) {
     //each block must be 16*16
-    const int x = threadIdx.x + blockIdx.x*blockDim.x;
-    const int y = threadIdx.y + blockIdx.y*blockDim.y;
+    const int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
+    const int64_t y = threadIdx.y + blockIdx.y*blockDim.y;
 
     const float kWeight0 = 0.5f;
     const float kWeight1 = 0.33f;
@@ -605,9 +605,9 @@ __global__ void MaltaDiffMapLF_Kernel(const float* lum0, const float* lum1, floa
     //shared memory cost: 24*24 = 576 -> 2kB (very small in front of 16kB)
     int topleftx = blockIdx.x*blockDim.x - 4; int toplefty = blockIdx.y*blockDim.y - 4;
 
-    const int serialind = threadIdx.x + threadIdx.y * blockDim.x;
-    const int serialstride = blockDim.x*blockDim.y;
-    for (int i = serialind; i < 24*24; i += serialstride){
+    const int64_t serialind = threadIdx.x + threadIdx.y * blockDim.x;
+    const int64_t serialstride = blockDim.x*blockDim.y;
+    for (int64_t i = serialind; i < 24*24; i += serialstride){
         int workx = topleftx + i%24; int worky = toplefty + i/24;
         if (workx < 0 || workx >= width || worky < 0 || worky >= height){
             diffs[i] = 0.0f;
@@ -659,25 +659,25 @@ __global__ void MaltaDiffMapLF_Kernel(const float* lum0, const float* lum1, floa
     }
 }
 
-__host__ void MaltaDiffMap(const float* lum0, const float* lum1, float* block_diff_ac, const int width, const int height, const float w_0gt1, const float w_0lt1, const float norm1, hipStream_t stream){
+__host__ void MaltaDiffMap(const float* lum0, const float* lum1, float* block_diff_ac, const int64_t width, const int64_t height, const float w_0gt1, const float w_0lt1, const float norm1, hipStream_t stream){
     const float len = 3.75f;
     const float mulli = 0.39905817637f;
 
-    const int th_x = 16;
-    const int th_y = 16;
-    const int bl_x = (width - 1)/th_x + 1;
-    const int bl_y = (height - 1)/th_y + 1;
+    const int64_t th_x = 16;
+    const int64_t th_y = 16;
+    const int64_t bl_x = (width - 1)/th_x + 1;
+    const int64_t bl_y = (height - 1)/th_y + 1;
     MaltaDiffMap_Kernel<<<dim3(bl_x, bl_y), dim3(th_x, th_y)>>>(lum0, lum1, block_diff_ac, width, height, w_0gt1, w_0lt1, norm1, len, mulli);
 }
 
-__host__ void MaltaDiffMapLF(const float* lum0, const float* lum1, float* block_diff_ac, const int width, const int height, const float w_0gt1, const float w_0lt1, const float norm1, hipStream_t stream){
+__host__ void MaltaDiffMapLF(const float* lum0, const float* lum1, float* block_diff_ac, const int64_t width, const int64_t height, const float w_0gt1, const float w_0lt1, const float norm1, hipStream_t stream){
     const float len = 3.75f;
     const float mulli = 0.611612573796f;
 
-    const int th_x = 16;
-    const int th_y = 16;
-    const int bl_x = (width - 1)/th_x + 1;
-    const int bl_y = (height - 1)/th_y + 1;
+    const int64_t th_x = 16;
+    const int64_t th_y = 16;
+    const int64_t bl_x = (width - 1)/th_x + 1;
+    const int64_t bl_y = (height - 1)/th_y + 1;
     MaltaDiffMapLF_Kernel<<<dim3(bl_x, bl_y), dim3(th_x, th_y), 0, stream>>>(lum0, lum1, block_diff_ac, width, height, w_0gt1, w_0lt1, norm1, len, mulli);
 }
 

@@ -26,9 +26,9 @@ namespace ssimu2{
             const VSFrame *src1 = vsapi->getFrameFilter(n, d->reference, frameCtx);
             const VSFrame *src2 = vsapi->getFrameFilter(n, d->distorted, frameCtx);
             
-            int height = vsapi->getFrameHeight(src1, 0);
-            int width = vsapi->getFrameWidth(src1, 0);
-            int stride = vsapi->getStride(src1, 0);
+            int64_t height = vsapi->getFrameHeight(src1, 0);
+            int64_t width = vsapi->getFrameWidth(src1, 0);
+            int64_t stride = vsapi->getStride(src1, 0);
     
             VSFrame *dst = vsapi->copyFrame(src2, core);
     
@@ -47,7 +47,7 @@ namespace ssimu2{
             double val;
             const int stream = d->streamSet->pop();
             try{
-                val = ssimu2process(srcp1, srcp2, d->PinnedMemPool[stream], stride, width, height, d->gaussiankernel_d, d->maxshared, d->streams[stream]);
+                val = ssimu2process<FLOAT>(srcp1, srcp2, d->PinnedMemPool[stream], stride, width, height, d->gaussiankernel_d, d->maxshared, d->streams[stream]);
             } catch (const VshipError& e){
                 vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);
                 d->streamSet->insert(stream);
@@ -96,8 +96,8 @@ namespace ssimu2{
         Ssimulacra2Data *data;
     
         // Get a clip reference from the input arguments. This must be freed later.
-        d.reference = toRGBS(vsapi->mapGetNode(in, "reference", 0, 0), core, vsapi);
-        d.distorted = toRGBS(vsapi->mapGetNode(in, "distorted", 0, 0), core, vsapi);
+        d.reference = toRGBS(vsapi->mapGetNode(in, "reference", 0, 0), core, vsapi, false);
+        d.distorted = toRGBS(vsapi->mapGetNode(in, "distorted", 0, 0), core, vsapi, false);
         const VSVideoInfo *viref = vsapi->getVideoInfo(d.reference);
         const VSVideoInfo *vidis = vsapi->getVideoInfo(d.distorted);
     
@@ -131,7 +131,7 @@ namespace ssimu2{
     
         //hipSetDevice(gpuid);
     
-        hipDeviceSetCacheConfig(hipFuncCachePreferNone);
+        hipDeviceSetCacheConfig(hipFuncCachePreferEqual);
         int device;
         hipDeviceProp_t devattr;
         hipGetDevice(&device);
@@ -144,7 +144,7 @@ namespace ssimu2{
         VSCoreInfo infos;
         vsapi->getCoreInfo(core, &infos);
         //d.oldthreadnum = infos.numThreads;
-        //size_t freemem, totalmem;
+        //int64_t freemem, totalmem;
         //hipMemGetInfo (&freemem, &totalmem);
     
         //vsapi->setThreadCount(std::min((int)((float)(freemem - 20*(1llu << 20))/(8*sizeof(float3)*videowidth*videoheight*(1.33333))), d.oldthreadnum), core);
@@ -155,8 +155,8 @@ namespace ssimu2{
         }
     
         d.streamnum = std::min(d.streamnum, infos.numThreads); // vs threads < numStream would make no sense
-        d.streamnum = std::min((size_t)d.streamnum, (size_t)((size_t)devattr.totalGlobalMem/(32llu*4llu*(size_t)viref->width*(size_t)viref->height))); //VRAM overcommit partial protection
-        d.streamnum = std::max(d.streamnum, 1);
+        d.streamnum = std::min((int64_t)d.streamnum, (int64_t)((int64_t)devattr.totalGlobalMem/(12llu*4llu*(int64_t)viref->width*(int64_t)viref->height))); //VRAM overcommit partial protection
+        d.streamnum = std::max(d.streamnum, 1); //at least one stream to not just wait indefinitely
         d.streams = (hipStream_t*)malloc(sizeof(hipStream_t)*d.streamnum);
         for (int i = 0; i < d.streamnum; i++){
             hipStreamCreate(d.streams + i);
@@ -168,7 +168,7 @@ namespace ssimu2{
         }
         d.streamSet = new threadSet(newstreamset);
     
-        const int pinnedsize = allocsizeScore(viref->width, viref->height, d.maxshared);
+        const int64_t pinnedsize = allocsizeScore(viref->width, viref->height, d.maxshared);
         d.PinnedMemPool = (float3**)malloc(sizeof(float3*)*d.streamnum);
         hipError_t erralloc;
         for (int i = 0; i < d.streamnum; i++){

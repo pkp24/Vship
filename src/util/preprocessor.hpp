@@ -14,11 +14,11 @@
 #include<set>
 #include <mutex>
 #include <condition_variable>
+#include <cassert>
 
 
-#ifdef __HIPCC__
-    #include<hip/hip_runtime.h>
-#elif defined __CUDACC__
+#if defined __CUDACC__
+    #include <cuda_fp16.h>
     #define LOWLEVEL
     #define hipMemcpyDtoH(x, y, z) cudaMemcpy(x, y, z, cudaMemcpyDeviceToHost)
     #define hipMemcpyHtoD(x, y, z) cudaMemcpy(x, y, z, cudaMemcpyHostToDevice)
@@ -62,8 +62,12 @@
     #define hipMallocAsync cudaMallocAsync
     #define hipFreeAsync cudaFreeAsync
     #define hipHostFree cudaFreeHost
+    #define hipFreeHost cudaFreeHost
     #define hipHostMalloc cudaMallocHost
     #define hipStreamSynchronize cudaStreamSynchronize
+#else
+    #include<hip/hip_runtime.h>
+    #include<hip/hip_fp16.h>
 #endif
 
 
@@ -80,5 +84,7 @@ if (err_hip != hipSuccess)\
 #define SIGMA 1.5f
 #define PI  3.14159265359
 #define TAU 6.28318530718
+
+enum InputMemType {UINT16, HALF, FLOAT};
 
 #endif

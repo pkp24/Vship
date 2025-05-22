@@ -72,8 +72,8 @@ __device__ inline void rgb_to_linrgb(float3& a){
 }
 
 __launch_bounds__(256)
-__global__ void rgb_to_positive_xyb_Kernel(float3* array, int width){
-    size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+__global__ void rgb_to_positive_xyb_Kernel(float3* array, int64_t width){
+    int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
     if (x >= width) return;
     //float3 old = array[x];
     //rgb_to_linrgb(array[x]); we need to do it before rescale
@@ -82,16 +82,16 @@ __global__ void rgb_to_positive_xyb_Kernel(float3* array, int width){
     //if (x == 10000) printf("from %f, %f, %f to %f, %f, %f\n", old.x, old.y, old.z, array[x].x, array[x].y, array[x].z);
 }
 
-__host__ inline void rgb_to_positive_xyb(float3* array, int width, hipStream_t stream){
-    int th_x = std::min(256, width);
-    int bl_x = (width-1)/th_x + 1;
+__host__ inline void rgb_to_positive_xyb(float3* array, int64_t width, hipStream_t stream){
+    int64_t th_x = std::min((int64_t)256, width);
+    int64_t bl_x = (width-1)/th_x + 1;
     rgb_to_positive_xyb_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(array, width);
     GPU_CHECK(hipGetLastError());
 }
 
 __launch_bounds__(256)
-__global__ void rgb_to_linear_Kernel(float3* array, int width){
-    size_t x = threadIdx.x + blockIdx.x*blockDim.x;
+__global__ void rgb_to_linear_Kernel(float3* array, int64_t width){
+    int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
     if (x >= width) return;
     //float3 old = array[x];
     rgb_to_linrgb(array[x]);
@@ -100,9 +100,9 @@ __global__ void rgb_to_linear_Kernel(float3* array, int width){
     //if (x == 10000) printf("from %f, %f, %f to %f, %f, %f\n", old.x, old.y, old.z, array[x].x, array[x].y, array[x].z);
 }
 
-__host__ inline void rgb_to_linear(float3* array, int width, hipStream_t stream){
-    int th_x = std::min(256, width);
-    int bl_x = (width-1)/th_x + 1;
+__host__ inline void rgb_to_linear(float3* array, int64_t width, hipStream_t stream){
+    int64_t th_x = std::min((int64_t)256, width);
+    int64_t bl_x = (width-1)/th_x + 1;
     rgb_to_linear_Kernel<<<dim3(bl_x), dim3(th_x), 0, stream>>>(array, width);
     GPU_CHECK(hipGetLastError());
 }

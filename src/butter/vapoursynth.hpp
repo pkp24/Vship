@@ -10,7 +10,7 @@ namespace butter{
         float intensity_multiplier;
         float** PinnedMemPool;
         GaussianHandle gaussianHandle;
-        int maxshared;
+        int64_t maxshared;
         int diffmap;
         hipStream_t* streams;
         int streamnum = 0;
@@ -57,9 +57,9 @@ namespace butter{
             const int stream = d->streamSet->pop();
             try{
                 if (d->diffmap){
-                    val = butterprocess(vsapi->getWritePtr(dst, 0), vsapi->getStride(dst, 0), srcp1, srcp2, d->PinnedMemPool[stream], d->gaussianHandle, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[stream]);
+                    val = butterprocess<FLOAT>(vsapi->getWritePtr(dst, 0), vsapi->getStride(dst, 0), srcp1, srcp2, d->PinnedMemPool[stream], d->gaussianHandle, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[stream]);
                 } else {
-                    val = butterprocess(NULL, 0, srcp1, srcp2, d->PinnedMemPool[stream], d->gaussianHandle, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[stream]);
+                    val = butterprocess<FLOAT>(NULL, 0, srcp1, srcp2, d->PinnedMemPool[stream], d->gaussianHandle, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[stream]);
                 }
             } catch (const VshipError& e){
                 vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);
@@ -173,7 +173,7 @@ namespace butter{
         VSCoreInfo infos;
         vsapi->getCoreInfo(core, &infos);
         //d.oldthreadnum = infos.numThreads;
-        //size_t freemem, totalmem;
+        //int64_t freemem, totalmem;
         //hipMemGetInfo (&freemem, &totalmem);
     
         //vsapi->setThreadCount(std::min((int)((float)(freemem - 20*(1llu << 20))/(8*sizeof(float3)*videowidth*videoheight*(1.33333))), d.oldthreadnum), core);
@@ -191,7 +191,7 @@ namespace butter{
         }
     
         d.streamnum = std::min(d.streamnum, infos.numThreads);
-        d.streamnum = std::min((size_t)d.streamnum, (size_t)((size_t)devattr.totalGlobalMem/(32llu*4llu*(size_t)viref->width*(size_t)viref->height))); //VRAM overcommit partial protection
+        d.streamnum = std::min((int64_t)d.streamnum, (int64_t)((int64_t)devattr.totalGlobalMem/(32llu*4llu*(int64_t)viref->width*(int64_t)viref->height))); //VRAM overcommit partial protection
         d.streamnum = std::max(d.streamnum, 1);
         d.streams = (hipStream_t*)malloc(sizeof(hipStream_t)*d.streamnum);
         for (int i = 0; i < d.streamnum; i++){
@@ -204,7 +204,7 @@ namespace butter{
         }
         d.streamSet = new threadSet(newstreamset);
     
-        const int pinnedsize = allocsizeScore(viref->width, viref->height);
+        const int64_t pinnedsize = allocsizeScore(viref->width, viref->height);
         d.PinnedMemPool = (float**)malloc(sizeof(float*)*d.streamnum);
         hipError_t erralloc;
         for (int i = 0; i < d.streamnum; i++){
