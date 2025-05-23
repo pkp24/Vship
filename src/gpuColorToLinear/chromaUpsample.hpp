@@ -104,6 +104,32 @@ __global__ void bicubicHorizontalLeftUpscaleX4_Kernel(float* dst, float* src, in
     }
 }
 
+//dst of size width*(2*height) while src is of size width*height
+__global__ void bicubicVerticalCenterUpscaleX2_Kernel(float* dst, float* src, int64_t width, int64_t height){
+    int64_t x = threadIdx.x + blockIdx.x * blockDim.x;
+    int64_t y = threadIdx.y + blockIdx.y * blockDim.y;
+    CubicHermitSplineInterpolator interpolator = getVerticalInterpolator_device(src, x, y, width, height);
+    //this interpolator is valid on interval [0, 1] representing [y, y+1]
+    //we are Center so we are interested in values: 0.25 and 0.75
+    if (y < height && x < width){
+        dst[(2*y)*width + x] = interpolator.get(0.25);
+        dst[(2*y+1)*width + x] = interpolator.get(0.75);
+    }
+}
+
+//dst of size width*(2*height) while src is of size width*height
+__global__ void bicubicVerticalTopUpscaleX2_Kernel(float* dst, float* src, int64_t width, int64_t height){
+    int64_t x = threadIdx.x + blockIdx.x * blockDim.x;
+    int64_t y = threadIdx.y + blockIdx.y * blockDim.y;
+    CubicHermitSplineInterpolator interpolator = getVerticalInterpolator_device(src, x, y, width, height);
+    //this interpolator is valid on interval [0, 1] representing [y, y+1]
+    //we are Top so we are interested in values: 0 and 0.5
+    if (y < height && x < width){
+        dst[(2*y)*width + x] = src[y*width + x];
+        dst[(2*y+1)*width + x] = interpolator.get(0.5);
+    }
+}
+
 template<AVChromaLocation location, chromaSubType chromatype>
 __host__ void inline upsample(float* dst, float* src, int64_t width, int64_t height, hipStream_t stream){
     int64_t thx = 16;
