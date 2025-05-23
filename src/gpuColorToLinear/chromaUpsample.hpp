@@ -48,19 +48,21 @@ __device__ CubicHermitSplineInterpolator getVerticalInterpolator_device(float* s
     return CubicHermitSplineInterpolator(el0, (el1 - elm1)/2, el1, (el2 - el0)/2);
 }
 
+//block x should range from 0 to width INCLUDED
 //dst of size (2*width)*height while src is of size width*height
 __global__ void bicubicHorizontalCenterUpscaleX2_Kernel(float* dst, float* src, int64_t width, int64_t height){
-    int64_t x = threadIdx.x + blockIdx.x * blockDim.x;
+    int64_t x = threadIdx.x + blockIdx.x * blockDim.x -1;
     int64_t y = threadIdx.y + blockIdx.y * blockDim.y;
     CubicHermitSplineInterpolator interpolator = getHorizontalInterpolator_device(src, x, y, width, height);
     //this interpolator is valid on interval [0, 1] representing [x, x+1]
     //we are Center so we are interested in values: 0.25 and 0.75
     if (y < height && x < width){
-        dst[y*2*width + 2*x] = interpolator.get(0.25);
-        dst[y*2*width + 2*x+1] = interpolator.get(0.75);
+        if (x != -1) dst[y*2*width + 2*x+1] = interpolator.get(0.25);
+        if (x != width-1) dst[y*2*width + 2*x+2] = interpolator.get(0.75);
     }
 }
 
+//block x should range from 0 to width-1 INCLUDED
 //dst of size (2*width)*height while src is of size width*height
 __global__ void bicubicHorizontalLeftUpscaleX2_Kernel(float* dst, float* src, int64_t width, int64_t height){
     int64_t x = threadIdx.x + blockIdx.x * blockDim.x;
@@ -74,21 +76,23 @@ __global__ void bicubicHorizontalLeftUpscaleX2_Kernel(float* dst, float* src, in
     }
 }
 
+//block x should range from 0 to width INCLUDED
 //dst of size (4*width)*height while src is of size width*height
 __global__ void bicubicHorizontalCenterUpscaleX4_Kernel(float* dst, float* src, int64_t width, int64_t height){
-    int64_t x = threadIdx.x + blockIdx.x * blockDim.x;
+    int64_t x = threadIdx.x + blockIdx.x * blockDim.x -1;
     int64_t y = threadIdx.y + blockIdx.y * blockDim.y;
     CubicHermitSplineInterpolator interpolator = getHorizontalInterpolator_device(src, x, y, width, height);
     //this interpolator is valid on interval [0, 1] representing [x, x+1]
     //we are Center so we are interested in values: 0.125, 0.375, 0.625 and 0.875
     if (y < height && x < width){
-        dst[y*4*width + 4*x] = interpolator.get(0.125);
-        dst[y*4*width + 4*x+1] = interpolator.get(0.375);
-        dst[y*4*width + 4*x+2] = interpolator.get(0.625);
-        dst[y*4*width + 4*x+3] = interpolator.get(0.875);
+        if (x != -1) dst[y*4*width + 4*x+2] = interpolator.get(0.125);
+        if (x != -1) dst[y*4*width + 4*x+3] = interpolator.get(0.375);
+        if (x != width-1) dst[y*4*width + 4*x+4] = interpolator.get(0.625);
+        if (x != width-1) dst[y*4*width + 4*x+5] = interpolator.get(0.875);
     }
 }
 
+//block x should range from 0 to width-1 INCLUDED
 //dst of size (4*width)*height while src is of size width*height
 __global__ void bicubicHorizontalLeftUpscaleX4_Kernel(float* dst, float* src, int64_t width, int64_t height){
     int64_t x = threadIdx.x + blockIdx.x * blockDim.x;
@@ -104,19 +108,21 @@ __global__ void bicubicHorizontalLeftUpscaleX4_Kernel(float* dst, float* src, in
     }
 }
 
+//block x should range from 0 to width INCLUDED
 //dst of size width*(2*height) while src is of size width*height
 __global__ void bicubicVerticalCenterUpscaleX2_Kernel(float* dst, float* src, int64_t width, int64_t height){
-    int64_t x = threadIdx.x + blockIdx.x * blockDim.x;
+    int64_t x = threadIdx.x + blockIdx.x * blockDim.x -1;
     int64_t y = threadIdx.y + blockIdx.y * blockDim.y;
     CubicHermitSplineInterpolator interpolator = getVerticalInterpolator_device(src, x, y, width, height);
     //this interpolator is valid on interval [0, 1] representing [y, y+1]
     //we are Center so we are interested in values: 0.25 and 0.75
     if (y < height && x < width){
-        dst[(2*y)*width + x] = interpolator.get(0.25);
-        dst[(2*y+1)*width + x] = interpolator.get(0.75);
+        if (x != -1) dst[(2*y +1)*width + x] = interpolator.get(0.25);
+        if (x != width-1) dst[(2*y+2)*width + x] = interpolator.get(0.75);
     }
 }
 
+//block x should range from 0 to width-1 INCLUDED
 //dst of size width*(2*height) while src is of size width*height
 __global__ void bicubicVerticalTopUpscaleX2_Kernel(float* dst, float* src, int64_t width, int64_t height){
     int64_t x = threadIdx.x + blockIdx.x * blockDim.x;

@@ -10,6 +10,7 @@ __device__ void inline PrimariesToBT709<AVCOL_PRI_BT709>(float3& a){
 
 }
 
+//https://www.itu.int/dms_pub/itu-r/opb/rep/R-REP-BT.2407-2017-PDF-E.pdf
 template<>
 __device__ void inline PrimariesToBT709<AVCOL_PRI_BT2020>(float3& a){
     float3 out;
