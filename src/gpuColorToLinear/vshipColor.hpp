@@ -4,3 +4,4 @@
 #include "primariesToBT709.hpp"
 #include "rangeToFull.hpp"
 #include "transferToLinear.hpp"
+#include "chromaUpsample.hpp"
