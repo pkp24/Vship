@@ -2,15 +2,6 @@
 
 namespace VshipColorConvert{
 
-enum chromaSubType{
-    chroma_444,
-    chroma_420,
-    chroma_422,
-    chroma_440,
-    chroma_411,
-    chroma_410,
-};
-
 class CubicHermitSplineInterpolator{
     float v1; float v2; float v3; float v4;
 public:
