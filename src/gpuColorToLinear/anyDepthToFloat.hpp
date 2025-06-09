@@ -80,5 +80,19 @@ __device__ float inline PickValue<COLOR_16BIT>(const uint8_t* const source_plane
     return getBitIntegerArray<16>(source_plane, i, stride, width);
 }
 
+template<Sample_Type T>
+__global__ void convertToFloatPlane_Kernel(float* output_plane, const uint8_t* const source_plane, const int stride, const int width, const int height){
+    const int64_t x = threadIdx.x + blockIdx.x * blockDim.x;
+    if (x >= width*height) return;
+
+    output_plane[x] = PickValue<T>(source_plane, x, stride, width);
+}
+
+template<Sample_Type T>
+__host__ void inline convertToFloatPlane(float* output_plane, const uint8_t* const source_plane, const int stride, const int width, const int height, hipStream_t stream){
+    const int thx = 256;
+    const int blx = (width*height + thx -1)/thx;
+    convertToFloatPlane_Kernel<T><<<dim3(blx), dim3(thx), 0, stream>>>(output_plane, source_plane, stride, width, height);
+}
 
 }
