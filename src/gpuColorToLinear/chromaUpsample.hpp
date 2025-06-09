@@ -108,21 +108,21 @@ __global__ void bicubicHorizontalLeftUpscaleX4_Kernel(float* dst, float* src, in
     }
 }
 
-//block x should range from 0 to width INCLUDED
+//block y should range from 0 to width INCLUDED
 //dst of size width*(2*height) while src is of size width*height
 __global__ void bicubicVerticalCenterUpscaleX2_Kernel(float* dst, float* src, int64_t width, int64_t height){
-    int64_t x = threadIdx.x + blockIdx.x * blockDim.x -1;
-    int64_t y = threadIdx.y + blockIdx.y * blockDim.y;
+    int64_t x = threadIdx.x + blockIdx.x * blockDim.x;
+    int64_t y = threadIdx.y + blockIdx.y * blockDim.y -1;
     CubicHermitSplineInterpolator interpolator = getVerticalInterpolator_device(src, x, y, width, height);
     //this interpolator is valid on interval [0, 1] representing [y, y+1]
     //we are Center so we are interested in values: 0.25 and 0.75
     if (y < height && x < width){
-        if (x != -1) dst[(2*y +1)*width + x] = interpolator.get(0.25);
-        if (x != width-1) dst[(2*y+2)*width + x] = interpolator.get(0.75);
+        if (y != -1) dst[(2*y +1)*width + x] = interpolator.get(0.25);
+        if (y != height-1) dst[(2*y+2)*width + x] = interpolator.get(0.75);
     }
 }
 
-//block x should range from 0 to width-1 INCLUDED
+//block y should range from 0 to width-1 INCLUDED
 //dst of size width*(2*height) while src is of size width*height
 __global__ void bicubicVerticalTopUpscaleX2_Kernel(float* dst, float* src, int64_t width, int64_t height){
     int64_t x = threadIdx.x + blockIdx.x * blockDim.x;
@@ -136,13 +136,81 @@ __global__ void bicubicVerticalTopUpscaleX2_Kernel(float* dst, float* src, int64
     }
 }
 
-template<AVChromaLocation location, chromaSubType chromatype>
-__host__ void inline upsample(float* dst, float* src, int64_t width, int64_t height, hipStream_t stream){
-    int64_t thx = 16;
-    int64_t thy = 16;
-    int64_t blx = (width+thx-1)/thx;
-    int64_t bly = (height+thy-1)/thy;
-    //upsample_kernel<location, chromatype><<<dim3(blx, bly), dim3(thx, thy), 0, stream>>>(dst, src, width, height);
+//source is of size width * height possibly chroma downsampled
+__host__ int inline upsample(float* dst[3], float* src[3], int64_t width, int64_t height, AVChromaLocation location, int subw, int subh, hipStream_t stream){
+    if (subw == 0 && subh == 0) return 0;
+    width >>= subw; //get chroma plane size
+    height >>= subh; 
+    const int thx = 16;
+    const int thy = 16;
+    const int blx1 = (width + thx-1)/thx;
+    const int blx2 = (width+1 + thx-1)/thx;
+    const int bly1 = (height + thy-1)/thy;
+    const int bly2 = (height+1 + thy-1)/thy;
+
+    switch (location){
+        case (AVCHROMA_LOC_LEFT):
+        case (AVCHROMA_LOC_TOPLEFT):
+            if (subw == 0){
+            } else if (subw == 1){
+                bicubicHorizontalLeftUpscaleX2_Kernel<<<dim3(blx1, bly1), dim3(thx, thy), 0, stream>>>(dst[1], src[1], width, height);
+                bicubicHorizontalLeftUpscaleX2_Kernel<<<dim3(blx1, bly1), dim3(thx, thy), 0, stream>>>(dst[2], src[2], width, height);
+                width *= 2;
+            } else if (subw == 2){
+                bicubicHorizontalLeftUpscaleX4_Kernel<<<dim3(blx1, bly1), dim3(thx, thy), 0, stream>>>(dst[1], src[1], width, height);
+                bicubicHorizontalLeftUpscaleX4_Kernel<<<dim3(blx1, bly1), dim3(thx, thy), 0, stream>>>(dst[2], src[2], width, height);
+                width *= 4;
+            } else {
+                return 1; //not implemented
+            }
+            break;
+        case (AVCHROMA_LOC_CENTER):
+        case (AVCHROMA_LOC_TOP):
+            if (subw == 0){
+            } else if (subw == 1){
+                bicubicHorizontalCenterUpscaleX2_Kernel<<<dim3(blx2, bly1), dim3(thx, thy), 0, stream>>>(dst[1], src[1], width, height);
+                bicubicHorizontalCenterUpscaleX2_Kernel<<<dim3(blx2, bly1), dim3(thx, thy), 0, stream>>>(dst[2], src[2], width, height);
+                width *= 2;
+            } else if (subw == 2){
+                bicubicHorizontalCenterUpscaleX4_Kernel<<<dim3(blx2, bly1), dim3(thx, thy), 0, stream>>>(dst[1], src[1], width, height);
+                bicubicHorizontalCenterUpscaleX4_Kernel<<<dim3(blx2, bly1), dim3(thx, thy), 0, stream>>>(dst[2], src[2], width, height);
+                width *= 4;
+            } else {
+                return 1; //not implemented
+            }
+            break;
+        default:
+            if (subw != 0) return 1; //not implemented
+    }
+
+    switch (location){
+        case (AVCHROMA_LOC_TOP):
+        case (AVCHROMA_LOC_TOPLEFT):
+            if (subh == 0){
+            } else if (subh == 1){
+                bicubicVerticalTopUpscaleX2_Kernel<<<dim3(blx1, bly1), dim3(thx, thy), 0, stream>>>(dst[1], src[1], width, height);
+                bicubicVerticalTopUpscaleX2_Kernel<<<dim3(blx1, bly1), dim3(thx, thy), 0, stream>>>(dst[2], src[2], width, height);
+                height *= 2;
+            } else {
+                return 1; //not implemented
+            }
+            break;
+        case (AVCHROMA_LOC_CENTER):
+        case (AVCHROMA_LOC_LEFT):
+            if (subh == 0){
+            } else if (subh == 1){
+                bicubicVerticalCenterUpscaleX2_Kernel<<<dim3(blx1, bly2), dim3(thx, thy), 0, stream>>>(dst[1], src[1], width, height);
+                bicubicVerticalCenterUpscaleX2_Kernel<<<dim3(blx1, bly2), dim3(thx, thy), 0, stream>>>(dst[2], src[2], width, height);
+                height *= 2;
+            } else {
+                return 1; //not implemented
+            }
+            break;
+        default:
+            if (subh != 0) return 1; //not implemented
+    }
+
+    return 0;
 }
 
 }
