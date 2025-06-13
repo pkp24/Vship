@@ -100,9 +100,9 @@ public:
         RGBptrHelper[1] = outputRGB+width*height*sizeof(uint16_t);
         RGBptrHelper[2] = outputRGB+2*width*height*sizeof(uint16_t);
 
-        RGBstride[0] = width;
-        RGBstride[1] = width;
-        RGBstride[2] = width;
+        RGBstride[0] = width*sizeof(uint16_t);
+        RGBstride[1] = width*sizeof(uint16_t);
+        RGBstride[2] = width*sizeof(uint16_t);
         
         //zimg init
         if (ffmpegToZimgFormat(zimg_src_format, frame) != 0){
@@ -127,7 +127,11 @@ public:
         zimg_dst_format.depth = 16;
         zimg_dst_format.pixel_range = ZIMG_RANGE_FULL;
 
-        zimg_graph = zimg_filter_graph_build(&zimg_src_format, &zimg_dst_format, 0);
+        zimg_graph_builder_params zimgparam;
+
+        zimg_graph_builder_params_default(&zimgparam, ZIMG_API_VERSION);
+
+        zimg_graph = zimg_filter_graph_build(&zimg_src_format, &zimg_dst_format, &zimgparam);
         if (!zimg_graph){
             std::cout << "Failed to generate zimg conversion graph for file : " << file << std::endl;
             print_zimg_error();
@@ -135,7 +139,6 @@ public:
             return;
         }
 
-        zimg_src_buf = { ZIMG_API_VERSION };
         zimg_dst_buf = { ZIMG_API_VERSION };
         for (int p = 0; p < 3; p++){
             zimg_dst_buf.plane[p].data = RGBptrHelper[p];
@@ -161,6 +164,7 @@ public:
         }
 
         if (convert){
+            zimg_src_buf = { ZIMG_API_VERSION };
             for (int p = 0; p < 3; p++){
                 zimg_src_buf.plane[p].data = frame->Data[p];
                 zimg_src_buf.plane[p].stride = frame->Linesize[p];
