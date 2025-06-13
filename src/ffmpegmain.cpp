@@ -122,7 +122,7 @@ public:
 
         zimg_dst_format.color_family = ZIMG_COLOR_RGB;
         zimg_dst_format.matrix_coefficients = ZIMG_MATRIX_RGB;
-        zimg_dst_format.transfer_characteristics = ZIMG_TRANSFER_IEC_61966_2_1;
+        zimg_dst_format.transfer_characteristics = ZIMG_TRANSFER_BT709;
         zimg_dst_format.color_primaries = ZIMG_PRIMARIES_BT709;
         zimg_dst_format.depth = 16;
         zimg_dst_format.pixel_range = ZIMG_RANGE_FULL;
