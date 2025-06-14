@@ -38,17 +38,17 @@ featuring Vship:
 
 The steps to build `vship` from source are provided below.
 
-### Prerequisites
+### Dependencies
+For all build options the following are requried:
 
-For All usecases
 - `make`
 - `hipcc` (AMD) or `nvcc` (NVIDIA)
 
-Vship Vapoursynth Plugin:
+Building the plugin to use with Vapoursynth:
 
 - VapourSynth
 
-FFVship CLI tool:
+Building the FFvship cli tool:
 
 - ffms2
 - zimg
@@ -56,28 +56,27 @@ FFVship CLI tool:
 
 ### Build Instructions
 
-0. Ensure you have all of the dependencies properly installed.
-
-1. Use the appropriate `make` command to build on your GPU
+1. Use the appropriate target for your gpu or use case.
 
 ```bash
 #Vship Vapoursynth Plugin Build
-make buildcuda # for NVIDIA GPUs
-make build     # for AMD GPUs
+make buildcuda     # Build for the current systems Nvidia gpu
+make buildcudaall  # Build for all supported Nvidia gpus
+make build         # Build for the current systems AMD gpu
+make buildall      # Build for all supported AMD gpus
 
 #FFVship CLI linux tool build
-make buildFFVSHIPcuda #for NVIDIA GPUs
-make buildFFVSHIP #for AMD GPUs
+make buildFFVSHIPcuda      # Build for the current systems Nvidia gpu
+make buildFFVSHIPcudaall   # Build for all supported Nvidia gpus
+make buildFFVSHIP          # Build for the current systems AMD gpu
+make buildFFVSHIPall       # Build for all supported AMD gpus
 ```
 
-2. Install the `vship` vapoursynth plugin:
-
+2. Install the Vapoursynth plugin and/or the FFVship executable.
+The `install` target automatically detects and installs only the components that were built.
 ```bash
 make install
 ```
-
-> Note: By default, the build is optimized for the specific GPU used during
-> compilation.
 
 ## Library Usage
 
