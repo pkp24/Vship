@@ -24,18 +24,18 @@ public:
 };
 
 __device__ CubicHermitSplineInterpolator getHorizontalInterpolator_device(float* src, int64_t x, int64_t y, int64_t width, int64_t height){ //width and height must be the one of source!!!!
-    const float el0 = src[std::min(y, height-1)*width + std::min(x, width-1)];
-    const float elm1 = src[std::min(y, height-1)*width + std::min(std::max(x-1, (int64_t)0), width-1)]; //left element
-    const float el1 = src[std::min(y, height-1)*width + std::min(x+1, width-1)];
-    const float el2 = src[std::min(y, height-1)*width + std::min(x+2, width-1)];
+    const float el0 = src[min(y, height-1)*width + min(x, width-1)];
+    const float elm1 = src[min(y, height-1)*width + min(max(x-1, (int64_t)0), width-1)]; //left element
+    const float el1 = src[min(y, height-1)*width + min(x+1, width-1)];
+    const float el2 = src[min(y, height-1)*width + min(x+2, width-1)];
     return CubicHermitSplineInterpolator(el0, (el1 - elm1)/2, el1, (el2 - el0)/2);
 }
 
 __device__ CubicHermitSplineInterpolator getVerticalInterpolator_device(float* src, int64_t x, int64_t y, int64_t width, int64_t height){ //width and height must be the one of source!!!!
-    const float el0 = src[std::min(y, height-1)*width + std::min(x, width-1)];
-    const float elm1 = src[std::min(std::max(y-1, (int64_t)0), height-1)*width + std::min(x, width-1)]; //left element
-    const float el1 = src[std::min(y+1, height-1)*width + std::min(x, width-1)];
-    const float el2 = src[std::min(y+2, height-1)*width + std::min(x, width-1)];
+    const float el0 = src[min(y, height-1)*width + min(x, width-1)];
+    const float elm1 = src[min(max(y-1, (int64_t)0), height-1)*width + min(x, width-1)]; //left element
+    const float el1 = src[min(y+1, height-1)*width + min(x, width-1)];
+    const float el2 = src[min(y+2, height-1)*width + min(x, width-1)];
     return CubicHermitSplineInterpolator(el0, (el1 - elm1)/2, el1, (el2 - el0)/2);
 }
 
