@@ -53,7 +53,7 @@ public:
     uint8_t* RGBptrHelper[3] = {NULL, NULL, NULL};
     int RGBstride[3] = {0, 0, 0};
     int error = 0;
-    FFmpegVideoManager(std::string file, FFMS_Index* index, int trackno){
+    FFmpegVideoManager(std::string file, FFMS_Index* index, int trackno, int resize_width = -1, int resize_height = -1){
 
         errinfo.Buffer      = errmsg;
         errinfo.BufferSize  = sizeof(errmsg);
@@ -95,19 +95,22 @@ public:
             return;
         }
 
-        hipHostMalloc((void**)&outputRGB, width*height*sizeof(uint16_t)*3); //allocate pinned memory for end buffer for faster gpu send
+        if (resize_height < 0) resize_height = height;
+        if (resize_width < 0) resize_width = width;
+
+        hipHostMalloc((void**)&outputRGB, resize_width*resize_height*sizeof(uint16_t)*3); //allocate pinned memory for end buffer for faster gpu send
         if (!outputRGB){
-            std::cout << "Failed to allocate Pinned RAM for RGB output for file : " << file << " of size " << width*height*sizeof(uint16_t)*3 << std::endl;
+            std::cout << "Failed to allocate Pinned RAM for RGB output for file : " << file << " of size " << resize_width*resize_height*sizeof(uint16_t)*3 << std::endl;
             error = 10;
             return;
         }
         RGBptrHelper[0] = outputRGB;
-        RGBptrHelper[1] = outputRGB+width*height*sizeof(uint16_t);
-        RGBptrHelper[2] = outputRGB+2*width*height*sizeof(uint16_t);
+        RGBptrHelper[1] = outputRGB+resize_width*resize_height*sizeof(uint16_t);
+        RGBptrHelper[2] = outputRGB+2*resize_width*resize_height*sizeof(uint16_t);
 
-        RGBstride[0] = width*sizeof(uint16_t);
-        RGBstride[1] = width*sizeof(uint16_t);
-        RGBstride[2] = width*sizeof(uint16_t);
+        RGBstride[0] = resize_width*sizeof(uint16_t);
+        RGBstride[1] = resize_width*sizeof(uint16_t);
+        RGBstride[2] = resize_width*sizeof(uint16_t);
         
         //zimg init
         if (ffmpegToZimgFormat(zimg_src_format, frame) != 0){
@@ -118,8 +121,8 @@ public:
 
         //destination format
         zimg_image_format_default(&zimg_dst_format, ZIMG_API_VERSION);
-        zimg_dst_format.width = width;
-        zimg_dst_format.height = height;
+        zimg_dst_format.width = resize_width;
+        zimg_dst_format.height = resize_height;
         zimg_dst_format.pixel_type = ZIMG_PIXEL_WORD;
 
         zimg_dst_format.subsample_w = 0;
@@ -205,15 +208,15 @@ void threadwork(std::string file1, FFMS_Index* index1, int trackno1, std::string
         std::cout << "Thread " << threadid << " Failed to open file " << file1 << std::endl;
         return;
     }
-    FFmpegVideoManager v2(file2, index2, trackno2);
+    FFmpegVideoManager v2(file2, index2, trackno2, v1.width, v1.height);
     if (v2.error){
         std::cout << "Thread " << threadid << " Failed to open file " << file2 << std::endl;
         return;
     }
-    if (v1.width != v2.width || v1.height != v2.height){
-        std::cout << "the 2 videos do not have the same sizes (" << v1.width << "x" << v1.height << " vs " << v2.width << "x" << v2.height <<")" << std::endl;
-        return;
-    }
+    //if (v1.width != v2.width || v1.height != v2.height){
+    //    std::cout << "the 2 videos do not have the same sizes (" << v1.width << "x" << v1.height << " vs " << v2.width << "x" << v2.height <<")" << std::endl;
+    //    return;
+    //}
     
     if (end < 0) end = v1.numframe;
     if (end < start) end = start;
