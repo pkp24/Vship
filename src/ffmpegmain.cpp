@@ -313,7 +313,7 @@ int main(int argc, char** argv){
     int every = 1;
     int gpuid = 0;
     int gputhreads = 8;
-    int threads = 12;
+    int threads = std::thread::hardware_concurrency();
     METRICS metric = SSIMULACRA2;
     std::string file1;
     std::string file2;
