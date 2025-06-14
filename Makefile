@@ -7,8 +7,8 @@ ifeq ($(OS),Windows_NT)
     dllend := .dll
     fpiccuda :=
     fpicamd :=
-    plugin_install_path := $(APPDATA)/VapourSynth/plugins64
-    exe_install_path := $(ProgramFiles)/FFVship
+    plugin_install_path := $(APPDATA)\VapourSynth\plugins64
+    exe_install_path := $(ProgramFiles)\FFVship
 else
     dllend := .so
     fpiccuda := -Xcompiler -fPIC
@@ -43,19 +43,19 @@ buildcudaall: src/vapoursynthPlugin.cpp .FORCE
 buildall: src/vapoursynthPlugin.cpp .FORCE
 	hipcc src/vapoursynthPlugin.cpp --offload-arch=gfx1100,gfx1101,gfx1102,gfx1103,gfx1030,gfx1031,gfx1032,gfx906,gfx801,gfx802,gfx803 -I "$(current_dir)include" -Wno-unused-result -Wno-ignored-attributes -shared $(fpicamd) -o "$(current_dir)vship$(dllend)"
 
-install:
 ifeq ($(OS),Windows_NT)
-    if exist "$(current_dir)vship$(dllend)" copy "$(current_dir)vship$(dllend)" "$(plugin_install_path)"
-    if exist "FFVship.exe" copy "FFVship.exe" "$(exe_install_path)\FFVship.exe"
+install:
+	if exist "$(current_dir)vship$(dllend)" copy "$(current_dir)vship$(dllend)" "$(plugin_install_path)"
 else
+install:
 	@if [ -f "$(current_dir)vship$(dllend)" ]; then \
-        install -d "$(plugin_install_path)"; \
-        install -m755 "$(current_dir)vship$(dllend)" "$(plugin_install_path)/vship$(dllend)"; \
-    fi
+		install -d "$(plugin_install_path)"; \
+		install -m755 "$(current_dir)vship$(dllend)" "$(plugin_install_path)/vship$(dllend)"; \
+	fi
 	@if [ -f "FFVship" ]; then \
-        install -d "$(exe_install_path)"; \
-        install -m755 FFVship "$(exe_install_path)/FFVship"; \
-    fi
+		install -d "$(exe_install_path)"; \
+		install -m755 FFVship "$(exe_install_path)/FFVship"; \
+	fi
 endif
 
 test: .FORCE build
