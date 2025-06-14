@@ -136,7 +136,7 @@ namespace butter{
         int error;
         d.intensity_multiplier = vsapi->mapGetFloat(in, "intensity_multiplier", 0, &error);
         if (error != peSuccess){
-            d.intensity_multiplier = 80.0f;
+            d.intensity_multiplier = 203.0f;
         }
         int gpuid = vsapi->mapGetInt(in, "gpu_id", 0, &error);
         if (error != peSuccess){

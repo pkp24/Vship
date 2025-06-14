@@ -8,6 +8,7 @@
 
 namespace VshipColorConvert{
 
+//accept only YUV format
 int extractInfoFromPixelFormat(AVPixelFormat pix_fmt, Sample_Type& sample_type, int& subw, int& subh){
     switch (pix_fmt){
         case AV_PIX_FMT_YUV420P:
@@ -138,7 +139,7 @@ int linearize(float* outplane[3], float* tempplane[3], const uint8_t* source_pla
 
     //first step, transform current integer/float format into a pure float
     int res = 1;
-    res &= convertToFloatPlaneSwitch(tempplane[0], source_plane[0], strides[0], width, height, sample_type, stream);
+    res &= convertToFloatPlaneSwitch(outplane[0], source_plane[0], strides[0], width, height, sample_type, stream); //get to outplane directly
     res &= convertToFloatPlaneSwitch(tempplane[1], source_plane[1], strides[1], width >> subw, height >> subh, sample_type, stream);
     res &= convertToFloatPlaneSwitch(tempplane[2], source_plane[2], strides[2], width >> subw, height >> subh, sample_type, stream);
     if (res != 0) {
@@ -147,7 +148,7 @@ int linearize(float* outplane[3], float* tempplane[3], const uint8_t* source_pla
     }
 
     //second step, chroma upsample
-    if (upsample(outplane, tempplane, width, height, location, subw, subh, stream) != 0){
+    if (upsample(outplane, tempplane, width, height, location, subw, subh, stream) != 0){ //this function does not transfer luma plane from temp to out!! so we directly get luma plane to out instead of temp since no modification is needed
         std::cout << "Failed to upscale" << std::endl;
         return 1;
     }

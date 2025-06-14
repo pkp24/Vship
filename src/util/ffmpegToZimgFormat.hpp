@@ -130,7 +130,7 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
             out.subsample_h = 1;
         break;
         default:
-            std::cout << "Unhandled LibAV Pixel Format" << std::endl;
+            std::cout << "Unhandled LibAV Pixel Format " << (AVPixelFormat)in->EncodedPixelFormat << std::endl;
             return 1;
     }
 

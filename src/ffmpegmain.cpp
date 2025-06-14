@@ -75,6 +75,11 @@ public:
             return;
         }
         frame = FFMS_GetFrame(ffms_source, 0, &errinfo);
+        if (frame == NULL){
+            std::cout << "Error retrieving frame 0" << " with error " << errmsg << std::endl;
+            error = 6;
+            return;
+        }
         pix_fmt = (AVPixelFormat)frame->EncodedPixelFormat;
         width = frame->EncodedWidth;
         height = frame->EncodedHeight;
@@ -314,7 +319,7 @@ int main(int argc, char** argv){
     std::string file2;
     std::string jsonout = "";
 
-    int intensity_multiplier = 80;
+    int intensity_multiplier = 203;
 
     for (unsigned int i = 0; i < args.size(); i++){
         if (args[i] == "-h" || args[i] == "--help"){
