@@ -655,15 +655,15 @@ int main(int argc, char** argv){
             std::cout << "Computed " << frames << " frames at " << fps << " fps" << std::endl;
             std::cout << std::endl;
 
-            float avg = 0;
-            float avg_squared = 0;
+            double avg = 0;
+            double avg_squared = 0;
             for (unsigned int i = 0; i < frames; i++){
                 avg += split1[i];
                 avg_squared += split1[i]*split1[i];
             }
             avg /= frames;
             avg_squared /= frames;
-            float std_dev = std::sqrt(avg_squared - avg*avg);
+            double std_dev = std::sqrt(avg_squared - avg*avg);
 
             std::cout << "----2-Norm----" << std::endl;
             std::cout << "Average : " << avg << std::endl;
@@ -713,15 +713,15 @@ int main(int argc, char** argv){
         case SSIMULACRA2:
         {
             std::sort(finalreslist.begin(), finalreslist.end());
-            float avg = 0;
-            float avg_squared = 0;
+            double avg = 0;
+            double avg_squared = 0;
             for (unsigned int i = 0; i < finalreslist.size(); i++){
                 avg += finalreslist[i];
                 avg_squared += finalreslist[i]*finalreslist[i];
             }
             avg /= finalreslist.size();
             avg_squared /= finalreslist.size();
-            const float std_dev = std::sqrt(avg_squared - avg*avg);
+            const double std_dev = std::sqrt(avg_squared - avg*avg);
 
             std::cout << "SSIMU2 Result between " << file1 << " and " << file2 << std::endl;
             std::cout << "Computed " << frames << " frames at " << fps << " fps" << std::endl;
