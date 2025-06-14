@@ -3,6 +3,8 @@
 A high-performance VapourSynth plugin for GPU-accelerated visual fidelity
 metrics, focusing on SSIMULACRA2 & Butteraugli.
 
+**New : CLI Tool without vapoursynth named FFVship**
+
 ## Overview
 
 `vship` provides hardware-accelerated implementations of:
@@ -38,9 +40,19 @@ The steps to build `vship` from source are provided below.
 
 ### Prerequisites
 
+For All usecases
 - `make`
 - `hipcc` (AMD) or `nvcc` (NVIDIA)
+
+Vship Vapoursynth Plugin:
+
 - VapourSynth
+
+FFVship CLI tool:
+
+- ffms2
+- zimg
+- pkg-config
 
 ### Build Instructions
 
@@ -49,11 +61,16 @@ The steps to build `vship` from source are provided below.
 1. Use the appropriate `make` command to build on your GPU
 
 ```bash
+#Vship Vapoursynth Plugin Build
 make buildcuda # for NVIDIA GPUs
 make build     # for AMD GPUs
+
+#FFVship CLI linux tool build
+make buildFFVSHIPcuda #for NVIDIA GPUs
+make buildFFVSHIP #for AMD GPUs
 ```
 
-2. Install the `vship` library:
+2. Install the `vship` vapoursynth plugin:
 
 ```bash
 make install
@@ -63,6 +80,21 @@ make install
 > compilation.
 
 ## Library Usage
+
+### FFVship
+
+```
+usage: ./FFVship [-h] [--source SOURCE] [--encoded ENCODED]
+                    [-m {SSIMULACRA2, Butteraugli}]
+                    [--start start] [--end end] [-e --every every]
+                    [-t THREADS] [-g gpuThreads] [--gpu-id gpu_id]
+                    [--json OUTPUT]
+                    [--list-gpu]
+                    Specific to Butteraugli: 
+                    [--intensity-target Intensity(nits)]
+```
+
+### Vapoursynth
 
 ### Streams
 
