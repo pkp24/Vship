@@ -76,6 +76,8 @@ make buildFFVSHIPall       # Build for all supported AMD gpus
 The `install` target automatically detects and installs only the components that were built.
 ```bash
 make install
+#for arch, you need to use another prefix:
+make install PREFIX=/usr
 ```
 
 ## Library Usage
