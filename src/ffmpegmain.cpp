@@ -1,6 +1,11 @@
-#include<fstream>
-#include<algorithm>
+#include <fstream>
+#include <algorithm>
 #include <cstdlib>
+#include <iostream>
+#include <string>
+#include <unordered_map>
+#include <variant>
+#include <iomanip> 
 
 #include "util/preprocessor.hpp"
 #include "util/gpuhelper.hpp"
@@ -289,16 +294,135 @@ void threadwork(std::string file1, FFMS_Index* index1, int trackno1, std::string
     return;
 }
 
-void printUsage(){
-    std::cout << R"(usage: ./FFVship [-h] [--source SOURCE] [--encoded ENCODED]
-                    [-m {SSIMULACRA2, Butteraugli}]
-                    [--start start] [--end end] [-e --every every]
-                    [-t THREADS] [-g gpuThreads] [--gpu-id gpu_id]
-                    [--json OUTPUT]
-                    [--list-gpu]
-                    Specific to Butteraugli: 
-                    [--intensity-target Intensity(nits)])" << std::endl;
-}
+struct ArgParser {
+    using TargetVariant = std::variant<bool*, int*, std::string*>;
+
+    struct FlagGroup {
+        std::vector<std::string> aliases;
+        TargetVariant target;
+        std::string help_text;
+    };
+
+    std::vector<FlagGroup> flag_groups;
+    std::unordered_map<std::string, TargetVariant> alias_map;
+
+    ArgParser() {
+        add_flag({"-h", "--help"}, &show_help, "Display this help message");
+    }
+
+    template<typename TargetType>
+    void add_flag(const std::vector<std::string>& flag_names, TargetType* target_pointer,
+        std::string help_description = "")
+    {
+        static_assert(
+            std::is_same_v<TargetType, bool> ||
+            std::is_same_v<TargetType, int> ||
+            std::is_same_v<TargetType, std::string>,
+            "Unsupported flag type"
+        );
+
+        flag_groups.push_back({flag_names, target_pointer, std::move(help_description)});
+        const FlagGroup& added_flag_group = flag_groups.back();
+
+        for (const auto& flag_name : flag_names) {
+            std::visit([&](auto* ptr) {
+                alias_map[flag_name] = ptr;
+            }, added_flag_group.target);
+        }
+    }
+
+    bool parse(const std::vector<std::string>& arguments, size_t& index) const {
+        const std::string& current_flag = arguments[index];
+        auto found_flag = alias_map.find(current_flag);
+        if (found_flag == alias_map.end()) {
+            std::cerr << "Unknown argument: " << current_flag << "\n";
+            return false;
+        }
+        return visit_and_parse_flag_value(current_flag, arguments, index, found_flag->second);
+    }
+
+    void print_all_help() const {
+        print_help();
+    }
+
+    bool is_help_requested() const {
+        return show_help;
+    }
+
+private:
+    bool show_help = false;
+
+    static bool visit_and_parse_flag_value(
+        const std::string& flag_name, const std::vector<std::string>& arguments, size_t& index,
+        TargetVariant const& target_variant)
+    {
+        bool success = true;
+
+        std::visit([&](auto* target_ptr) {
+            using TargetType = std::decay_t<decltype(*target_ptr)>;
+
+            if constexpr (std::is_same_v<TargetType, bool>) {
+                *target_ptr = !*target_ptr;
+                return;
+            }
+
+            if (index + 1 >= arguments.size()) {
+                std::cerr << flag_name << " requires an argument\n";
+                success = false;
+                return;
+            }
+
+            if constexpr (std::is_same_v<TargetType, std::string>) {
+                *target_ptr = arguments[++index];
+                return;
+            }
+
+            // if int
+            try {
+                *target_ptr = std::stoi(arguments[++index]);
+            } catch (...) {
+                std::cerr << "Invalid integer value: " << arguments[index] << "for arg "
+                    << flag_name << "\n";
+                success = false;
+            }
+            return;
+
+
+            
+        }, target_variant);
+
+        return success;
+    }
+
+    void print_help() const {
+        std::cout << "Available options:\n";
+
+        size_t max_alias_len = 0;
+        for (const auto& group : flag_groups) {
+            std::string joined_aliases;
+            for (size_t i = 0; i < group.aliases.size(); ++i) {
+                joined_aliases += group.aliases[i];
+                if (i + 1 < group.aliases.size()) joined_aliases += ", ";
+            }
+            if (joined_aliases.length() > max_alias_len)
+                max_alias_len = joined_aliases.length();
+        }
+
+        for (const auto& group : flag_groups) {
+            std::string joined_aliases;
+            for (size_t i = 0; i < group.aliases.size(); ++i) {
+                joined_aliases += group.aliases[i];
+                if (i + 1 < group.aliases.size()) joined_aliases += ", ";
+            }
+            std::cout << "  " << std::left
+                << std::setw(static_cast<int>(max_alias_len)) << joined_aliases << "  "
+                << group.help_text << "\n";
+        }
+    }
+};
+
+
+
 
 int main(int argc, char** argv){
     std::vector<std::string> args(argc-1);
@@ -306,160 +430,70 @@ int main(int argc, char** argv){
         args[i-1] = argv[i];
     } 
 
-    if (argc == 1){
-        printUsage();
-        return 0;
-    }
-
-    int start = 0;
-    int end = -1;
-    int every = 1;
-    int gpuid = 0;
-    int gputhreads = 8;
+    std::string file1, file2, metric_name = "", jsonout = "";
+    int start = 0, end = -1, every = 1, gpuid = 0, gputhreads = 6;
     int threads = std::thread::hardware_concurrency();
-    METRICS metric = SSIMULACRA2;
-    std::string file1;
-    std::string file2;
-    std::string jsonout = "";
+    bool list_gpu = false;
 
     int intensity_multiplier = 203;
 
-    for (unsigned int i = 0; i < args.size(); i++){
-        if (args[i] == "-h" || args[i] == "--help"){
-            printUsage();
-            return 0;
-        } else if (args[i] == "--list-gpu"){
-            try{
-                std::cout << helper::listGPU();
-            } catch (const VshipError& e){
-                std::cout << e.getErrorMessage() << std::endl;
-                return 1;
-            }
-            return 0;
-        } else if (args[i] == "--source") {
-            if (i == args.size()-1){
-                std::cout << "--source needs an argument" << std::endl;
-                return 0;
-            }
-            file1 = args[i+1];
-            i++;
-        } else if (args[i] == "--json") {
-            if (i == args.size()-1){
-                std::cout << "--json needs an argument" << std::endl;
-                return 0;
-            }
-            jsonout = args[i+1];
-            i++;
-        } else if (args[i] == "--encoded") {
-            if (i == args.size()-1){
-                std::cout << "--encoded needs an argument" << std::endl;
-                return 0;
-            }
-            file2 = args[i+1];
-            i++;
-        } else if (args[i] == "-t" || args[i] == "--threads"){
-            if (i == args.size()-1){
-                std::cout << "-t needs an argument" << std::endl;
-                return 0;
-            }
-            try {
-                threads = stoi(args[i+1]);
-            } catch (std::invalid_argument& e){
-                std::cout << "invalid value for -t" << std::endl;
-                return 0;
-            }
-            i++;
-        } else if (args[i] == "--start"){
-            if (i == args.size()-1){
-                std::cout << "--start needs an argument" << std::endl;
-                return 0;
-            }
-            try {
-                start = stoi(args[i+1]);
-            } catch (std::invalid_argument& e){
-                std::cout << "invalid value for --start" << std::endl;
-                return 0;
-            }
-            i++;
-        } else if (args[i] == "--end"){
-            if (i == args.size()-1){
-                std::cout << "--end needs an argument" << std::endl;
-                return 0;
-            }
-            try {
-                end = stoi(args[i+1]);
-            } catch (std::invalid_argument& e){
-                std::cout << "invalid value for --end" << std::endl;
-                return 0;
-            }
-            i++;
-        } else if (args[i] == "-e" || args[i] == "--every"){
-            if (i == args.size()-1){
-                std::cout << "--every needs an argument" << std::endl;
-                return 0;
-            }
-            try {
-                every = stoi(args[i+1]);
-            } catch (std::invalid_argument& e){
-                std::cout << "invalid value for --every" << std::endl;
-                return 0;
-            }
-            i++;
-        } else if (args[i] == "--gpu-id"){
-            if (i == args.size()-1){
-                std::cout << "--gpu-id needs an argument" << std::endl;
-                return 0;
-            }
-            try {
-                gpuid = stoi(args[i+1]);
-            } catch (std::invalid_argument& e){
-                std::cout << "invalid value for --gpu-id" << std::endl;
-                return 0;
-            }
-            i++;
-        } else if (args[i] == "-g" || args[i] == "--gputhreads"){
-            if (i == args.size()-1){
-                std::cout << "-g needs an argument" << std::endl;
-                return 0;
-            }
-            try {
-                gputhreads = stoi(args[i+1]);
-            } catch (std::invalid_argument& e){
-                std::cout << "invalid value for -g" << std::endl;
-                return 0;
-            }
-            i++;
-        } else if (args[i] == "--intensity-target"){
-            if (i == args.size()-1){
-                std::cout << "--intensity-target needs an argument" << std::endl;
-                return 0;
-            }
-            try {
-                intensity_multiplier = stoi(args[i+1]);
-            } catch (std::invalid_argument& e){
-                std::cout << "invalid value for --intensity-target" << std::endl;
-                return 0;
-            }
-            i++;
-        } else if (args[i] == "-m" || args[i] == "--metric"){
-            if (i == args.size()-1){
-                std::cout << "-m needs an argument" << std::endl;
-                return 0;
-            }
-            if (args[i+1] == "SSIMULACRA2"){
-                metric = SSIMULACRA2;
-            } else if (args[i+1] == "Butteraugli"){
-                metric = Butteraugli;
-            } else {
-                std::cout << "unrecognized metric : " << args[i+1] << std::endl;
-                return 0;
-            }
-            i++;
-        } else {
-            std::cout << "Unrecognized option: " << args[i] << std::endl;
-            return 0;
+    ArgParser parser;
+
+    // string flags
+    parser.add_flag({"--source", "-s"}, &file1,"Reference video to compare to");
+    parser.add_flag({"--encoded", "-e"}, &file2, "Distorted encode of the source");
+    parser.add_flag({"--metric", "-m"}, &metric_name, "Which metric to use [SSIMULACRA2, Butteraugli]");
+    
+    // int flags
+    parser.add_flag({"--start"}, &start, "Starting frame of the both videos");
+    parser.add_flag({"--end"}, &end, "Ending frame of both videos ");
+    parser.add_flag({"--every"}, &every, "Only compute the metric score for every X frame");
+    parser.add_flag({"--intensity-target"}, &intensity_multiplier, "intensity target to compute butteraugli at. Measured in nits");
+    parser.add_flag({"--gpu-id"}, &gpuid, "Which gpu to do metric calculations on");
+    parser.add_flag({"--gpu-threads", "-g"}, &gputhreads, "How many number of gpu threads to spawn");
+    parser.add_flag({"--threads", "-t"}, &threads, "How many cpu threads are used for video decode and upload");
+
+    // bool switch flags
+    parser.add_flag({"--list-gpu"}, &list_gpu, "lists all avaliable gpus");
+    parser.add_flag({"--json"}, &jsonout, "Outputs metric results to a json file");
+
+    size_t current_arg_index = 0;
+    while (current_arg_index < args.size()) {
+        if (!parser.parse(args, current_arg_index)) {
+            std::cerr << "Failed to parse argument: " << args[current_arg_index] << "\n";
+            return 1;
         }
+        ++current_arg_index;
     }
+
+    if (parser.is_help_requested()) {
+        parser.print_all_help();
+        return 1;
+    }
+
+    if (list_gpu) {
+        try{
+            std::cout << helper::listGPU();
+        } catch (const VshipError& e){
+            std::cout << e.getErrorMessage() << std::endl;
+        }
+        return 1;
+    }
+
+    METRICS metric = SSIMULACRA2;
+
+    if (metric_name == "") {
+        metric = SSIMULACRA2;
+    } else if (metric_name == "SSIMULACRA2") {
+        metric = SSIMULACRA2;
+    } else if (metric_name == "Butteraugli") {
+        metric = Butteraugli;
+    } else {
+        std::cerr << "unknown metric " << metric_name;
+        return 1;
+    }
+
+    
 
     //gpu sanity check
     try{
