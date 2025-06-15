@@ -1,11 +1,11 @@
 .vscode
 test.cpp
-test/videos
 
 *__pycache__*
 
 *.y4m
 *.mkv
+*.ffindex
 
 # Prerequisites
 *.d
@@ -40,3 +40,4 @@ test/videos
 *.exe
 *.out
 *.app
+FFVship
