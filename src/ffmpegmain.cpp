@@ -396,33 +396,39 @@ private:
 
     void print_help() const {
         std::cout << "Available options:\n";
-
+    
+        std::vector<std::string> joined_aliases_per_group;
+        joined_aliases_per_group.reserve(flag_groups.size());
+    
         size_t max_alias_len = 0;
+    
         for (const auto& group : flag_groups) {
             std::string joined_aliases;
+    
             for (size_t i = 0; i < group.aliases.size(); ++i) {
                 joined_aliases += group.aliases[i];
-                if (i + 1 < group.aliases.size()) joined_aliases += ", ";
+                if (i + 1 < group.aliases.size()) {
+                    joined_aliases += ", ";
+                }
             }
-            if (joined_aliases.length() > max_alias_len)
+    
+            if (joined_aliases.length() > max_alias_len) {
                 max_alias_len = joined_aliases.length();
-        }
-
-        for (const auto& group : flag_groups) {
-            std::string joined_aliases;
-            for (size_t i = 0; i < group.aliases.size(); ++i) {
-                joined_aliases += group.aliases[i];
-                if (i + 1 < group.aliases.size()) joined_aliases += ", ";
             }
+    
+            joined_aliases_per_group.push_back(std::move(joined_aliases));
+        }
+    
+        for (size_t i = 0; i < flag_groups.size(); ++i) {
+            const auto& group = flag_groups[i];
+            const auto& joined_aliases = joined_aliases_per_group[i];
+    
             std::cout << "  " << std::left
-                << std::setw(static_cast<int>(max_alias_len)) << joined_aliases << "  "
-                << group.help_text << "\n";
+                      << std::setw(static_cast<int>(max_alias_len)) << joined_aliases << "  "
+                      << group.help_text << "\n";
         }
     }
 };
-
-
-
 
 int main(int argc, char** argv){
     std::vector<std::string> args(argc-1);
