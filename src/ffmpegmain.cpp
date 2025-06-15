@@ -3,9 +3,10 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
-#include <unordered_map>
+#include <map>
 #include <variant>
 #include <iomanip> 
+#include <vector>
 
 #include "util/preprocessor.hpp"
 #include "util/gpuhelper.hpp"
@@ -294,138 +295,108 @@ void threadwork(std::string file1, FFMS_Index* index1, int trackno1, std::string
     return;
 }
 
+
 struct ArgParser {
     using TargetVariant = std::variant<bool*, int*, std::string*>;
 
     struct FlagGroup {
-        std::vector<std::string> aliases;
-        TargetVariant target;
-        std::string help_text;
+        std::vector<std::string> aliases; TargetVariant target; std::string help_text;
     };
 
     std::vector<FlagGroup> flag_groups;
-    std::unordered_map<std::string, TargetVariant> alias_map;
+    std::map<std::string, TargetVariant> alias_map;
 
     ArgParser() {
-        add_flag({"-h", "--help"}, &show_help, "Display this help message");
+        add_flag({"-h", "--help"}, &show_help_flag, "Display this help message");
     }
 
     template<typename TargetType>
     void add_flag(const std::vector<std::string>& flag_names, TargetType* target_pointer,
-        std::string help_description = "")
-    {
-        static_assert(
-            std::is_same_v<TargetType, bool> ||
-            std::is_same_v<TargetType, int> ||
-            std::is_same_v<TargetType, std::string>,
-            "Unsupported flag type"
+                  std::string help_description = "") {
+        static_assert(std::is_same_v<TargetType, bool> || std::is_same_v<TargetType, int> ||
+            std::is_same_v<TargetType, std::string>, "Unsupported flag type"
         );
 
-        flag_groups.push_back({flag_names, target_pointer, std::move(help_description)});
-        const FlagGroup& added_flag_group = flag_groups.back();
+        flag_groups.push_back({flag_names, target_pointer, help_description});
+        const auto& group = flag_groups.back();
+        for (const std::string& name : flag_names) alias_map[name] = group.target;
+    }
 
-        for (const auto& flag_name : flag_names) {
-            std::visit([&](auto* ptr) {
-                alias_map[flag_name] = ptr;
-            }, added_flag_group.target);
+    // Takes in a vector of string from the cli to parse, returns a 0 if sucessfull
+    int parse_cli_args(const std::vector<std::string>& args) const {
+        size_t current_arg_index = 0;
+        while (current_arg_index < args.size()) {
+            if (!parse_flag(args, current_arg_index)) {
+                std::cerr << "Failed to parse argument: " << args[current_arg_index] << "\n";
+                return 1;
+            }
+            ++current_arg_index;
         }
-    }
-
-    bool parse(const std::vector<std::string>& arguments, size_t& index) const {
-        const std::string& current_flag = arguments[index];
-        auto found_flag = alias_map.find(current_flag);
-        if (found_flag == alias_map.end()) {
-            std::cerr << "Unknown argument: " << current_flag << "\n";
-            return false;
-        }
-        return visit_and_parse_flag_value(current_flag, arguments, index, found_flag->second);
-    }
-
-    void print_all_help() const {
-        print_help();
-    }
-
-    bool is_help_requested() const {
-        return show_help;
+        if (show_help_flag) { print_help(); return 1; }
+        return 0;
     }
 
 private:
-    bool show_help = false;
+    mutable bool show_help_flag = false;
 
-    static bool visit_and_parse_flag_value(
-        const std::string& flag_name, const std::vector<std::string>& arguments, size_t& index,
-        TargetVariant const& target_variant)
-    {
-        bool success = true;
-
-        std::visit([&](auto* target_ptr) {
-            using TargetType = std::decay_t<decltype(*target_ptr)>;
-
-            if constexpr (std::is_same_v<TargetType, bool>) {
-                *target_ptr = !*target_ptr;
-                return;
-            }
-
-            if (index + 1 >= arguments.size()) {
-                std::cerr << flag_name << " requires an argument\n";
-                success = false;
-                return;
-            }
-
-            if constexpr (std::is_same_v<TargetType, std::string>) {
-                *target_ptr = arguments[++index];
-                return;
-            }
-
-            // if int
-            try {
-                *target_ptr = std::stoi(arguments[++index]);
-            } catch (...) {
-                std::cerr << "Invalid integer value: " << arguments[index] << "for arg "
-                    << flag_name << "\n";
-                success = false;
-            }
-            return;
-
-
-            
-        }, target_variant);
-
-        return success;
+    // Parse a flag at index in 'arguments', returns false if unknown or invalid
+    bool parse_flag(const std::vector<std::string>& arguments, size_t& index) const {
+        const std::string& flag = arguments[index];
+        auto found = alias_map.find(flag);
+        if (found == alias_map.end()) {
+            std::cerr << "Unknown argument: " << flag << "\n";
+            return false;
+        }
+    
+        if (std::holds_alternative<bool*>(found->second)) {
+            bool* ptr = std::get<bool*>(found->second);
+            *ptr = !*ptr;
+            return true;
+        }
+    
+        if (index + 1 >= arguments.size()) {
+            std::cerr << flag << " requires an argument\n";
+            return false;
+        }
+    
+        if (std::holds_alternative<std::string*>(found->second)) {
+            std::string* ptr = std::get<std::string*>(found->second);
+            *ptr = arguments[++index];
+            return true;
+        }
+    
+        // Assume it is an int
+        int* ptr = std::get<int*>(found->second);
+        try {
+            *ptr = std::stoi(arguments[++index]);
+            return true;
+        } catch (...) {
+            std::cerr << "Invalid integer value: " << arguments[index] << " for arg "
+                << flag << "\n";
+            return false;
+        }
     }
 
     void print_help() const {
         std::cout << "Available options:\n";
-    
-        std::vector<std::string> joined_aliases_per_group;
-        joined_aliases_per_group.reserve(flag_groups.size());
-    
-        size_t max_alias_len = 0;
-    
+
+        size_t max_length = 0;
+        std::vector<std::string> formatted_aliases;
+        formatted_aliases.reserve(flag_groups.size());
+
         for (const auto& group : flag_groups) {
-            std::string joined_aliases;
-    
+            std::string joined;
             for (size_t i = 0; i < group.aliases.size(); ++i) {
-                joined_aliases += group.aliases[i];
-                if (i + 1 < group.aliases.size()) {
-                    joined_aliases += ", ";
-                }
+                joined += group.aliases[i];
+                if (i + 1 < group.aliases.size()) joined += ", ";
             }
-    
-            if (joined_aliases.length() > max_alias_len) {
-                max_alias_len = joined_aliases.length();
-            }
-    
-            joined_aliases_per_group.push_back(std::move(joined_aliases));
+            max_length = std::max(max_length, joined.size());
+            formatted_aliases.push_back(std::move(joined));
         }
-    
+
         for (size_t i = 0; i < flag_groups.size(); ++i) {
-            const auto& group = flag_groups[i];
-            const auto& joined_aliases = joined_aliases_per_group[i];
-    
-            std::cout << "  " << std::left
-                      << std::setw(static_cast<int>(max_alias_len)) << joined_aliases << "  "
-                      << group.help_text << "\n";
+            std::cout << "  " << std::left << std::setw(static_cast<int>(max_length))
+                      << formatted_aliases[i] << "  " << flag_groups[i].help_text << "\n";
         }
     }
 };
@@ -449,6 +420,7 @@ int main(int argc, char** argv){
     parser.add_flag({"--source", "-s"}, &file1,"Reference video to compare to");
     parser.add_flag({"--encoded", "-e"}, &file2, "Distorted encode of the source");
     parser.add_flag({"--metric", "-m"}, &metric_name, "Which metric to use [SSIMULACRA2, Butteraugli]");
+    parser.add_flag({"--json"}, &jsonout, "Outputs metric results to a json file");
     
     // int flags
     parser.add_flag({"--start"}, &start, "Starting frame of the both videos");
@@ -461,21 +433,9 @@ int main(int argc, char** argv){
 
     // bool switch flags
     parser.add_flag({"--list-gpu"}, &list_gpu, "lists all avaliable gpus");
-    parser.add_flag({"--json"}, &jsonout, "Outputs metric results to a json file");
+    
 
-    size_t current_arg_index = 0;
-    while (current_arg_index < args.size()) {
-        if (!parser.parse(args, current_arg_index)) {
-            std::cerr << "Failed to parse argument: " << args[current_arg_index] << "\n";
-            return 1;
-        }
-        ++current_arg_index;
-    }
-
-    if (parser.is_help_requested()) {
-        parser.print_all_help();
-        return 1;
-    }
+    if (0 != parser.parse_cli_args(args)) return 1;
 
     if (list_gpu) {
         try{
@@ -498,8 +458,6 @@ int main(int argc, char** argv){
         std::cerr << "unknown metric " << metric_name;
         return 1;
     }
-
-    
 
     //gpu sanity check
     try{
