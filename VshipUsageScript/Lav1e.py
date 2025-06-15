@@ -81,13 +81,13 @@ class SSIMU2Score:
 	def compute_butter(self, originalFile, distordedFile, skip : int = 1, begin : int = 0, end : int = None, method:str="vship", numStream = 8, gpu_id=0) -> None:
 		if method == "FFVship":
 			jsonout = "lav1effvshipout.json"
-			cmdline = f"FFVship --source \"{originalFile}\" --encoded \"{distordedFile}\" -m Butteraugli --every {skip} --start {begin} -g {numStream} --gpu-id {gpu_id} --json {jsonout}"
+			cmdline = f"FFVship --source \"{originalFile}\" --encoded \"{distordedFile}\" -m Butteraugli --intensity-target 80 --every {skip} --start {begin} -g {numStream} --gpu-id {gpu_id} --json {jsonout}"
 			if end != None: cmdline += f" --end {end}"
 			check_output(cmdline, shell=True)
 			with open(jsonout, "r") as file:
 				res = json.load(file)
 			os.remove(jsonout)
-			res = [[begin + skip*i, el[0], el[1], el[2]] for (i, el) in enumerate(res)]
+			res = [[begin + skip*i, el[2]] for (i, el) in enumerate(res)]
 		else:
 			src =  (vs.core.bs.VideoSource(originalFile) if (type(originalFile) == str) else originalFile)[begin:end:skip]
 			dis = (vs.core.bs.VideoSource(distordedFile) if (type(distordedFile) == str) else distordedFile)[begin:end:skip]
@@ -102,7 +102,7 @@ class SSIMU2Score:
 				result = src.julek.Butteraugli(dis)
 				res = [[begin + ind*skip, fr.props["_FrameButteraugli"]] for (ind, fr) in enumerate(result.frames())]
 			elif method == "vship":
-				result = src.vship.BUTTERAUGLI(dis, numStream = numStream, gpu_id=gpu_id)
+				result = src.vship.BUTTERAUGLI(dis, numStream = numStream, gpu_id=gpu_id, intensity_multiplier = 80)
 				res = [[begin + ind*skip, fr.props["_BUTTERAUGLI_INFNorm"]] for (ind, fr) in enumerate(result.frames())]
 
 			#res = [k for k in res if k[1] > 0]

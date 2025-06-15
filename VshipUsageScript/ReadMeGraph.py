@@ -40,6 +40,13 @@ print(score)
 print("vship butter had ", (end-begin)/(time.time()-init), "fps")
 vshipbutterfps = (end-begin)/(time.time()-init)//0.1 * 0.1
 yvship = [el[1] for el in score.scores]
+print("---------------------------------------")
+init = time.time()
+score.compute_butter(source, dis, 1, begin, end, "FFVship", numStream=vshipnumStream, gpu_id=gpu_id)
+print(score)
+print("FFVship butter had ", (end-begin)/(time.time()-init), "fps")
+FFVshipbutterfps = (end-begin)/(time.time()-init)//0.1 * 0.1
+yFFVship = [el[1] for el in score.scores]
 
 print("-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-")
 
@@ -58,6 +65,13 @@ vshipssimu2fps = (end-begin)/(time.time()-init)//0.1 * 0.1
 yvships = [el[1] for el in score.scores]
 print("---------------------------------------")
 init = time.time()
+score.compute(source, dis, 1, begin, end, "FFVship", numStream=vshipnumStream, gpu_id=gpu_id)
+print(score)
+print("FFVship butter had ", (end-begin)/(time.time()-init), "fps")
+FFVshipssimu2fps = (end-begin)/(time.time()-init)//0.1 * 0.1
+yFFVships = [el[1] for el in score.scores]
+print("---------------------------------------")
+init = time.time()
 score.compute(source, dis, 1, begin, end, "vszip")
 print(score)
 print("vszip ssimu2 had ", (end-begin)/(time.time()-init), "fps")
@@ -74,6 +88,7 @@ pyplot.style.use('dark_background')
 fig, axs = pyplot.subplots(2, 1)
 axs[0].plot(x, yjxl, label=f"jxl butter {jxlbutterfps} fps", color="white")
 axs[0].plot(x, yvship, label=f"vship butter {vshipbutterfps} fps", color="yellow")
+axs[0].plot(x, yFFVship, label=f"FFVship butter {FFVshipbutterfps} fps", color="cyan")
 axs[0].set_ylabel("butter")
 axs[0].set_ylim(bottom = 0)
 axs[0].legend()
@@ -81,6 +96,7 @@ axs[0].legend()
 axs[1].plot(x, yjxls, label=f"jxl ssimu2 {jxlssimu2fps} fps", color="white")
 axs[1].plot(x, yvszips, label=f"vszip ssimu2 {vszipssimu2fps} fps", color="red")
 axs[1].plot(x, yvships, label=f"vship ssimu2 {vshipssimu2fps} fps", color="yellow")
+axs[1].plot(x, yFFVships, label=f"FFVship ssimu2 {FFVshipssimu2fps} fps", color="cyan")
 axs[1].set_xlabel("frame")
 axs[1].set_ylabel("ssim2")
 axs[1].set_ylim(top = 100)
