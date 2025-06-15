@@ -3,6 +3,7 @@ from sys import exit
 import os
 import json
 import time
+from subprocess import DEVNULL, check_output
 try:
 	from matplotlib import pyplot
 except:
@@ -41,26 +42,36 @@ class SSIMU2Score:
 		self.type = "SSIMU2"
 
 	def compute(self, originalFile : str, distordedFile : str, skip : int = 1, begin : int = 0, end : int = None, method:str="vship", numStream = 8, gpu_id=0) -> None:
-		src =  (vs.core.bs.VideoSource(originalFile) if (type(originalFile) == str) else originalFile)[begin:end:skip]
-		dis = (vs.core.bs.VideoSource(distordedFile) if (type(distordedFile) == str) else distordedFile)[begin:end:skip]
-
-		dis = vs.core.resize.Bicubic(dis, format=vs.RGBS, matrix_in=1)
-		if (src.width == dis.width and src.height == dis.height):
-			src = vs.core.resize.Bicubic(src, format=vs.RGBS, matrix_in=1)
+		if method == "FFVship":
+			jsonout = "lav1effvshipout.json"
+			cmdline = f"FFVship --source \"{originalFile}\" --encoded \"{distordedFile}\" -m SSIMULACRA2 --every {skip} --start {begin} -g {numStream} --gpu-id {gpu_id} --json {jsonout}"
+			if end != None: cmdline += f" --end {end}"
+			check_output(cmdline, shell=True)
+			with open(jsonout, "r") as file:
+				res = json.load(file)
+			os.remove(jsonout)
+			res = [[begin + skip*i, el[0]] for (i, el) in enumerate(res)]
 		else:
-			src = vs.core.resize.Bicubic(src, format=vs.RGBS, matrix_in=1, width=dis.width, height=dis.height)
+			src =  (vs.core.bs.VideoSource(originalFile) if (type(originalFile) == str) else originalFile)[begin:end:skip]
+			dis = (vs.core.bs.VideoSource(distordedFile) if (type(distordedFile) == str) else distordedFile)[begin:end:skip]
 
-		if method == "vship":
-			result = src.vship.SSIMULACRA2(dis, numStream = numStream, gpu_id=gpu_id)
-		elif method == "vszip":
-			result = src.vszip.Metrics(dis)
-		elif method == "jxl":
-			result = src.julek.SSIMULACRA(dis, feature=0)
-		else:
-			print("invalid method")
+			dis = vs.core.resize.Bicubic(dis, format=vs.RGBS, matrix_in=1)
+			if (src.width == dis.width and src.height == dis.height):
+				src = vs.core.resize.Bicubic(src, format=vs.RGBS, matrix_in=1)
+			else:
+				src = vs.core.resize.Bicubic(src, format=vs.RGBS, matrix_in=1, width=dis.width, height=dis.height)
 
-		res = [[begin + ind*skip, fr.props["_SSIMULACRA2"]] for (ind, fr) in enumerate(result.frames())]
-		#res = [k for k in res if k[1] > 0]
+			if method == "vship":
+				result = src.vship.SSIMULACRA2(dis, numStream = numStream, gpu_id=gpu_id)
+			elif method == "vszip":
+				result = src.vszip.Metrics(dis)
+			elif method == "jxl":
+				result = src.julek.SSIMULACRA(dis, feature=0)
+			else:
+				print("invalid method")
+
+			res = [[begin + ind*skip, fr.props["_SSIMULACRA2"]] for (ind, fr) in enumerate(result.frames())]
+			#res = [k for k in res if k[1] > 0]
 
 		self.scores = res
 		self.source = originalFile
@@ -68,23 +79,33 @@ class SSIMU2Score:
 		self.type = "SSIMU2"
 
 	def compute_butter(self, originalFile, distordedFile, skip : int = 1, begin : int = 0, end : int = None, method:str="vship", numStream = 8, gpu_id=0) -> None:
-		src =  (vs.core.bs.VideoSource(originalFile) if (type(originalFile) == str) else originalFile)[begin:end:skip]
-		dis = (vs.core.bs.VideoSource(distordedFile) if (type(distordedFile) == str) else distordedFile)[begin:end:skip]
-
-		dis = vs.core.resize.Bicubic(dis, format=vs.RGBS, matrix_in=1)
-		if (src.width == dis.width and src.height == dis.height):
-			src = vs.core.resize.Bicubic(src, format=vs.RGBS, matrix_in=1)
+		if method == "FFVship":
+			jsonout = "lav1effvshipout.json"
+			cmdline = f"FFVship --source \"{originalFile}\" --encoded \"{distordedFile}\" -m Butteraugli --every {skip} --start {begin} -g {numStream} --gpu-id {gpu_id} --json {jsonout}"
+			if end != None: cmdline += f" --end {end}"
+			check_output(cmdline, shell=True)
+			with open(jsonout, "r") as file:
+				res = json.load(file)
+			os.remove(jsonout)
+			res = [[begin + skip*i, el[0], el[1], el[2]] for (i, el) in enumerate(res)]
 		else:
-			src = vs.core.resize.Bicubic(src, format=vs.RGBS, matrix_in=1, width=dis.width, height=dis.height)
+			src =  (vs.core.bs.VideoSource(originalFile) if (type(originalFile) == str) else originalFile)[begin:end:skip]
+			dis = (vs.core.bs.VideoSource(distordedFile) if (type(distordedFile) == str) else distordedFile)[begin:end:skip]
 
-		if method == "jxl":
-			result = src.julek.Butteraugli(dis)
-			res = [[begin + ind*skip, fr.props["_FrameButteraugli"]] for (ind, fr) in enumerate(result.frames())]
-		elif method == "vship":
-			result = src.vship.BUTTERAUGLI(dis, numStream = numStream, gpu_id=gpu_id)
-			res = [[begin + ind*skip, fr.props["_BUTTERAUGLI_INFNorm"]] for (ind, fr) in enumerate(result.frames())]
+			dis = vs.core.resize.Bicubic(dis, format=vs.RGBS, matrix_in=1)
+			if (src.width == dis.width and src.height == dis.height):
+				src = vs.core.resize.Bicubic(src, format=vs.RGBS, matrix_in=1)
+			else:
+				src = vs.core.resize.Bicubic(src, format=vs.RGBS, matrix_in=1, width=dis.width, height=dis.height)
 
-		#res = [k for k in res if k[1] > 0]
+			if method == "jxl":
+				result = src.julek.Butteraugli(dis)
+				res = [[begin + ind*skip, fr.props["_FrameButteraugli"]] for (ind, fr) in enumerate(result.frames())]
+			elif method == "vship":
+				result = src.vship.BUTTERAUGLI(dis, numStream = numStream, gpu_id=gpu_id)
+				res = [[begin + ind*skip, fr.props["_BUTTERAUGLI_INFNorm"]] for (ind, fr) in enumerate(result.frames())]
+
+			#res = [k for k in res if k[1] > 0]
 
 		self.scores = res
 		self.source = originalFile
