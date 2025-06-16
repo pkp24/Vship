@@ -70,6 +70,10 @@
     #include<hip/hip_fp16.h>
 #endif
 
+#ifdef _WIN32
+    #define aligned_alloc _aligned_malloc
+#endif
+
 
 hipError_t err_hip;
 
