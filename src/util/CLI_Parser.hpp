@@ -83,6 +83,7 @@ private:
                 std::cerr << " (Corresponding to " << group_ptr->aliases[0] << " )";
             }
             std::cerr << std::endl;
+            return false;
         }
         group_ptr->set = true;
         const TargetVariant& found = group_ptr->target;
