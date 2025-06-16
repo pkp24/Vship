@@ -17,12 +17,13 @@ struct ArgParser {
         std::string help_text;
     };
 
+    std::string binary_name = "BinaryName";
     std::vector<FlagGroup> flag_groups;
     std::map<std::string, int> alias_map; //returns index in flag_groups
     std::vector<int> positional_indexing;
     int positional_counter = 0;
 
-    ArgParser() {
+    ArgParser(std::string binary_name = "BinaryName") : binary_name(binary_name) {
         add_flag({"-h", "--help"}, &show_help_flag, "Display this help message");
     }
 
@@ -119,6 +120,21 @@ private:
     }
 
     void print_help() const {
+        std::cout << "Usage : " << std::endl;
+        std::cout << binary_name << " [";
+        for (int pos_id = 0; pos_id < positional_indexing.size(); pos_id++){
+            std::cout << "Positional " << pos_id;
+            auto& group = flag_groups[positional_indexing[pos_id]];
+            if (group.aliases.size() > 0){
+                std::cout << " (Refering to " << group.aliases[0] << ")";
+            }
+            std::cout << "]";
+            if (pos_id +1 < positional_indexing.size()){
+                std::cout << " [";
+            }
+        }
+        std::cout << " [Options]" << std::endl << std::endl;
+
         std::cout << "Available options:\n";
 
         size_t max_length = 0;

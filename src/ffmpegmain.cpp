@@ -305,7 +305,7 @@ int main(int argc, char** argv){
 
     int intensity_multiplier = 203;
 
-    helper::ArgParser parser;
+    helper::ArgParser parser("FFVship");
 
     // string flags
     parser.add_flag({"--source", "-s"}, &file1,"Reference video to compare to", true);
