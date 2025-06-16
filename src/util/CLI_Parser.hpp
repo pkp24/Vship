@@ -61,7 +61,8 @@ private:
         const std::string& flag = arguments[index];
 
         FlagGroup* group_ptr; //output of the if
-        if (flag.size() > 0 && flag[0] == '-'){
+        bool positional = flag[0] != '-';
+        if (!positional){
             auto foundIndexIterator = alias_map.find(flag);
             if (foundIndexIterator == alias_map.end()) {
                 std::cerr << "Unknown argument: " << flag << "\n";
@@ -79,7 +80,7 @@ private:
         }
         if (group_ptr->set){
             std::cerr << "This Argument is already set : " << flag;
-            if (group_ptr->aliases.size() > 0){
+            if (group_ptr->aliases.size() > 0 && positional){ //no need to print that for non positional since flag is the alias
                 std::cerr << " (Corresponding to " << group_ptr->aliases[0] << " )";
             }
             std::cerr << std::endl;
