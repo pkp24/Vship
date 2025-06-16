@@ -20,6 +20,7 @@ struct ArgParser {
     std::vector<FlagGroup> flag_groups;
     std::map<std::string, int> alias_map; //returns index in flag_groups
     std::vector<int> positional_indexing;
+    int positional_counter = 0;
 
     ArgParser() {
         add_flag({"-h", "--help"}, &show_help_flag, "Display this help message");
@@ -39,7 +40,7 @@ struct ArgParser {
     }
 
     // Takes in a vector of string from the cli to parse, returns a 0 if sucessfull
-    int parse_cli_args(const std::vector<std::string>& args) const {
+    int parse_cli_args(const std::vector<std::string>& args) {
         size_t current_arg_index = 0;
         while (current_arg_index < args.size()) {
             if (!parse_flag(args, current_arg_index)) {
@@ -56,15 +57,35 @@ private:
     mutable bool show_help_flag = false;
 
     // Parse a flag at index in 'arguments', returns false if unknown or invalid
-    bool parse_flag(const std::vector<std::string>& arguments, size_t& index) const {
+    bool parse_flag(const std::vector<std::string>& arguments, size_t& index) {
         const std::string& flag = arguments[index];
-        auto foundIndexIterator = alias_map.find(flag);
-        if (foundIndexIterator == alias_map.end()) {
-            std::cerr << "Unknown argument: " << flag << "\n";
-            return false;
-        }
 
-        auto& found = flag_groups[foundIndexIterator->second].target;
+        FlagGroup* group_ptr; //output of the if
+        if (flag.size() > 0 && flag[0] == '-'){
+            auto foundIndexIterator = alias_map.find(flag);
+            if (foundIndexIterator == alias_map.end()) {
+                std::cerr << "Unknown argument: " << flag << "\n";
+                return false;
+            }
+            group_ptr = &flag_groups[foundIndexIterator->second];
+        } else { //positional
+            if (positional_counter == positional_indexing.size()){
+                std::cerr << "Too many Positional arguments provided at : " << flag << std::endl;
+                return false;
+            }
+            group_ptr = &flag_groups[positional_indexing[positional_counter]];
+            positional_counter++;
+            index--; //a positional argument is itself, so for next part, we suppose the flag was behind and parse the flag as argument
+        }
+        if (group_ptr->set){
+            std::cerr << "This Argument is already set : " << flag;
+            if (group_ptr->aliases.size() > 0){
+                std::cerr << " (Corresponding to " << group_ptr->aliases[0] << " )";
+            }
+            std::cerr << std::endl;
+        }
+        group_ptr->set = true;
+        const TargetVariant& found = group_ptr->target;
     
         if (std::holds_alternative<bool*>(found)) {
             bool* ptr = std::get<bool*>(found);

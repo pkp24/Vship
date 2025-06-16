@@ -308,8 +308,8 @@ int main(int argc, char** argv){
     helper::ArgParser parser;
 
     // string flags
-    parser.add_flag({"--source", "-s"}, &file1,"Reference video to compare to");
-    parser.add_flag({"--encoded", "-e"}, &file2, "Distorted encode of the source");
+    parser.add_flag({"--source", "-s"}, &file1,"Reference video to compare to", true);
+    parser.add_flag({"--encoded", "-e"}, &file2, "Distorted encode of the source", true);
     parser.add_flag({"--metric", "-m"}, &metric_name, "Which metric to use [SSIMULACRA2, Butteraugli]");
     parser.add_flag({"--json"}, &jsonout, "Outputs metric results to a json file");
     
@@ -334,6 +334,15 @@ int main(int argc, char** argv){
         } catch (const VshipError& e){
             std::cout << e.getErrorMessage() << std::endl;
         }
+        return 1;
+    }
+
+    if (file1 == ""){
+        std::cerr << "--source is not set" << std::endl;
+        return 1;
+    }
+    if (file2 == ""){
+        std::cerr << "--encoded is not set" << std::endl;
         return 1;
     }
 
