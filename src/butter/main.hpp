@@ -52,7 +52,7 @@ float* getdiffmap(float* src1_d[3], float* src2_d[3], float* mem_d, int64_t widt
         hipMemsetAsync(block_diff_dc[c], 0, sizeof(float)*width*height, stream);
     }
 
-    const float hf_asymmetry_ = 1.f;
+    const float hf_asymmetry_ = 0.8f;
 
     const float wUhfMalta = 1.10039032555f;
     const float norm1Uhf = 71.7800275169f;
