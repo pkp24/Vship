@@ -204,16 +204,39 @@ public:
 
 enum METRICS{SSIMULACRA2, Butteraugli};
 
-void threadwork(std::string file1, FFMS_Index* index1, int trackno1, std::string file2, FFMS_Index* index2, int trackno2, int start, int end, int every, int threadid, int threadnum, METRICS metric, threadSet* gpustreams, int maxshared, float intensity_multiplier, float* gaussiankernel_dssimu2, butter::GaussianHandle* gaussianhandlebutter, void** pinnedmempool, hipStream_t* streams_d, std::vector<float>* output){ //for butteraugli, return 2norm, 3norm, Infnorm, 2norm, ...
+struct ThreadArgument{
+    std::string file1, file2;
+    FFMS_Index *index1, *index2;
+    int trackno1, trackno2;
+    int start, end, every;
+    int threadid, threadnum;
+    METRICS metric;
+
+    void** pinnedmempool;
+    hipStream_t* streams_d;
+    threadSet* gpustreams;
+    int maxshared;
+
+    float intensity_multiplier;
+    butter::GaussianHandle* gaussianhandlebutter;
+    float* gaussiankernel_dssimu2;
+
+    std::vector<float>* output;
+};
+
+void threadwork(ThreadArgument thargs){ //for butteraugli, return 2norm, 3norm, Infnorm, 2norm, ...
+    auto start = thargs.start; auto end = thargs.end; auto every = thargs.every;
+    auto threadid = thargs.threadid; auto threadnum = thargs.threadnum;
+    METRICS metric = thargs.metric;
     
-    FFmpegVideoManager v1(file1, index1, trackno1);
+    FFmpegVideoManager v1(thargs.file1, thargs.index1, thargs.trackno1);
     if (v1.error){
-        std::cout << "Thread " << threadid << " Failed to open file " << file1 << std::endl;
+        std::cout << "Thread " << thargs.threadid << " Failed to open file " << thargs.file1 << std::endl;
         return;
     }
-    FFmpegVideoManager v2(file2, index2, trackno2, v1.width, v1.height);
+    FFmpegVideoManager v2(thargs.file2, thargs.index2, thargs.trackno2, v1.width, v1.height);
     if (v2.error){
-        std::cout << "Thread " << threadid << " Failed to open file " << file2 << std::endl;
+        std::cout << "Thread " << thargs.threadid << " Failed to open file " << thargs.file2 << std::endl;
         return;
     }
     //if (v1.width != v2.width || v1.height != v2.height){
@@ -233,7 +256,7 @@ void threadwork(std::string file1, FFMS_Index* index1, int trackno1, std::string
     int pinnedsize = 0;
     switch (metric){
         case SSIMULACRA2:
-        pinnedsize = ssimu2::allocsizeScore(v1.width, v1.height, maxshared)*sizeof(float3);
+        pinnedsize = ssimu2::allocsizeScore(v1.width, v1.height, thargs.maxshared)*sizeof(float3);
         break;
         case Butteraugli:
         pinnedsize = butter::allocsizeScore(v1.width, v1.height)*sizeof(float);
@@ -253,33 +276,33 @@ void threadwork(std::string file1, FFMS_Index* index1, int trackno1, std::string
         const uint8_t* srcp1[3] = {v1.RGBptrHelper[0], v1.RGBptrHelper[1], v1.RGBptrHelper[2]};
         const uint8_t* srcp2[3] = {v2.RGBptrHelper[0], v2.RGBptrHelper[1], v2.RGBptrHelper[2]};
 
-        int streamid = gpustreams->pop();
-        hipStream_t stream = streams_d[streamid];
+        int streamid = thargs.gpustreams->pop();
+        hipStream_t stream = thargs.streams_d[streamid];
 
-        if (pinnedmempool[streamid] == NULL){
+        if (thargs.pinnedmempool[streamid] == NULL){
             //first usage of this stream, let's allocate the pinned mem
-            hipError_t erralloc = hipHostMalloc(pinnedmempool+streamid, pinnedsize);
+            hipError_t erralloc = hipHostMalloc(thargs.pinnedmempool+streamid, pinnedsize);
             if (erralloc != hipSuccess){
                 std::cout << "Thread " << threadid << " Failed to allocate pinned memory for back buffer" << std::endl;
                 return;
             }
         }
-        void* pinnedmem = pinnedmempool[streamid];
+        void* pinnedmem = thargs.pinnedmempool[streamid];
 
         try{
             switch (metric){
                 case Butteraugli:
                 {
-                const std::tuple<float, float, float> scorebutter = butter::butterprocess<UINT16>(NULL, 0, srcp1, srcp2, (float*)pinnedmem, *gaussianhandlebutter, v1.RGBstride[0], v1.width, v1.height, intensity_multiplier, maxshared, stream);
-                output->push_back(std::get<0>(scorebutter));
-                output->push_back(std::get<1>(scorebutter));
-                output->push_back(std::get<2>(scorebutter));
+                const std::tuple<float, float, float> scorebutter = butter::butterprocess<UINT16>(NULL, 0, srcp1, srcp2, (float*)pinnedmem, *thargs.gaussianhandlebutter, v1.RGBstride[0], v1.width, v1.height, thargs.intensity_multiplier, thargs.maxshared, stream);
+                thargs.output->push_back(std::get<0>(scorebutter));
+                thargs.output->push_back(std::get<1>(scorebutter));
+                thargs.output->push_back(std::get<2>(scorebutter));
                 break;
                 }
                 case SSIMULACRA2:
                 {
-                const double scoressimu2 = ssimu2::ssimu2process<UINT16>(srcp1, srcp2, (float3*)pinnedmem, v1.RGBstride[0], v1.width, v1.height, gaussiankernel_dssimu2, maxshared, stream);
-                output->push_back(scoressimu2);
+                const double scoressimu2 = ssimu2::ssimu2process<UINT16>(srcp1, srcp2, (float3*)pinnedmem, v1.RGBstride[0], v1.width, v1.height, thargs.gaussiankernel_dssimu2, thargs.maxshared, stream);
+                thargs.output->push_back(scoressimu2);
                 break;
                 }
             }
@@ -287,7 +310,7 @@ void threadwork(std::string file1, FFMS_Index* index1, int trackno1, std::string
             std::cout << "Thread " << i << " Got an Vship Exception : " << e.getErrorMessage() << std::endl;
             return;
         }
-        gpustreams->insert(streamid);
+        thargs.gpustreams->insert(streamid);
     }
     return;
 }
@@ -449,8 +472,30 @@ int main(int argc, char** argv){
     //execute
     std::vector<std::thread> threadlist;
     std::vector<std::vector<float>> returnlist(threads);
+
+    ThreadArgument thargs;
+    thargs.file1 = file1;
+    thargs.file2 = file2;
+    thargs.index1 = index1;
+    thargs.index2 = index2;
+    thargs.trackno1 = trackno1;
+    thargs.trackno2 = trackno2;
+    thargs.start = start;
+    thargs.end = end;
+    thargs.every = every;
+    thargs.threadnum = threads;
+    thargs.metric = metric;
+    thargs.gpustreams = &gpustreams;
+    thargs.maxshared = maxshared;
+    thargs.intensity_multiplier = intensity_multiplier;
+    thargs.gaussiankernel_dssimu2 = gaussiankernel_dssimu2;
+    thargs.gaussianhandlebutter = &gaussianhandlebutter;
+    thargs.pinnedmempool = pinnedmempool;
+    thargs.streams_d = streams_d;
     for (int i = 0; i < threads; i++){
-        threadlist.emplace_back(threadwork, file1, index1, trackno1, file2, index2, trackno2, start, end, every, i, threads, metric, &gpustreams, maxshared, intensity_multiplier, gaussiankernel_dssimu2, &gaussianhandlebutter, pinnedmempool, streams_d, &(returnlist[i]));
+        thargs.threadid = i;
+        thargs.output = &(returnlist[i]);
+        threadlist.emplace_back(threadwork, thargs);
     }
 
     for (int i = 0; i < threads; i++){
