@@ -209,7 +209,7 @@ struct ThreadArgument{
     std::string file1, file2;
     FFMS_Index *index1, *index2;
     int trackno1, trackno2;
-    int source_offset, start, end, every;
+    int encoded_offset, start, end, every;
     int threadid, threadnum;
     METRICS metric;
 
@@ -227,7 +227,7 @@ struct ThreadArgument{
 
 void threadwork(ThreadArgument thargs){ //for butteraugli, return 2norm, 3norm, Infnorm, 2norm, ...
     auto start = thargs.start; auto end = thargs.end; auto every = thargs.every;
-    auto source_offset = thargs.source_offset;
+    auto encoded_offset = thargs.encoded_offset;
     auto threadid = thargs.threadid; auto threadnum = thargs.threadnum;
     METRICS metric = thargs.metric;
     
@@ -248,17 +248,17 @@ void threadwork(ThreadArgument thargs){ //for butteraugli, return 2norm, 3norm, 
 
     //start end sanitizer for encoded
     if (start < 0) start = 0;
-    if (end < 0) end = v2.numframe;
-    end = std::min(end, v2.numframe);
-    start = std::min(start, v2.numframe);
+    if (end < 0) end = v1.numframe;
+    end = std::min(end, v1.numframe);
+    start = std::min(start, v1.numframe);
     if (end < start) end = start;
 
     //start end sanitizer for source (considering source_offset)
-    start = std::max(-source_offset, start);
-    end = start+std::min(v1.numframe-(start+source_offset), end-start);
+    start = std::max(-encoded_offset, start);
+    end = start+std::min(v2.numframe-(start+encoded_offset), end-start);
 
     if (end < start){
-        std::cout << "source_offset " << source_offset << " does not allow comparing both videos" << std::endl;
+        std::cout << "encoded_offset " << encoded_offset << " does not allow comparing both videos" << std::endl;
         return;
     }
     
@@ -284,8 +284,8 @@ void threadwork(ThreadArgument thargs){ //for butteraugli, return 2norm, 3norm, 
     threadbegin *= every;
     threadbegin += start;
     for (int i = threadbegin ; i < (end-start)*(threadid+1)/threadnum + start; i += every){
-        v1.getFrame(i+source_offset);
-        v2.getFrame(i);
+        v1.getFrame(i);
+        v2.getFrame(i+encoded_offset);
 
         const uint8_t* srcp1[3] = {v1.RGBptrHelper[0], v1.RGBptrHelper[1], v1.RGBptrHelper[2]};
         const uint8_t* srcp2[3] = {v2.RGBptrHelper[0], v2.RGBptrHelper[1], v2.RGBptrHelper[2]};
@@ -381,7 +381,7 @@ int main(int argc, char** argv){
 
     std::string file1, file2, metric_name = "", jsonout = "";
     int start = 0, end = -1, every = 1, gpuid = 0, gputhreads = 6;
-    int source_offset = 0;
+    int encoded_offset = 0;
     int threads = std::thread::hardware_concurrency();
     bool list_gpu = false;
 
@@ -396,9 +396,9 @@ int main(int argc, char** argv){
     parser.add_flag({"--json"}, &jsonout, "Outputs metric results to a json file");
     
     // int flags
-    parser.add_flag({"--start"}, &start, "Starting frame of the both videos");
-    parser.add_flag({"--source-offset"}, &source_offset, "offset of source video. Beware that It will adjust the end to get the same number of frames on both sides without warning");
-    parser.add_flag({"--end"}, &end, "Ending frame of both videos ");
+    parser.add_flag({"--start"}, &start, "Starting frame of source");
+    parser.add_flag({"--encoded-offset"}, &encoded_offset, "offset of encoded video to source. Beware that It will adjust the end to get the same number of frames on both sides without warning");
+    parser.add_flag({"--end"}, &end, "Ending frame of source ");
     parser.add_flag({"--every"}, &every, "Only compute the metric score for every X frame");
     parser.add_flag({"--intensity-target"}, &intensity_multiplier, "intensity target to compute butteraugli at. Measured in nits");
     parser.add_flag({"--gpu-id"}, &gpuid, "Which gpu to do metric calculations on");
@@ -541,7 +541,7 @@ int main(int argc, char** argv){
     thargs.trackno1 = trackno1;
     thargs.trackno2 = trackno2;
     thargs.start = start;
-    thargs.source_offset = source_offset;
+    thargs.encoded_offset = encoded_offset;
     thargs.end = end;
     thargs.every = every;
     thargs.threadnum = threads;
