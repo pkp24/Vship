@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <numeric>
 
 #include "util/preprocessor.hpp"
 #include "util/gpuhelper.hpp"
@@ -328,6 +329,50 @@ void threadwork(ThreadArgument thargs){ //for butteraugli, return 2norm, 3norm, 
     return;
 }
 
+void print_aggergate_metric_statistics(const std::vector<float>& data, const std::string& label) {
+    if (data.empty()) return;
+
+    std::vector<float> sorted = data;
+    std::sort(sorted.begin(), sorted.end());
+
+    const size_t count = sorted.size();
+    const double average = std::accumulate(sorted.begin(), sorted.end(), 0.0) / count;
+    const double squared_sum = std::inner_product(
+        sorted.begin(), sorted.end(), sorted.begin(), 0.0);
+    const double stddev = std::sqrt(squared_sum / count - average * average);
+
+    std::vector<std::pair<std::string, double>> stats = {
+        { "Average", average }, { "Standard Deviation", stddev }, { "Median", sorted[count / 2] },
+        { "5th percentile", sorted[count / 20] }, { "95th percentile", sorted[19 * count / 20] },
+        { "Minimum", sorted.front() }, { "Maximum", sorted.back() }
+    };
+
+    // Dynamically calculate label width
+    size_t max_label_width = 0;
+    for (const auto& [name, _] : stats) {
+        max_label_width = std::max(max_label_width, name.size());
+    }
+
+    constexpr int value_width = 12;
+    constexpr int precision = 6;
+    const int spacing = 3; // " : "
+    const int total_width = static_cast<int>(max_label_width) + spacing + value_width;
+
+    // Center the label
+    const int label_padding = std::max(0, (total_width - static_cast<int>(label.size())) / 2);
+    std::cout << std::string(label_padding, '-') << label
+              << std::string(total_width - label_padding - static_cast<int>(label.size()), '-')
+              << std::endl;
+
+    for (const auto& [name, value] : stats) {
+        std::cout << std::setw(static_cast<int>(max_label_width)) << std::right << name << " : "
+            << std::setw(value_width) << std::right << std::fixed << std::setprecision(precision)
+            << value << std::endl;
+    }
+
+    std::cout << std::endl;
+}
+
 int main(int argc, char** argv){
     std::vector<std::string> args(argc);
     for (int i = 0; i < argc; i++){
@@ -593,106 +638,25 @@ int main(int argc, char** argv){
     }
 
     //console output
-    switch (metric){
-        case Butteraugli:
-        {
-            std::vector<float> split1(finalreslist.size()/3);
-            std::vector<float> split2(finalreslist.size()/3);
-            std::vector<float> split3(finalreslist.size()/3);
+    std::cout << (metric == Butteraugli ? "Butteraugli" : "SSIMU2")
+        << " Result between " << file1 << " and " << file2 << std::endl;
+    std::cout << "Computed " << frames << " frames at " << fps << " fps\n" << std::endl;
 
-            for (unsigned int i = 0; i < frames; i++){
-                split1[i] = finalreslist[3*i];
-                split2[i] = finalreslist[3*i+1];
-                split3[i] = finalreslist[3*i+2];
-            }
+    if (metric == Butteraugli) {
+        std::vector<float> norm2(frames), norm3(frames), norminf(frames);
 
-            std::sort(split1.begin(), split1.end()); //2 norm
-            std::sort(split2.begin(), split2.end()); //3 norm
-            std::sort(split3.begin(), split3.end()); //inf norm
-
-            std::cout << "Butteraugli Result between " << file1 << " and " << file2 << std::endl;
-            std::cout << "Computed " << frames << " frames at " << fps << " fps" << std::endl;
-            std::cout << std::endl;
-
-            double avg = 0;
-            double avg_squared = 0;
-            for (unsigned int i = 0; i < frames; i++){
-                avg += split1[i];
-                avg_squared += split1[i]*split1[i];
-            }
-            avg /= frames;
-            avg_squared /= frames;
-            double std_dev = std::sqrt(avg_squared - avg*avg);
-
-            std::cout << "----2-Norm----" << std::endl;
-            std::cout << "Average : " << avg << std::endl;
-            std::cout << "Standard Deviation : " << std_dev << std::endl;
-            std::cout << "Median : " << split1[frames/2] << std::endl;
-            std::cout << "5th percentile : " << split1[frames/20] << std::endl;
-            std::cout << "95th percentile : " << split1[frames*19/20] << std::endl;
-            std::cout << "Maximum : " << split1[frames-1] << std::endl;
-            
-            avg = 0;
-            avg_squared = 0;
-            for (unsigned int i = 0; i < frames; i++){
-                avg += split2[i];
-                avg_squared += split2[i]*split2[i];
-            }
-            avg /= frames;
-            avg_squared /= frames;
-            std_dev = std::sqrt(avg_squared - avg*avg);
-
-            std::cout << "----3-Norm----" << std::endl;
-            std::cout << "Average : " << avg << std::endl;
-            std::cout << "Standard Deviation : " << std_dev << std::endl;
-            std::cout << "Median : " << split2[frames/2] << std::endl;
-            std::cout << "5th percentile : " << split2[frames/20] << std::endl;
-            std::cout << "95th percentile : " << split2[frames*19/20] << std::endl;
-            std::cout << "Maximum : " << split2[frames-1] << std::endl;
-
-            avg = 0;
-            avg_squared = 0;
-            for (unsigned int i = 0; i < frames; i++){
-                avg += split3[i];
-                avg_squared += split3[i]*split3[i];
-            }
-            avg /= frames;
-            avg_squared /= frames;
-            std_dev = std::sqrt(avg_squared - avg*avg);
-
-            std::cout << "--INF-Norm----" << std::endl;
-            std::cout << "Average : " << avg << std::endl;
-            std::cout << "Standard Deviation : " << std_dev << std::endl;
-            std::cout << "Median : " << split3[frames/2] << std::endl;
-            std::cout << "5th percentile : " << split3[frames/20] << std::endl;
-            std::cout << "95th percentile : " << split3[frames*19/20] << std::endl;
-            std::cout << "Maximum : " << split3[frames-1] << std::endl;
+        for (int i = 0; i < frames; ++i) {
+            norm2[i]   = finalreslist[3 * i];
+            norm3[i]   = finalreslist[3 * i + 1];
+            norminf[i] = finalreslist[3 * i + 2];
         }
-        break;
-        case SSIMULACRA2:
-        {
-            std::sort(finalreslist.begin(), finalreslist.end());
-            double avg = 0;
-            double avg_squared = 0;
-            for (unsigned int i = 0; i < finalreslist.size(); i++){
-                avg += finalreslist[i];
-                avg_squared += finalreslist[i]*finalreslist[i];
-            }
-            avg /= finalreslist.size();
-            avg_squared /= finalreslist.size();
-            const double std_dev = std::sqrt(avg_squared - avg*avg);
 
-            std::cout << "SSIMU2 Result between " << file1 << " and " << file2 << std::endl;
-            std::cout << "Computed " << frames << " frames at " << fps << " fps" << std::endl;
-            std::cout << "Average : " << avg << std::endl;
-            std::cout << "Standard Deviation : " << std_dev << std::endl;
-            std::cout << "Median : " << finalreslist[finalreslist.size()/2] << std::endl;
-            std::cout << "5th percentile : " << finalreslist[finalreslist.size()/20] << std::endl;
-            std::cout << "95th percentile : " << finalreslist[19*finalreslist.size()/20] << std::endl;
-            std::cout << "Minimum : " << finalreslist[0] << std::endl; 
-        }
-        break;
+        print_aggergate_metric_statistics(norm2, "2-Norm");
+        print_aggergate_metric_statistics(norm3, "3-Norm");
+        print_aggergate_metric_statistics(norminf, "INF-Norm");
+
+    } else if (metric == SSIMULACRA2) {
+        print_aggergate_metric_statistics(finalreslist, "SSIMULACRA2");
     }
-
     return 0;
 }
