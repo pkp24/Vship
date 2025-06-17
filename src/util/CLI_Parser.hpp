@@ -23,7 +23,7 @@ struct ArgParser {
     std::vector<int> positional_indexing;
     int positional_counter = 0;
 
-    ArgParser(std::string binary_name = "BinaryName") : binary_name(binary_name) {
+    ArgParser() {
         add_flag({"-h", "--help"}, &show_help_flag, "Display this help message");
     }
 
@@ -42,7 +42,8 @@ struct ArgParser {
 
     // Takes in a vector of string from the cli to parse, returns a 0 if sucessfull
     int parse_cli_args(const std::vector<std::string>& args) {
-        size_t current_arg_index = 0;
+        binary_name = args[0];
+        size_t current_arg_index = 1;
         while (current_arg_index < args.size()) {
             if (!parse_flag(args, current_arg_index)) {
                 std::cerr << "Failed to parse argument: " << args[current_arg_index] << "\n";
@@ -50,7 +51,7 @@ struct ArgParser {
             }
             ++current_arg_index;
         }
-        if (show_help_flag || args.size() == 0) { print_help(); return 1; }
+        if (show_help_flag || args.size() == 1) { print_help(); return 1; }
         return 0;
     }
 

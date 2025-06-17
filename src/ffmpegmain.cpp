@@ -293,9 +293,9 @@ void threadwork(std::string file1, FFMS_Index* index1, int trackno1, std::string
 }
 
 int main(int argc, char** argv){
-    std::vector<std::string> args(argc-1);
-    for (int i = 1; i < argc; i++){
-        args[i-1] = argv[i];
+    std::vector<std::string> args(argc);
+    for (int i = 0; i < argc; i++){
+        args[i] = argv[i];
     } 
 
     std::string file1, file2, metric_name = "", jsonout = "";
@@ -305,7 +305,7 @@ int main(int argc, char** argv){
 
     int intensity_multiplier = 203;
 
-    helper::ArgParser parser("FFVship");
+    helper::ArgParser parser;
 
     // string flags
     parser.add_flag({"--source", "-s"}, &file1,"Reference video to compare to", true);
