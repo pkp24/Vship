@@ -14,7 +14,7 @@ namespace butter{
         int diffmap;
         hipStream_t* streams;
         int streamnum = 0;
-        threadSet* streamSet;
+        threadSet<int>* streamSet;
     } ButterData;
     
     static const VSFrame *VS_CC butterGetFrame(int n, int activationReason, void *instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {

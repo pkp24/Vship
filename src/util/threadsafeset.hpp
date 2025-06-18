@@ -2,15 +2,16 @@
 #define THREADSAFESETHPP
 #include "preprocessor.hpp"
 
+template<typename T>
 class threadSet{
     std::condition_variable_any com;
     std::mutex lock;
-    std::set<int> data;
+    std::set<T> data;
 public:
-    threadSet(std::set<int> in){
+    threadSet(const std::set<T>& in){
         data = in;
     }
-    void insert(int a){
+    void insert(const T& a){
         lock.lock();
         com.notify_one();
         data.insert(a);
@@ -22,13 +23,13 @@ public:
         lock.unlock();
         return ret;
     }
-    int pop(){
+    T pop(){
         //return the lowest element
         lock.lock();
         while (data.empty()){
             com.wait(lock);
         }
-        int ret = *data.begin();
+        T ret = *data.begin();
         data.erase(ret);
         lock.unlock();
         return ret;

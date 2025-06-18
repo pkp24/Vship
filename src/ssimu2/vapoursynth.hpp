@@ -13,7 +13,7 @@ namespace ssimu2{
         float* gaussiankernel_d;
         hipStream_t* streams;
         int streamnum = 0;
-        threadSet* streamSet;
+        threadSet<int>* streamSet;
     } Ssimulacra2Data;
     
     static const VSFrame *VS_CC ssimulacra2GetFrame(int n, int activationReason, void *instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {

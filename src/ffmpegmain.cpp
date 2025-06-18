@@ -215,7 +215,7 @@ struct ThreadArgument{
 
     void** pinnedmempool;
     hipStream_t* streams_d;
-    threadSet* gpustreams;
+    threadSet<int>* gpustreams;
     int maxshared;
 
     float intensity_multiplier;
@@ -523,7 +523,7 @@ int main(int argc, char** argv){
     hipGetDeviceProperties(&devattr, device);
     const int maxshared = devattr.sharedMemPerBlock;
 
-    threadSet gpustreams({});
+    threadSet<int> gpustreams({});
     for (int i = 0; i < gputhreads; i++) gpustreams.insert(i);
 
     hipStream_t* streams_d = (hipStream_t*)malloc(sizeof(hipStream_t)*gputhreads);
