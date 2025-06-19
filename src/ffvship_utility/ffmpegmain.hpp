@@ -71,7 +71,7 @@ class GpuWorker {
         if (selected_metric == MetricType::SSIMULACRA2) {
             const double score = ssimu2::ssimu2process<UINT16>(
                 source_channels, encoded_channels,
-                reinterpret_cast<float3 *>(pinned_memory), stride_bytes,
+                (float3*)pinned_memory, stride_bytes,
                 image_width, image_height, ssim_gaussian_kernel,
                 max_shared_memory, hip_stream);
             float s = static_cast<float>(score);

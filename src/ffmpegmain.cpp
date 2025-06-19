@@ -289,6 +289,8 @@ int main(int argc, char **argv) {
     score_queue.close();
     score_thread.join();
 
+    std::cout << std::endl; //end of progressbar
+
     auto fin = std::chrono::high_resolution_clock::now();
 
     int millitaken =
