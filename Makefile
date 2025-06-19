@@ -20,28 +20,28 @@ endif
 .FORCE:
 
 buildFFVSHIP: src/ffmpegmain.cpp .FORCE
-	hipcc src/ffmpegmain.cpp --offload-arch=native -Wno-unused-result -Wno-ignored-attributes $(shell pkg-config --libs ffms2 zimg) -o FFVship
+	hipcc src/ffmpegmain.cpp -std=c++17 --offload-arch=native -Wno-unused-result -Wno-ignored-attributes $(shell pkg-config --libs ffms2 zimg) -o FFVship
 
 buildFFVSHIPcuda: src/ffmpegmain.cpp .FORCE
-	nvcc -x cu src/ffmpegmain.cpp -arch=native $(subst -pthread,-Xcompiler="-pthread",$(shell pkg-config --libs ffms2 zimg)) -o FFVship
+	nvcc -x cu src/ffmpegmain.cpp -std=c++17  -arch=native $(subst -pthread,-Xcompiler="-pthread",$(shell pkg-config --libs ffms2 zimg)) -o FFVship
 
 buildFFVSHIPall: src/ffmpegmain.cpp .FORCE
-	hipcc src/ffmpegmain.cpp --offload-arch=gfx1100,gfx1101,gfx1102,gfx1103,gfx1030,gfx1031,gfx1032,gfx906,gfx801,gfx802,gfx803 -Wno-unused-result -Wno-ignored-attributes $(shell pkg-config --libs ffms2 zimg) -o FFVship
+	hipcc src/ffmpegmain.cpp -std=c++17 --offload-arch=gfx1100,gfx1101,gfx1102,gfx1103,gfx1030,gfx1031,gfx1032,gfx906,gfx801,gfx802,gfx803 -Wno-unused-result -Wno-ignored-attributes $(shell pkg-config --libs ffms2 zimg) -o FFVship
 
 buildFFVSHIPcudaall: src/ffmpegmain.cpp .FORCE
-	nvcc -x cu src/ffmpegmain.cpp -arch=all $(subst -pthread,-Xcompiler="-pthread",$(shell pkg-config --libs ffms2 zimg)) -o FFVship
+	nvcc -x cu src/ffmpegmain.cpp -std=c++17 -arch=all $(subst -pthread,-Xcompiler="-pthread",$(shell pkg-config --libs ffms2 zimg)) -o FFVship
 
 build: src/vapoursynthPlugin.cpp .FORCE
-	hipcc src/vapoursynthPlugin.cpp --offload-arch=native -I "$(current_dir)include" -Wno-unused-result -Wno-ignored-attributes -shared $(fpicamd) -o "$(current_dir)vship$(dllend)"
+	hipcc src/vapoursynthPlugin.cpp -std=c++17 --offload-arch=native -I "$(current_dir)include" -Wno-unused-result -Wno-ignored-attributes -shared $(fpicamd) -o "$(current_dir)vship$(dllend)"
 
 buildcuda: src/vapoursynthPlugin.cpp .FORCE
-	nvcc -x cu src/vapoursynthPlugin.cpp -arch=native -I "$(current_dir)include" -shared $(fpiccuda) -o "$(current_dir)vship$(dllend)"
+	nvcc -x cu src/vapoursynthPlugin.cpp -std=c++17 -arch=native -I "$(current_dir)include" -shared $(fpiccuda) -o "$(current_dir)vship$(dllend)"
 
 buildcudaall: src/vapoursynthPlugin.cpp .FORCE
-	nvcc -x cu src/vapoursynthPlugin.cpp -arch=all -I "$(current_dir)include" -shared $(fpiccuda) -o "$(current_dir)vship$(dllend)"
+	nvcc -x cu src/vapoursynthPlugin.cpp -std=c++17 -arch=all -I "$(current_dir)include" -shared $(fpiccuda) -o "$(current_dir)vship$(dllend)"
 
 buildall: src/vapoursynthPlugin.cpp .FORCE
-	hipcc src/vapoursynthPlugin.cpp --offload-arch=gfx1100,gfx1101,gfx1102,gfx1103,gfx1030,gfx1031,gfx1032,gfx906,gfx801,gfx802,gfx803 -I "$(current_dir)include" -Wno-unused-result -Wno-ignored-attributes -shared $(fpicamd) -o "$(current_dir)vship$(dllend)"
+	hipcc src/vapoursynthPlugin.cpp -std=c++17 --offload-arch=gfx1100,gfx1101,gfx1102,gfx1103,gfx1030,gfx1031,gfx1032,gfx906,gfx801,gfx802,gfx803 -I "$(current_dir)include" -Wno-unused-result -Wno-ignored-attributes -shared $(fpicamd) -o "$(current_dir)vship$(dllend)"
 
 ifeq ($(OS),Windows_NT)
 install:
