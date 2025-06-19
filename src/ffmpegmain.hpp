@@ -15,20 +15,11 @@ extern "C" {
 #include <optional>
 
 #ifndef ASSERT_WITH_MESSAGE
-#define ASSERT_WITH_MESSAGE(condition, message)                                \
-    do {                                                                       \
-        if (!(condition)) {                                                    \
-            std::fprintf(stderr,                                               \
-                         "Assertion failed!\n"                                 \
-                         "  Expression : %s\n"                                 \
-                         "  File       : %s\n"                                 \
-                         "  Line       : %d\n"                                 \
-                         "  Message    : %s\n",                                \
-                         #condition, __FILE__, __LINE__, message);             \
-            std::abort();                                                      \
-        }                                                                      \
-    } while (false)
-
+#define ASSERT_WITH_MESSAGE(condition, message)\
+if (!(condition)) {\
+    std::fprintf(stderr, "Assertion failed!\nExpression : %s\nFile       : %s\n  Line       : %d\nMessage    : %s\n", #condition, __FILE__, __LINE__, message);\
+    std::abort();\
+}
 #endif
 
 enum class MetricType { SSIMULACRA2, Butteraugli, Unknown };
@@ -100,8 +91,7 @@ class GpuWorker {
     }
 
     static uint8_t *allocate_external_rgb_buffer(int width, int height) {
-        const size_t buffer_size_bytes =
-            static_cast<size_t>(width) * height * sizeof(uint16_t) * 3;
+        const size_t buffer_size_bytes = static_cast<size_t>(width) * height * sizeof(uint16_t) * 3;
         uint8_t *buffer_ptr = nullptr;
 
         const hipError_t result = hipHostMalloc(
@@ -219,7 +209,7 @@ class FFMSIndexResult {
 
 class FFMSFrameReader {
   private:
-    int num_decoder_threads = 16;
+    int num_decoder_threads = std::thread::hardware_concurrency();
     int seek_mode = FFMS_SEEK_NORMAL;
 
   public:
@@ -447,73 +437,73 @@ struct CommandLineOptions {
     int start_frame = 0;
     int end_frame = -1;
     int every_nth_frame = 1;
+    int encoded_offset = 0;
     int intensity_target_nits = 203;
     int gpu_id = 0;
     int gpu_threads = 3;
     int cpu_threads = std::thread::hardware_concurrency();
 
     bool list_gpus = false;
-    MetricType metric = MetricType::Unknown;
+    MetricType metric = MetricType::SSIMULACRA2; //SSIMULACRA2 by default
+
+    bool NoAssertExit = false; //please exit without creating an assertion failed scary error
 };
 
 MetricType parse_metric_name(const std::string &name) {
-    if (name == "SSIMULACRA2")
-        return MetricType::SSIMULACRA2;
-    if (name == "Butteraugli")
-        return MetricType::Butteraugli;
+    if (name == "SSIMULACRA2") return MetricType::SSIMULACRA2;
+    if (name == "Butteraugli") return MetricType::Butteraugli;
     return MetricType::Unknown;
 }
 
 CommandLineOptions parse_command_line_arguments(int argc, char **argv) {
-    std::vector<std::string> args(argv + 1, argv + argc);
+    std::vector<std::string> args(argc);
+    for (int i = 0; i < argc; i++){
+        args[i] = argv[i];
+    }
 
     helper::ArgParser parser;
 
     std::string metric_name;
-    std::string json_file;
 
     CommandLineOptions opts;
 
-    parser.add_flag({"--source", "-s"}, &opts.source_file,
-                    "Reference video to compare to", true);
-    parser.add_flag({"--encoded", "-e"}, &opts.encoded_file,
-                    "Distorted encode of the source", true);
-    parser.add_flag({"--metric", "-m"}, &metric_name,
-                    "Which metric to use [SSIMULACRA2, Butteraugli]");
-    parser.add_flag({"--json"}, &json_file,
-                    "Outputs metric results to a json file");
+    parser.add_flag({"--source", "-s"}, &opts.source_file, "Reference video to compare to", true);
+    parser.add_flag({"--encoded", "-e"}, &opts.encoded_file, "Distorted encode of the source", true);
+    parser.add_flag({"--metric", "-m"}, &metric_name, "Which metric to use [SSIMULACRA2, Butteraugli]");
+    parser.add_flag({"--json"}, &opts.json_output_file, "Outputs metric results to a json file");
 
-    parser.add_flag(
-        {"--encoded-offset"}, &opts.start_frame,
-        "offset of encoded video to source. Beware that It will adjust the end "
-        "to get the same number of frames on both sides without warning");
-    parser.add_flag({"--end"}, &opts.end_frame, "Ending frame of both videos");
+    parser.add_flag({"--start"}, &opts.start_frame, "Starting frame of source");
+    parser.add_flag({"--end"}, &opts.end_frame, "Ending frame of source");
+    parser.add_flag({"--encoded-offset"}, &opts.encoded_offset, "Frame offset of encoded video to source");
     parser.add_flag({"--every"}, &opts.every_nth_frame, "Frame sampling rate");
-    parser.add_flag({"--intensity-target"}, &opts.intensity_target_nits,
-                    "Target nits for Butteraugli");
+    parser.add_flag({"--intensity-target"}, &opts.intensity_target_nits, "Target nits for Butteraugli");
     parser.add_flag({"--gpu-id"}, &opts.gpu_id, "GPU index");
-    parser.add_flag({"--gpu-threads", "-g"}, &opts.gpu_threads,
-                    "GPU thread count. Defaults and hard capped to 3");
+    parser.add_flag({"--gpu-threads", "-g"}, &opts.gpu_threads, "GPU thread count. Defaults and hard capped to 3");
     parser.add_flag({"--list-gpu"}, &opts.list_gpus, "List available GPUs");
 
-    int result = parser.parse_cli_args(args);
-    ASSERT_WITH_MESSAGE(result == 0, "Failed to parse command-line arguments.");
+    parser.add_flag({"--threads", "-t"}, &opts.cpu_threads, "Deprecated CPU thread count, ignored argument");
 
-    if (!json_file.empty()) {
-        opts.json_output_file = json_file;
+    if (parser.parse_cli_args(args) != 0) { //the parser will have already printed an error
+        opts.NoAssertExit = true;
+        return opts;
     }
 
-    ASSERT_WITH_MESSAGE(!opts.source_file.empty(),
-                        "Source file is not specified");
+    if (opts.source_file.empty()){
+        std::cerr << "Source file is not specified" << std::endl;
+        opts.NoAssertExit = true;
+    }
 
-    ASSERT_WITH_MESSAGE(!opts.encoded_file.empty(),
-                        "Encoded file is not specified");
+    if (opts.encoded_file.empty()){
+        std::cerr << "Encoded file is not specified" << std::endl;
+        opts.NoAssertExit = true;
+    }
 
     if (!metric_name.empty()) {
         opts.metric = parse_metric_name(metric_name);
-        ASSERT_WITH_MESSAGE(
-            opts.metric != MetricType::Unknown,
-            "Unknown metric type. Expected 'SSIMULACRA2' or 'Butteraugli'.");
+        if (opts.metric == MetricType::Unknown){
+            std::cerr << "Unknown metric type. Expected 'SSIMULACRA2' or 'Butteraugli'." << std::endl;
+            opts.NoAssertExit = true;
+        }
     }
 
     return opts;

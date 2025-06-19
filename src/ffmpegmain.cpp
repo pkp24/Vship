@@ -27,18 +27,18 @@ extern "C" {
 #include "gpuColorToLinear/vshipColor.hpp"
 
 using score_tuple_t = std::tuple<float, float, float>;
-using score_queue_t = ThreadSafeQueue<std::tuple<int, score_tuple_t>>;
+using score_queue_t = ClosableThreadSet<std::tuple<int, score_tuple_t>>;
 using frame_tuple_t = std::tuple<int, uint8_t *, uint8_t *>;
 using frame_queue_t = ThreadSafeQueue<frame_tuple_t>;
-using frame_pool_t = ThreadSafePoolVecWrapper<uint8_t *>;
+using frame_pool_t = threadSet<uint8_t *>;
 
 void frame_reader_thread(VideoManager &v1, VideoManager &v2, int start, int end,
-                         int every, frame_queue_t &queue,
+                         int every, int encoded_offset, frame_queue_t &queue,
                          frame_pool_t &frame_buffer_pool) {
-
+    //we suppose start, end, every and encoded_offset have been sanitized yet
     for (int i = start; i < end; i += every) {
-        uint8_t *src_buffer = frame_buffer_pool.acquire();
-        uint8_t *enc_buffer = frame_buffer_pool.acquire();
+        uint8_t *src_buffer = frame_buffer_pool.pop();
+        uint8_t *enc_buffer = frame_buffer_pool.pop();
 
         auto future_src =
             std::async(std::launch::async, [&v1, i, src_buffer]() {
@@ -46,14 +46,14 @@ void frame_reader_thread(VideoManager &v1, VideoManager &v2, int start, int end,
             });
 
         auto future_enc =
-            std::async(std::launch::async, [&v2, i, enc_buffer]() {
-                v2.fetch_frame_into_buffer(i, enc_buffer);
+            std::async(std::launch::async, [&v2, i, encoded_offset, enc_buffer]() {
+                v2.fetch_frame_into_buffer(i+encoded_offset, enc_buffer);
             });
 
         future_src.get();
         future_enc.get();
 
-        frame_tuple_t frame_tuple = std::make_tuple(i, src_buffer, enc_buffer);
+        frame_tuple_t frame_tuple = std::make_tuple((i-start)/every, src_buffer, enc_buffer);
         queue.push(frame_tuple);
     }
 }
@@ -76,15 +76,15 @@ void frame_worker_thread(frame_queue_t &input_queue,
                                                      intensity_multiplier);
         } catch (const VshipError &e) {
             std::cout << " error: " << e.getErrorMessage() << std::endl;
-            frame_buffer_pool.release(src_buffer);
-            frame_buffer_pool.release(enc_buffer);
+            frame_buffer_pool.insert(src_buffer);
+            frame_buffer_pool.insert(enc_buffer);
             continue;
         }
 
-        output_score_queue.push(std::make_tuple(frame_index, scores));
+        output_score_queue.insert(std::make_tuple(frame_index, scores));
 
-        frame_buffer_pool.release(src_buffer);
-        frame_buffer_pool.release(enc_buffer);
+        frame_buffer_pool.insert(src_buffer);
+        frame_buffer_pool.insert(enc_buffer);
     }
 }
 
@@ -100,8 +100,7 @@ void aggregate_scores_function(score_queue_t &input_score_queue,
         }
 
         const auto &[frame_index, scores_tuple] = *maybe_score;
-        const bool should_store_first_score =
-            (metric == MetricType::SSIMULACRA2);
+        const bool should_store_first_score = (metric == MetricType::SSIMULACRA2);
 
         if (should_store_first_score) {
             aggregated_scores[frame_index] = std::get<0>(scores_tuple);
@@ -170,6 +169,9 @@ void print_aggergate_metric_statistics(const std::vector<float> &data,
 
 int main(int argc, char **argv) {
     CommandLineOptions cli_args = parse_command_line_arguments(argc, argv);
+    if (cli_args.NoAssertExit){
+        return 0; //error is already handled
+    }
 
     if (cli_args.list_gpus) {
         try {
@@ -177,7 +179,7 @@ int main(int argc, char **argv) {
         } catch (const VshipError &e) {
             std::cout << e.getErrorMessage() << std::endl;
         }
-        return 1;
+        return 0;
     }
 
     // gpu sanity check
@@ -186,7 +188,7 @@ int main(int argc, char **argv) {
         helper::gpuFullCheck(cli_args.gpu_id);
     } catch (const VshipError &e) {
         std::cout << e.getErrorMessage() << std::endl;
-        return 0;
+        return 1;
     }
 
     auto init = std::chrono::high_resolution_clock::now();
@@ -197,10 +199,10 @@ int main(int argc, char **argv) {
     hipGetDeviceProperties(&devattr, device);
     const int maxshared = devattr.sharedMemPerBlock;
 
-    int queue_capacity = 1;
+    const int queue_capacity = 1;
 
-    int num_gpus = cli_args.gpu_threads ? cli_args.gpu_threads < 3 : 3;
-    int num_frame_buffer = (1 + num_gpus) * 2 + queue_capacity + 1;
+    const int num_gpus = std::min(cli_args.gpu_threads, 3); //hard -g cap
+    const int num_frame_buffer = num_gpus*2 + 2*queue_capacity + 2; //maximum number of buffers in nature possible
 
     FFMSIndexResult source_index = FFMSIndexResult(cli_args.source_file);
     FFMSIndexResult encode_index = FFMSIndexResult(cli_args.encoded_file);
@@ -212,34 +214,48 @@ int main(int argc, char **argv) {
     VideoManager v2(cli_args.encoded_file, encode_index.index,
                     encode_index.selected_video_track, width, height);
 
-    if (cli_args.end_frame == -1) {
-        cli_args.end_frame = v2.reader->total_frame_count;
+    //sanitize start_frame, end_frame, every_nth_frame and encoded_offset
+    int start = cli_args.start_frame;
+    int end = cli_args.end_frame;
+    int every = cli_args.every_nth_frame;
+    int encoded_offset = cli_args.encoded_offset;
+
+    if (start < 0) start = 0;
+    if (end < 0) end = v1.reader->total_frame_count;
+    end = std::min(end, v1.reader->total_frame_count);
+    start = std::min(start, v1.reader->total_frame_count);
+    if (end < start) end = start;
+
+    //start end sanitizer for source (considering source_offset)
+    start = std::max(-encoded_offset, start);
+    end = start+std::min(v2.reader->total_frame_count-(start+encoded_offset), end-start);
+
+    if (end < start){
+        std::cout << "encoded_offset " << encoded_offset << " does not allow comparing both videos" << std::endl;
+        return 1;
     }
 
-    int num_frames = cli_args.end_frame - cli_args.start_frame;
+    int num_frames = (end - start + every-1)/every;
 
-    std::vector<uint8_t *> frame_buffers(num_frame_buffer);
-    for (int i = 0; i < static_cast<int>(frame_buffers.size()); ++i) {
-        frame_buffers[i] =
-            GpuWorker::allocate_external_rgb_buffer(width, height);
+    std::set<uint8_t *> frame_buffers;
+    for (unsigned int i = 0; i < num_frame_buffer; ++i) {
+        frame_buffers.insert(GpuWorker::allocate_external_rgb_buffer(width, height));
     }
 
     frame_pool_t frame_buffer_pool(frame_buffers);
-    frame_queue_t frame_queue(1);
+    frame_queue_t frame_queue(queue_capacity);
 
     std::vector<GpuWorker> gpu_workers;
     gpu_workers.reserve(num_gpus);
 
-    std::generate_n(std::back_inserter(gpu_workers), num_gpus, [&]() {
-        return GpuWorker(cli_args.metric, width, height, maxshared);
-    });
+    for (int i = 0; i < num_gpus; i++){
+        gpu_workers.emplace_back(cli_args.metric, width, height, maxshared);
+    }
 
-    std::thread reader_thread(frame_reader_thread, std::ref(v1), std::ref(v2),
-                              cli_args.start_frame, cli_args.end_frame,
-                              cli_args.every_nth_frame, std::ref(frame_queue),
-                              std::ref(frame_buffer_pool));
+    std::thread reader_thread(frame_reader_thread, std::ref(v1), std::ref(v2), start, end, every, encoded_offset, 
+                            std::ref(frame_queue), std::ref(frame_buffer_pool));
 
-    score_queue_t score_queue(1);
+    score_queue_t score_queue({});
 
     std::vector<std::thread> workers;
     for (int i = 0; i < num_gpus; ++i) {
