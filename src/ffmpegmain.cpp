@@ -15,6 +15,7 @@
 #include "butter/main.hpp"
 #include "ssimu2/main.hpp"
 
+#include "ffvship_utility/ProgressBar.hpp"
 #include "ffvship_utility/ffmpegmain.hpp"
 #include "util/concurrency.hpp"
 
@@ -31,6 +32,7 @@ using score_queue_t = ClosableThreadSet<std::tuple<int, score_tuple_t>>;
 using frame_tuple_t = std::tuple<int, uint8_t *, uint8_t *>;
 using frame_queue_t = ThreadSafeQueue<frame_tuple_t>;
 using frame_pool_t = threadSet<uint8_t *>;
+using ProgressBarT = ProgressBar<500>;
 
 void frame_reader_thread(VideoManager &v1, VideoManager &v2, int start, int end,
                          int every, int encoded_offset, frame_queue_t &queue,
@@ -88,8 +90,9 @@ void frame_worker_thread(frame_queue_t &input_queue,
     }
 }
 
-void aggregate_scores_function(score_queue_t &input_score_queue,
-                               std::vector<float> &aggregated_scores,
+void aggregate_scores_function(score_queue_t& input_score_queue,
+                               std::vector<float>& aggregated_scores,
+                               ProgressBarT& progressBar,
                                MetricType metric) {
     while (true) {
         std::optional<std::tuple<int, std::tuple<float, float, float>>>
@@ -104,10 +107,12 @@ void aggregate_scores_function(score_queue_t &input_score_queue,
 
         if (should_store_first_score) {
             aggregated_scores[frame_index] = std::get<0>(scores_tuple);
+            progressBar.add_value(std::get<0>(scores_tuple));
         } else {
             aggregated_scores[frame_index * 3] = std::get<0>(scores_tuple);
             aggregated_scores[frame_index * 3 + 1] = std::get<1>(scores_tuple);
             aggregated_scores[frame_index * 3 + 2] = std::get<2>(scores_tuple);
+            progressBar.add_value(std::get<2>(scores_tuple));
         }
     }
 }
@@ -270,9 +275,10 @@ int main(int argc, char **argv) {
                                       ? num_frames
                                       : num_frames * 3;
     std::vector<float> scores(score_vector_size);
+    ProgressBarT progressBar(num_frames);
 
     std::thread score_thread(aggregate_scores_function, std::ref(score_queue),
-                             std::ref(scores), cli_args.metric);
+                             std::ref(scores), std::ref(progressBar), cli_args.metric);
 
     reader_thread.join();
     frame_queue.close();
