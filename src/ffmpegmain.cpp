@@ -10,7 +10,7 @@
 #include "util/VshipExceptions.hpp"
 #include "util/gpuhelper.hpp"
 #include "util/preprocessor.hpp"
-#include "util/threadsafeset.hpp"
+#include "util/concurrency.hpp"
 
 #include "butter/main.hpp"
 #include "ssimu2/main.hpp"

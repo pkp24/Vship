@@ -4,7 +4,7 @@
 #include "../util/VshipExceptions.hpp"
 #include "../util/gpuhelper.hpp"
 #include "../util/float3operations.hpp"
-#include "../util/threadsafeset.hpp"
+#include "../util/concurrency.hpp"
 #include "makeXYB.hpp"
 #include "downsample.hpp"
 #include "gaussianblur.hpp"
