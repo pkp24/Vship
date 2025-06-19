@@ -51,7 +51,7 @@ struct ArgParser {
             }
             ++current_arg_index;
         }
-        if (show_help_flag || args.size() == 1) { print_help(); return 1; }
+        if (show_help_flag || args.size() == 1) { print_help(); return 2; }
         return 0;
     }
 
