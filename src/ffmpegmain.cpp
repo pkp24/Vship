@@ -6,7 +6,7 @@
 #include <numeric>
 #include <string>
 
-#include "util/CLI_Parser.hpp"
+#include "ffvship_utility/CLI_Parser.hpp"
 #include "util/VshipExceptions.hpp"
 #include "util/gpuhelper.hpp"
 #include "util/preprocessor.hpp"
@@ -15,7 +15,7 @@
 #include "butter/main.hpp"
 #include "ssimu2/main.hpp"
 
-#include "ffmpegmain.hpp"
+#include "ffvship_utility/ffmpegmain.hpp"
 #include "util/concurrency.hpp"
 
 extern "C" {
@@ -24,7 +24,7 @@ extern "C" {
 #include <zimg.h>
 }
 
-#include "gpuColorToLinear/vshipColor.hpp"
+#include "ffvship_utility/gpuColorToLinear/vshipColor.hpp"
 
 using score_tuple_t = std::tuple<float, float, float>;
 using score_queue_t = ClosableThreadSet<std::tuple<int, score_tuple_t>>;
