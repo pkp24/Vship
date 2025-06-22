@@ -20,7 +20,7 @@ improvements over CPU implementations.
 
 If you want to use Vship with a pre-defined workflow, here are some projects
 featuring Vship:
-
+- [Av1an](https://github.com/rust-av/Av1an): A Cross-platform command-line AV1 / VP9 / HEVC / H264 encoding framework with per scene quality encoding 
 - [SSIMULACRApy](https://codeberg.org/Kosaka/ssimulacrapy): A Python script to
   compare videos and output their SSIMU2 scores using various metrics (by
   [Kosaka](https://codeberg.org/Kosaka))
