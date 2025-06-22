@@ -450,8 +450,13 @@ struct CommandLineOptions {
 };
 
 MetricType parse_metric_name(const std::string &name) {
-    if (name == "SSIMULACRA2") return MetricType::SSIMULACRA2;
-    if (name == "Butteraugli") return MetricType::Butteraugli;
+    std::string lowered;
+    lowered.resize(name.size());
+    for (unsigned int i = 0; i < name.size(); i++){
+        lowered[i] = std::tolower(name[i]);
+    }
+    if (lowered == "ssimulacra2" || lowered == "ssimu2") return MetricType::SSIMULACRA2;
+    if (lowered == "butteraugli" || lowered == "butter") return MetricType::Butteraugli;
     return MetricType::Unknown;
 }
 
