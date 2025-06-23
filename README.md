@@ -148,7 +148,7 @@ dist = core.bs.VideoSource("distorted.mp4")
 
 # Calculate Butteraugli scores
 # intensity_multiplier controls sensitivity
-result = ref.vship.BUTTERAUGLI(dist, intensity_multiplier=80, distmap=0, numStream = 4)
+result = ref.vship.BUTTERAUGLI(dist, distmap=0, numStream = 4)
 
 # Extract scores from frame properties (three different norms available)
 scores_2norm = [frame.props["_BUTTERAUGLI_2Norm"] for frame in result.frames()]
@@ -171,7 +171,7 @@ You are also able to generate visual distortion maps with Butteraugli:
 
 ```python
 # Set distmap=1 to visualize distortion
-distmap_result = ref.vship.BUTTERAUGLI(dist, intensity_multiplier=80, distmap=1)
+distmap_result = ref.vship.BUTTERAUGLI(dist, distmap=1)
 
 # The resulting clip is a grayscale visualization of distortions
 distmap_result.set_output()
