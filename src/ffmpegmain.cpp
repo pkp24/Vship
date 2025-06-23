@@ -35,10 +35,16 @@ using frame_pool_t = threadSet<uint8_t *>;
 using ProgressBarT = ProgressBar<500>;
 
 void frame_reader_thread(VideoManager &v1, VideoManager &v2, int start, int end,
-                         int every, int encoded_offset, frame_queue_t &queue,
+                         int every, int encoded_offset, int threadid, int threadnum, frame_queue_t &queue,
                          frame_pool_t &frame_buffer_pool) {
     //we suppose start, end, every and encoded_offset have been sanitized yet
-    for (int i = start; i < end; i += every) {
+    int threadbegin = (end-start)*threadid/threadnum-1;
+    threadbegin /= every;
+    threadbegin += 1;
+    if (threadid == 0) threadbegin = 0; //fix negative division not being what we expect
+    threadbegin *= every;
+    threadbegin += start;
+    for (int i = threadbegin; i < (end-start)*(threadid+1)/threadnum + start; i += every) {
         uint8_t *src_buffer = frame_buffer_pool.pop();
         uint8_t *enc_buffer = frame_buffer_pool.pop();
 
@@ -58,6 +64,22 @@ void frame_reader_thread(VideoManager &v1, VideoManager &v2, int start, int end,
         frame_tuple_t frame_tuple = std::make_tuple((i-start)/every, src_buffer, enc_buffer);
         queue.push(frame_tuple);
     }
+}
+
+struct frame_reader_thread2_arguments{
+    std::string source_path; std::string encoded_path;
+    FFMS_Index* source_index; FFMS_Index* encoded_index;
+    int source_video_track_index; int encoded_video_track_index;
+    int threadid; int threadnum;
+    int start; int end; int every; int encoded_offset;
+    int width = -1; int height = -1;
+    frame_queue_t* frame_queue; frame_pool_t* frame_buffer_pool;
+};
+
+void frame_reader_thread2(frame_reader_thread2_arguments args){
+    VideoManager v1(args.source_path, args.source_index, args.source_video_track_index, args.width, args.height);
+    VideoManager v2(args.encoded_path, args.encoded_index, args.encoded_video_track_index, args.width, args.height);
+    frame_reader_thread(v1, v2, args.start, args.end, args.every, args.encoded_offset, args.threadid, args.threadnum, *args.frame_queue, *args.frame_buffer_pool);
 }
 
 void frame_worker_thread(frame_queue_t &input_queue,
@@ -204,14 +226,15 @@ int main(int argc, char **argv) {
     hipGetDeviceProperties(&devattr, device);
     const int maxshared = devattr.sharedMemPerBlock;
 
-    const int queue_capacity = 1;
+    const int queue_capacity = cli_args.cpu_threads;
 
-    const int num_gpus = std::min(cli_args.gpu_threads, 3); //hard -g cap
-    const int num_frame_buffer = num_gpus*2 + 2*queue_capacity + 2; //maximum number of buffers in nature possible
+    const int num_gpus = cli_args.gpu_threads;
+    const int num_frame_buffer = num_gpus*2 + 2*queue_capacity + 2*cli_args.cpu_threads; //maximum number of buffers in nature possible
 
     FFMSIndexResult source_index = FFMSIndexResult(cli_args.source_file);
     FFMSIndexResult encode_index = FFMSIndexResult(cli_args.encoded_file);
 
+    //initiliaze first sources to get width and height
     VideoManager v1(cli_args.source_file, source_index.index,
                     source_index.selected_video_track);
     int width = v1.reader->frame_width, height = v1.reader->frame_height;
@@ -257,8 +280,30 @@ int main(int argc, char **argv) {
         gpu_workers.emplace_back(cli_args.metric, width, height, maxshared);
     }
 
-    std::thread reader_thread(frame_reader_thread, std::ref(v1), std::ref(v2), start, end, every, encoded_offset, 
+    std::vector<std::thread> reader_threads;
+    reader_threads.emplace_back(frame_reader_thread, std::ref(v1), std::ref(v2), start, end, every, encoded_offset, 0, cli_args.cpu_threads,
                             std::ref(frame_queue), std::ref(frame_buffer_pool));
+
+    if (cli_args.cpu_threads > 1){
+        frame_reader_thread2_arguments reader_args;
+        reader_args.source_path = cli_args.source_file; reader_args.encoded_path = cli_args.encoded_file;
+        reader_args.source_index = source_index.index; reader_args.encoded_index = encode_index.index;
+        reader_args.source_video_track_index = source_index.selected_video_track; reader_args.encoded_video_track_index = encode_index.selected_video_track;
+        reader_args.threadnum = cli_args.cpu_threads;
+        reader_args.start = start;
+        reader_args.end = end;
+        reader_args.every = every;
+        reader_args.encoded_offset = encoded_offset;
+        reader_args.width = width;
+        reader_args.height = height;
+        reader_args.frame_queue = &frame_queue;
+        reader_args.frame_buffer_pool = &frame_buffer_pool;
+
+        for (int i = 1; i < cli_args.cpu_threads; i++){
+            reader_args.threadid = i;
+            reader_threads.emplace_back(frame_reader_thread2, reader_args);
+        }
+    }
 
     score_queue_t score_queue({});
 
@@ -280,7 +325,7 @@ int main(int argc, char **argv) {
     std::thread score_thread(aggregate_scores_function, std::ref(score_queue),
                              std::ref(scores), std::ref(progressBar), cli_args.metric);
 
-    reader_thread.join();
+    for (auto& reader_thread: reader_threads) reader_thread.join();
     frame_queue.close();
 
     for (auto &w : workers)

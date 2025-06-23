@@ -165,10 +165,14 @@ class FFMSIndexResult {
     FFMS_ErrorInfo error_info;
 
   public:
-    FFMS_Index *index = nullptr;
+    std::string file_path;
+    FFMS_Index* index = NULL;
+    FFMS_Track* track = NULL;
     int selected_video_track = -1;
+    int numFrame = 0;
 
     explicit FFMSIndexResult(const std::string &input_file_path) {
+        file_path = input_file_path;
         FFMS_Init(0, 0);
 
         error_info.Buffer = error_message_buffer;
@@ -195,6 +199,29 @@ class FFMSIndexResult {
                             ("FFMS2: No video track found in file [" +
                              input_file_path + "] - " + error_message_buffer)
                                 .c_str());
+
+        track =
+            FFMS_GetTrackFromIndex(index, selected_video_track);
+        ASSERT_WITH_MESSAGE(track != NULL,
+                            ("FFMS2: Failed to get FFMS_Track in file [" +
+                             input_file_path + "]").c_str());
+
+        numFrame = FFMS_GetNumFrames(track);
+        ASSERT_WITH_MESSAGE(numFrame != 0, ("FFMS2: Got 0 frames in [" +
+                             input_file_path + "]").c_str());
+
+    }
+
+    std::set<int> getKeyFrameIndices(){
+        std::set<int> out;
+        for (int i = 0; i < numFrame; i++){
+            const FFMS_FrameInfo* frameinfo = FFMS_GetFrameInfo(track, i);
+            ASSERT_WITH_MESSAGE(frameinfo != NULL, ("Failed to retrieve KeyFrame information in the indexer for file [" + file_path + "]").c_str());
+            if (frameinfo->KeyFrame != 0){
+                out.insert(i);
+            }
+        }
+        return std::move(out);
     }
 
     ~FFMSIndexResult() {
@@ -441,7 +468,7 @@ struct CommandLineOptions {
     int intensity_target_nits = 203;
     int gpu_id = 0;
     int gpu_threads = 3;
-    int cpu_threads = std::thread::hardware_concurrency();
+    int cpu_threads = 2;
 
     bool list_gpus = false;
     MetricType metric = MetricType::SSIMULACRA2; //SSIMULACRA2 by default
@@ -482,11 +509,10 @@ CommandLineOptions parse_command_line_arguments(int argc, char **argv) {
     parser.add_flag({"--encoded-offset"}, &opts.encoded_offset, "Frame offset of encoded video to source");
     parser.add_flag({"--every"}, &opts.every_nth_frame, "Frame sampling rate");
     parser.add_flag({"--intensity-target"}, &opts.intensity_target_nits, "Target nits for Butteraugli");
+    parser.add_flag({"--threads", "-t"}, &opts.cpu_threads, "Number of Decoder process, recommended is 2");
+    parser.add_flag({"--gpu-threads", "-g"}, &opts.gpu_threads, "GPU thread count, recommended is 3");
     parser.add_flag({"--gpu-id"}, &opts.gpu_id, "GPU index");
-    parser.add_flag({"--gpu-threads", "-g"}, &opts.gpu_threads, "GPU thread count. Defaults and hard capped to 3");
     parser.add_flag({"--list-gpu"}, &opts.list_gpus, "List available GPUs");
-
-    parser.add_flag({"--threads", "-t"}, &opts.cpu_threads, "Deprecated CPU thread count, ignored argument");
 
     if (parser.parse_cli_args(args) != 0) { //the parser will have already printed an error
         opts.NoAssertExit = true;
