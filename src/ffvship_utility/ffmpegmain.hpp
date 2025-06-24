@@ -468,7 +468,7 @@ struct CommandLineOptions {
     int intensity_target_nits = 203;
     int gpu_id = 0;
     int gpu_threads = 3;
-    int cpu_threads = 2;
+    int cpu_threads = 1;
 
     bool list_gpus = false;
     MetricType metric = MetricType::SSIMULACRA2; //SSIMULACRA2 by default
