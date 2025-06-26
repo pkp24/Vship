@@ -519,6 +519,8 @@ CommandLineOptions parse_command_line_arguments(int argc, char **argv) {
         return opts;
     }
 
+    if (opts.list_gpus) return opts;
+
     if (opts.source_file.empty()){
         std::cerr << "Source file is not specified" << std::endl;
         opts.NoAssertExit = true;
