@@ -36,7 +36,7 @@ namespace butter{
 
     __device__ inline void supressXbyY(float& x, float yval, float yw){
         const float s = 0.653020556257f;
-        const float scaler = s + (yw * (1.0 - s)) / (yw + yval * yval);
+        const float scaler = s + (yw * (1.0f - s)) / (yw + yval * yval);
         x *= scaler;
     }
 
@@ -125,8 +125,8 @@ namespace butter{
         MaximumClamp(hf[x], kMaxclampHf);
         uhf[x] -= hf[x];
         MaximumClamp(uhf[x], kMaxclampUhf);
-        uhf[x] *= 2.69313763794;
-        hf[x] *= 2.155;
+        uhf[x] *= 2.69313763794f;
+        hf[x] *= 2.155f;
         AmplifyRangeAroundZero(hf[x], 0.132f);
 
         //printf("res : %f and %f\n", first[x], second[x]);

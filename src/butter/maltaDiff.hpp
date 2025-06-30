@@ -550,8 +550,8 @@ __global__ void MaltaDiffMap_Kernel(const float* lum0, const float* lum1, float*
         const float fabs0 = abs(lum0[worky*width + workx]);
 
         // Secondary half-open quadratic objectives.
-        const float too_small = 0.55 * fabs0;
-        const float too_big = 1.05 * fabs0;
+        const float too_small = 0.55f * fabs0;
+        const float too_big = 1.05f * fabs0;
 
         float impact = 0.0f;
 
@@ -625,8 +625,8 @@ __global__ void MaltaDiffMapLF_Kernel(const float* lum0, const float* lum1, floa
         const float fabs0 = abs(lum0[worky*width + workx]);
 
         // Secondary half-open quadratic objectives.
-        const float too_small = 0.55 * fabs0;
-        const float too_big = 1.05 * fabs0;
+        const float too_small = 0.55f * fabs0;
+        const float too_big = 1.05f * fabs0;
 
         float impact = 0.0f;
 
