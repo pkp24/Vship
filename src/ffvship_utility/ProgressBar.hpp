@@ -53,15 +53,15 @@ public:
 
         const int barwidth = termWidth-ss.str().size()-1;
 
-        std::cout << '\r' << "[";
+        std::cerr << '\r' << "[";
         for (int i = 0; i < barwidth; i++){
             if (i*total <= num*barwidth){
-                std::cout << "|";
+                std::cerr << "|";
             } else {
-                std::cout << " ";
+                std::cerr << " ";
             }
         }
-        std::cout << ss.str() << std::flush;
+        std::cerr << ss.str() << std::flush;
     }
     void add_value(int val){
         total_sum += val;

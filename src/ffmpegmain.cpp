@@ -115,7 +115,7 @@ void frame_worker_thread(frame_queue_t &input_queue,
 void aggregate_scores_function(score_queue_t& input_score_queue,
                                std::vector<float>& aggregated_scores,
                                ProgressBarT& progressBar,
-                               MetricType metric) {
+                               MetricType metric, bool livePrint) {
     while (true) {
         std::optional<std::tuple<int, std::tuple<float, float, float>>>
             maybe_score = input_score_queue.pop();
@@ -130,11 +130,13 @@ void aggregate_scores_function(score_queue_t& input_score_queue,
         if (should_store_first_score) {
             aggregated_scores[frame_index] = std::get<0>(scores_tuple);
             progressBar.add_value(std::get<0>(scores_tuple));
+            if (livePrint) std::cout << frame_index << " " << std::get<0>(scores_tuple) << std::endl;
         } else {
             aggregated_scores[frame_index * 3] = std::get<0>(scores_tuple);
             aggregated_scores[frame_index * 3 + 1] = std::get<1>(scores_tuple);
             aggregated_scores[frame_index * 3 + 2] = std::get<2>(scores_tuple);
             progressBar.add_value(std::get<2>(scores_tuple));
+            if (livePrint) std::cout << frame_index << " " << std::get<0>(scores_tuple) << " " << std::get<1>(scores_tuple) << " " << std::get<2>(scores_tuple) << std::endl;
         }
     }
 }
@@ -259,11 +261,13 @@ int main(int argc, char **argv) {
     end = start+std::min(v2.reader->total_frame_count-(start+encoded_offset), end-start);
 
     if (end < start){
-        std::cout << "encoded_offset " << encoded_offset << " does not allow comparing both videos" << std::endl;
+        std::cerr << "encoded_offset " << encoded_offset << " does not allow comparing both videos" << std::endl;
         return 1;
     }
 
     int num_frames = (end - start + every-1)/every;
+
+    if (cli_args.live_index_score_output) std::cout << num_frames << std::endl;
 
     std::set<uint8_t *> frame_buffers;
     for (unsigned int i = 0; i < num_frame_buffer; ++i) {
@@ -323,7 +327,7 @@ int main(int argc, char **argv) {
     ProgressBarT progressBar(num_frames);
 
     std::thread score_thread(aggregate_scores_function, std::ref(score_queue),
-                             std::ref(scores), std::ref(progressBar), cli_args.metric);
+                             std::ref(scores), std::ref(progressBar), cli_args.metric, cli_args.live_index_score_output);
 
     for (auto& reader_thread: reader_threads) reader_thread.join();
     frame_queue.close();
@@ -334,7 +338,7 @@ int main(int argc, char **argv) {
     score_queue.close();
     score_thread.join();
 
-    std::cout << std::endl; //end of progressbar
+    std::cerr << std::endl; //end of progressbar
 
     auto fin = std::chrono::high_resolution_clock::now();
 
@@ -350,8 +354,8 @@ int main(int argc, char **argv) {
     if (cli_args.json_output_file != "") {
         std::ofstream jsonfile(cli_args.json_output_file, std::ios_base::out);
         if (!jsonfile) {
-            std::cout << "Failed to open output file" << std::endl;
-            return 0;
+            std::cerr << "Failed to open output file" << std::endl;
+            return 1;
         }
         jsonfile << "[";
         for (int i = 0; i < num_frames; i++) {
@@ -376,6 +380,8 @@ int main(int argc, char **argv) {
         }
         jsonfile << "]";
     }
+
+    if (cli_args.live_index_score_output) return 0;
 
     // console output
     std::cout << (cli_args.metric == MetricType::Butteraugli ? "Butteraugli"

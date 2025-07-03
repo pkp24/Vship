@@ -474,6 +474,8 @@ struct CommandLineOptions {
     MetricType metric = MetricType::SSIMULACRA2; //SSIMULACRA2 by default
 
     bool NoAssertExit = false; //please exit without creating an assertion failed scary error
+
+    bool live_index_score_output = false;
 };
 
 MetricType parse_metric_name(const std::string &name) {
@@ -503,6 +505,7 @@ CommandLineOptions parse_command_line_arguments(int argc, char **argv) {
     parser.add_flag({"--encoded", "-e"}, &opts.encoded_file, "Distorted encode of the source", true);
     parser.add_flag({"--metric", "-m"}, &metric_name, "Which metric to use [SSIMULACRA2, Butteraugli]");
     parser.add_flag({"--json"}, &opts.json_output_file, "Outputs metric results to a json file");
+    parser.add_flag({"--live-score-output"}, &opts.live_index_score_output, "replace stdout output with index-score lines");
 
     parser.add_flag({"--start"}, &opts.start_frame, "Starting frame of source");
     parser.add_flag({"--end"}, &opts.end_frame, "Ending frame of source");
