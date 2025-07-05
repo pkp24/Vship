@@ -10,7 +10,7 @@ namespace ssimu2{
         VSNode *distorted;
         float3** PinnedMemPool;
         int maxshared;
-        float* gaussiankernel_d;
+        GaussianHandle gaussianhandle;
         hipStream_t* streams;
         int streamnum = 0;
         threadSet<int>* streamSet;
@@ -47,7 +47,7 @@ namespace ssimu2{
             double val;
             const int stream = d->streamSet->pop();
             try{
-                val = ssimu2process<FLOAT>(srcp1, srcp2, d->PinnedMemPool[stream], stride, width, height, d->gaussiankernel_d, d->maxshared, d->streams[stream]);
+                val = ssimu2process<FLOAT>(srcp1, srcp2, d->PinnedMemPool[stream], stride, width, height, d->gaussianhandle, d->maxshared, d->streams[stream]);
             } catch (const VshipError& e){
                 vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);
                 d->streamSet->insert(stream);
@@ -82,7 +82,7 @@ namespace ssimu2{
             hipStreamDestroy(d->streams[i]);
         }
         free(d->PinnedMemPool);
-        hipFree(d->gaussiankernel_d);
+        d->gaussianhandle.destroy();
         free(d->streams);
         delete d->streamSet;
         //vsapi->setThreadCount(d->oldthreadnum, core);
@@ -188,13 +188,7 @@ namespace ssimu2{
             data->streams[i] = d.streams[i];
         }
     
-        float gaussiankernel[2*GAUSSIANSIZE+1];
-        for (int i = 0; i < 2*GAUSSIANSIZE+1; i++){
-            gaussiankernel[i] = std::exp(-(GAUSSIANSIZE-i)*(GAUSSIANSIZE-i)/(2*SIGMA*SIGMA))/(std::sqrt(TAU*SIGMA*SIGMA));
-        }
-    
-        hipMalloc(&(data->gaussiankernel_d), sizeof(float)*(2*GAUSSIANSIZE+1));
-        hipMemcpyHtoD((hipDeviceptr_t)data->gaussiankernel_d, gaussiankernel, (2*GAUSSIANSIZE+1)*sizeof(float));
+        data->gaussianhandle.init();
     
         VSFilterDependency deps[] = {{d.reference, rpStrictSpatial}, {d.distorted, rpStrictSpatial}};
     

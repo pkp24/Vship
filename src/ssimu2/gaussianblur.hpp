@@ -1,3 +1,25 @@
+namespace ssimu2{
+
+class GaussianHandle{
+public:
+    float* gaussiankernel_d = NULL;
+    float* gaussiankernel_integral_d = NULL;
+    void init(){
+        float gaussiankernel[4*GAUSSIANSIZE+3];
+        gaussiankernel[2*GAUSSIANSIZE+1] = 0; //will be integral
+        for (int i = 0; i < 2*GAUSSIANSIZE+1; i++){
+            gaussiankernel[i] = std::exp(-(GAUSSIANSIZE-i)*(GAUSSIANSIZE-i)/(2*SIGMA*SIGMA))/(std::sqrt(TAU*SIGMA*SIGMA));
+            gaussiankernel[2*GAUSSIANSIZE+2+i] = gaussiankernel[2*GAUSSIANSIZE+1+i] + gaussiankernel[i];
+        }
+    
+        hipMalloc(&gaussiankernel_d, sizeof(float)*(4*GAUSSIANSIZE+3));
+        hipMemcpyHtoD((hipDeviceptr_t)gaussiankernel_d, gaussiankernel, (4*GAUSSIANSIZE+3)*sizeof(float));
+    }
+    void destroy(){
+        hipFree(gaussiankernel_d);
+    }
+};
+
 __device__ void GaussianSmartSharedLoadProduct(float3* tampon, const float3* src1, const float3* src2, int64_t x, int64_t y, int64_t width, int64_t height){
     const int thx = threadIdx.x;
     const int thy = threadIdx.y;
@@ -29,7 +51,7 @@ __device__ void GaussianSmartSharedLoad(float3* tampon, const float3* src, int64
 //a whole block of 16x16 should into there, x and y corresponds to their real position in the src (or slighly outside)
 //at the end, the central 16*16 part of tampon contains the blurred value for each thread
 //tampon is of size 32*32
-__device__ void GaussianSmart_Device(float3* tampon, int64_t x, int64_t y, int64_t width, int64_t height, float* gaussiankernel){
+__device__ void GaussianSmart_Device(float3* tampon, int64_t x, int64_t y, int64_t width, int64_t height, float* gaussiankernel, float* gaussiankernel_integral){
     const int thx = threadIdx.x;
     const int thy = threadIdx.y;
     const int tampon_base_x = x - thx - 8;
@@ -73,57 +95,4 @@ __device__ void GaussianSmart_Device(float3* tampon, int64_t x, int64_t y, int64
     __syncthreads();
 }
 
-__device__ void GaussianSmartSharedSave(float3* tampon, float3* dst, int64_t x, int64_t y, int64_t width, int64_t height){
-    const int thx = threadIdx.x;
-    const int thy = threadIdx.y;
-
-    //tampon [8 - 24][8 - 24] -> dst
-    if (x >= 0 && x < width && y >= 0 && y < height) dst[y*width + x] = tampon[(thy+8)*32+thx+8];
-    __syncthreads();
-}
-
-//launch in 16*16
-__launch_bounds__(256)
-__global__ void GaussianBlur_Kernel(float3* src, float3* dst, int64_t width, int64_t height, float* gaussiankernel){
-    int originalBl_X = blockIdx.x;
-    //let's determine which scale our block is in and adjust our input parameters accordingly
-    for (int scale = 0; scale <= 5; scale++){
-        if (originalBl_X < ((width-1)/16+1)*((height-1)/16+1)){
-            break;
-        } else {
-            src += width*height;
-            dst += width*height;
-            originalBl_X -= ((width-1)/16+1)*((height-1)/16+1);
-            width = (width-1)/2+1;
-            height = (height-1)/2+1;
-        }
-    }
-
-    const int blockwidth = (width-1)/16+1;
-
-    const int64_t x = threadIdx.x + 16*(originalBl_X%blockwidth);
-    const int64_t y = threadIdx.y + 16*(originalBl_X/blockwidth);
-
-    __shared__ float3 tampon[32*32]; //we import into tampon, compute onto tampon and then put into dst
-    //tampon has 8 of border on each side with no thread
-
-    GaussianSmartSharedLoad(tampon, src, x, y, width, height);
-
-    GaussianSmart_Device(tampon, x, y, width, height, gaussiankernel);
-
-    GaussianSmartSharedSave(tampon, dst, x, y, width, height);
-}
-
-void gaussianBlur(float3* src, float3* dst, int64_t totalscalesize, int64_t basewidth, int64_t baseheight, float* gaussiankernel_d, hipStream_t stream){
-    int64_t w = basewidth;
-    int64_t h = baseheight;
-
-    int64_t bl_x = 0;
-    for (int scale = 0; scale <= 5; scale++){
-        bl_x += ((w-1)/16+1)*((h-1)/16+1);
-        w = (w-1)/2+1;
-        h = (h-1)/2+1;
-    }
-    GaussianBlur_Kernel<<<dim3(bl_x), dim3(16, 16), 0, stream>>>(src, dst, basewidth, baseheight, gaussiankernel_d);
-    GPU_CHECK(hipGetLastError());
 }

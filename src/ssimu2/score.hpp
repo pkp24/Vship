@@ -92,7 +92,7 @@ __global__ void sumreduce(float3* dst, float3* src, int bl_x){
     }
 }
 
-__global__ void allscore_map_Kernel(float3* dst, float3* im1, float3* im2, int64_t width, int64_t height, float* gaussiankernel){
+__global__ void allscore_map_Kernel(float3* dst, float3* im1, float3* im2, int64_t width, int64_t height, float* gaussiankernel, float* gaussiankernel_integral){
     //dst must be of size 6*sizeof(float3)*blocknum at least
     //shared memory needed is 6*sizeof(float3)*threadnum at least
     const int64_t x = (threadIdx.x + blockIdx.x*blockDim.x);
@@ -111,27 +111,27 @@ __global__ void allscore_map_Kernel(float3* dst, float3* im1, float3* im2, int64
     float3* sumd4 = sharedmem+5*threadnum; //size sizeof(float3)*threadnum
 
     GaussianSmartSharedLoad(sharedmem, im1, x, y, width, height);
-    GaussianSmart_Device(sharedmem, x, y, width, height, gaussiankernel);
+    GaussianSmart_Device(sharedmem, x, y, width, height, gaussiankernel, gaussiankernel_integral);
     const float3 m1 = sharedmem[(threadIdx.y+8)*32+threadIdx.x+8];
     __syncthreads();
 
     GaussianSmartSharedLoad(sharedmem, im2, x, y, width, height);
-    GaussianSmart_Device(sharedmem, x, y, width, height, gaussiankernel);
+    GaussianSmart_Device(sharedmem, x, y, width, height, gaussiankernel, gaussiankernel_integral);
     const float3 m2 = sharedmem[(threadIdx.y+8)*32+threadIdx.x+8];
     __syncthreads();
 
     GaussianSmartSharedLoadProduct(sharedmem, im1, im1, x, y, width, height);
-    GaussianSmart_Device(sharedmem, x, y, width, height, gaussiankernel);
+    GaussianSmart_Device(sharedmem, x, y, width, height, gaussiankernel, gaussiankernel_integral);
     const float3 su11 = sharedmem[(threadIdx.y+8)*32+threadIdx.x+8];
     __syncthreads();
 
     GaussianSmartSharedLoadProduct(sharedmem, im2, im2, x, y, width, height);
-    GaussianSmart_Device(sharedmem, x, y, width, height, gaussiankernel);
+    GaussianSmart_Device(sharedmem, x, y, width, height, gaussiankernel, gaussiankernel_integral);
     const float3 su22 = sharedmem[(threadIdx.y+8)*32+threadIdx.x+8];
     __syncthreads();
 
     GaussianSmartSharedLoadProduct(sharedmem, im1, im2, x, y, width, height);
-    GaussianSmart_Device(sharedmem, x, y, width, height, gaussiankernel);
+    GaussianSmart_Device(sharedmem, x, y, width, height, gaussiankernel, gaussiankernel_integral);
     const float3 su12 = sharedmem[(threadIdx.y+8)*32+threadIdx.x+8];
     __syncthreads();
 
@@ -195,7 +195,7 @@ __global__ void allscore_map_Kernel(float3* dst, float3* im1, float3* im2, int64
     }
 }
 
-std::vector<float3> allscore_map(float3* im1, float3* im2, float3* temp, float3* pinned, int64_t basewidth, int64_t baseheight, int64_t maxshared, float* gaussiankernel, hipStream_t stream){
+std::vector<float3> allscore_map(float3* im1, float3* im2, float3* temp, float3* pinned, int64_t basewidth, int64_t baseheight, int64_t maxshared, GaussianHandle& gaussianhandle, hipStream_t stream){
     //output is {normssim1scale1, normssim4scale1, norma1scale1, norma4scale1, normad1scale1, normd4scale1, norm1scale2, ...}
     std::vector<float3> result(2*6*3);
     for (int i = 0; i < 2*6*3; i++) {result[i].x = 0.0f; result[i].y = 0.0f; result[i].z = 0.0f;}
@@ -214,7 +214,7 @@ std::vector<float3> allscore_map(float3* im1, float3* im2, float3* temp, float3*
         bl_x = (w-1)/th_x + 1;
         bl_y = (h-1)/th_y + 1;
         int64_t blr_x = bl_x*bl_y;
-        allscore_map_Kernel<<<dim3(bl_x, bl_y), dim3(th_x, th_y), std::max(6*sizeof(float3)*th_x*th_y, 32*32*sizeof(float3)), stream>>>(temp+scaleoutdone[scale]+((blr_x >= reduce_up_to) ? 6*bl_x*bl_y : 0), im1+index, im2+index, w, h, gaussiankernel);
+        allscore_map_Kernel<<<dim3(bl_x, bl_y), dim3(th_x, th_y), std::max(6*sizeof(float3)*th_x*th_y, 32*32*sizeof(float3)), stream>>>(temp+scaleoutdone[scale]+((blr_x >= reduce_up_to) ? 6*bl_x*bl_y : 0), im1+index, im2+index, w, h, gaussianhandle.gaussiankernel_d, gaussianhandle.gaussiankernel_integral_d);
         //printf("I got %s with %ld %ld %ld\n", hipGetErrorString(hipGetLastError()), 6*sizeof(float3)*th_x*th_y, bl_x, bl_y);
         GPU_CHECK(hipGetLastError());
 

@@ -38,7 +38,7 @@ class GpuWorker {
     int max_shared_memory;
 
     void *pinned_memory = nullptr;
-    float *ssim_gaussian_kernel = nullptr;
+    ssimu2::GaussianHandle ssim_gaussianhandle;
 
     MetricType selected_metric;
     butter::GaussianHandle butter_gaussian_handle;
@@ -50,6 +50,10 @@ class GpuWorker {
           max_shared_memory(maxshared), selected_metric(metric) {
         allocate_gpu_memory();
         hipStreamCreate(&hip_stream);
+    }
+    ~GpuWorker(){
+        deallocate_gpu_memory();
+        hipStreamDestroy(hip_stream);
     }
 
     std::tuple<float, float, float>
@@ -72,7 +76,7 @@ class GpuWorker {
             const double score = ssimu2::ssimu2process<UINT16>(
                 source_channels, encoded_channels,
                 (float3*)pinned_memory, stride_bytes,
-                image_width, image_height, ssim_gaussian_kernel,
+                image_width, image_height, ssim_gaussianhandle,
                 max_shared_memory, hip_stream);
             float s = static_cast<float>(score);
             return {s, s, s};
@@ -134,26 +138,38 @@ class GpuWorker {
                             "Failed to allocate pinned memory for GpuWorker.");
 
         if (selected_metric == MetricType::SSIMULACRA2) {
-            allocate_ssim_gaussian_kernel();
+            ssim_gaussianhandle.init();
         } else if (selected_metric == MetricType::Butteraugli) {
             butter_gaussian_handle.init();
         }
     }
 
-    void allocate_ssim_gaussian_kernel() {
-        constexpr int kernel_size = 2 * GAUSSIANSIZE + 1;
-        float gaussian_values[kernel_size];
+    void deallocate_gpu_memory() {
+        int allocation_size_bytes = 0;
 
-        for (int i = 0; i < kernel_size; ++i) {
-            const float distance = static_cast<float>(GAUSSIANSIZE - i);
-            gaussian_values[i] =
-                std::exp(-(distance * distance) / (2.0f * SIGMA * SIGMA)) /
-                (std::sqrt(TAU * SIGMA * SIGMA));
+        if (selected_metric == MetricType::SSIMULACRA2) {
+            allocation_size_bytes =
+                ssimu2::allocsizeScore(image_width, image_height,
+                                       max_shared_memory) *
+                sizeof(float3);
+        } else if (selected_metric == MetricType::Butteraugli) {
+            allocation_size_bytes =
+                butter::allocsizeScore(image_width, image_height) *
+                sizeof(float);
+        } else {
+            ASSERT_WITH_MESSAGE(false,
+                                "Unknown metric during memory allocation.");
         }
 
-        hipMalloc(&ssim_gaussian_kernel, sizeof(float) * kernel_size);
-        hipMemcpyHtoD(ssim_gaussian_kernel, gaussian_values,
-                      sizeof(float) * kernel_size);
+        const hipError_t allocation_result = hipHostFree(pinned_memory);
+        ASSERT_WITH_MESSAGE(allocation_result == hipSuccess,
+                            "Failed to free pinned memory for GpuWorker.");
+
+        if (selected_metric == MetricType::SSIMULACRA2) {
+            ssim_gaussianhandle.destroy();
+        } else if (selected_metric == MetricType::Butteraugli) {
+            butter_gaussian_handle.destroy();
+        }
     }
 };
 

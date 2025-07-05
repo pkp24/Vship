@@ -42,7 +42,7 @@ int64_t getTotalScaleSize(int64_t width, int64_t height){
 }
 
 //expects packed linear RGB input. Beware that each src1_d, src2_d and temp_d must be of size "totalscalesize" even if the actual image is contained in a width*height format
-double ssimu2GPUProcess(float3* src1_d, float3* src2_d, float3* temp_d, float3* pinned, int64_t width, int64_t height, float* gaussiankernel, int64_t maxshared, hipStream_t stream){
+double ssimu2GPUProcess(float3* src1_d, float3* src2_d, float3* temp_d, float3* pinned, int64_t width, int64_t height, GaussianHandle& gaussianhandle, int64_t maxshared, hipStream_t stream){
     const int64_t totalscalesize = getTotalScaleSize(width, height);
 
     //step 1 : fill the downsample part
@@ -74,7 +74,7 @@ double ssimu2GPUProcess(float3* src1_d, float3* src2_d, float3* temp_d, float3* 
     //step 5 : edge diff map    
     std::vector<float3> allscore_res;
     try{
-        allscore_res = allscore_map(src1_d, src2_d, temp_d, pinned, width, height, maxshared, gaussiankernel, stream);
+        allscore_res = allscore_map(src1_d, src2_d, temp_d, pinned, width, height, maxshared, gaussianhandle, stream);
     } catch (const VshipError& e){
         throw e;
     }
@@ -104,7 +104,7 @@ double ssimu2GPUProcess(float3* src1_d, float3* src2_d, float3* temp_d, float3* 
 }
 
 template <InputMemType T>
-double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* pinned, int64_t stride, int64_t width, int64_t height, float* gaussiankernel, int64_t maxshared, hipStream_t stream){
+double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* pinned, int64_t stride, int64_t width, int64_t height, GaussianHandle& gaussianhandle, int64_t maxshared, hipStream_t stream){
 
     const int64_t totalscalesize = getTotalScaleSize(width, height);
 
@@ -138,7 +138,7 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* p
 
     double res;
     try {
-        res = ssimu2GPUProcess(src1_d, src2_d, temp_d, pinned, width, height, gaussiankernel, maxshared, stream);
+        res = ssimu2GPUProcess(src1_d, src2_d, temp_d, pinned, width, height, gaussianhandle, maxshared, stream);
     } catch (const VshipError& e){
         hipFree(mem_d);
         throw e;
