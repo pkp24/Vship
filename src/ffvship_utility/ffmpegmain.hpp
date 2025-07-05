@@ -145,22 +145,6 @@ class GpuWorker {
     }
 
     void deallocate_gpu_memory() {
-        int allocation_size_bytes = 0;
-
-        if (selected_metric == MetricType::SSIMULACRA2) {
-            allocation_size_bytes =
-                ssimu2::allocsizeScore(image_width, image_height,
-                                       max_shared_memory) *
-                sizeof(float3);
-        } else if (selected_metric == MetricType::Butteraugli) {
-            allocation_size_bytes =
-                butter::allocsizeScore(image_width, image_height) *
-                sizeof(float);
-        } else {
-            ASSERT_WITH_MESSAGE(false,
-                                "Unknown metric during memory allocation.");
-        }
-
         const hipError_t allocation_result = hipHostFree(pinned_memory);
         ASSERT_WITH_MESSAGE(allocation_result == hipSuccess,
                             "Failed to free pinned memory for GpuWorker.");
