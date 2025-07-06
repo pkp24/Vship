@@ -509,7 +509,7 @@ CommandLineOptions parse_command_line_arguments(int argc, char **argv) {
     parser.add_flag({"--end"}, &opts.end_frame, "Ending frame of source");
     parser.add_flag({"--encoded-offset"}, &opts.encoded_offset, "Frame offset of encoded video to source");
     parser.add_flag({"--every"}, &opts.every_nth_frame, "Frame sampling rate");
-    parser.add_flag({"--source-indices"}, &source_indices_str, "List of source indices subjective to --start, --end, --every and --encoded-offset. Format is integers separated by comma");
+    parser.add_flag({"--source-indices"}, &source_indices_str, "List of source indices subjective to --start, --end, --every and --encoded-offset. If --encoded-indices isnt specified, this will be applied to encoded-indices too. Format is integers separated by comma");
     parser.add_flag({"--encoded-indices"}, &encoded_indices_str, "List of encoded indices subjective to --start, --end, --every and --encoded-offset. Format is integers separated by comma");
     parser.add_flag({"--intensity-target"}, &opts.intensity_target_nits, "Target nits for Butteraugli");
     parser.add_flag({"--threads", "-t"}, &opts.cpu_threads, "Number of Decoder process, recommended is 2");
