@@ -70,10 +70,7 @@ __device__ void GaussianSmart_Device(float3* tampon, int64_t x, int64_t y, int64
     tot = gaussiankernel_integral[end2] - gaussiankernel_integral[beg];
     for (int i = 0; i < 17; i++){ //starting 8 to the left and going 8 to the right
         out += tampon[thy*32 + thx+i]*gaussiankernel[i];
-    }
-
-    //2nd pass in [8 - 24][16 - 32]
-    for (int i = 0; i < 17; i++){ //starting 8 to the left and going 8 to the right
+        //2nd pass in [8 - 24][16 - 32]
         out2 += tampon[(thy+16)*32 + thx+i]*gaussiankernel[i];
     }
 
