@@ -34,34 +34,29 @@ using frame_queue_t = ThreadSafeQueue<frame_tuple_t>;
 using frame_pool_t = threadSet<uint8_t *>;
 using ProgressBarT = ProgressBar<500>;
 
-void frame_reader_thread(VideoManager &v1, VideoManager &v2, int start, int end,
-                         int every, int encoded_offset, int threadid, int threadnum, frame_queue_t &queue,
+void frame_reader_thread(VideoManager &v1, VideoManager &v2, std::vector<int>* frames_source, std::vector<int>* frames_encoded, int threadid, int threadnum, frame_queue_t &queue,
                          frame_pool_t &frame_buffer_pool) {
-    //we suppose start, end, every and encoded_offset have been sanitized yet
-    int threadbegin = (end-start)*threadid/threadnum-1;
-    threadbegin /= every;
-    threadbegin += 1;
-    if (threadid == 0) threadbegin = 0; //fix negative division not being what we expect
-    threadbegin *= every;
-    threadbegin += start;
-    for (int i = threadbegin; i < (end-start)*(threadid+1)/threadnum + start; i += every) {
+    const int num_frames = frames_source->size();
+    for (int i = num_frames*threadid/threadnum; i < num_frames*(threadid+1)/threadnum; i++) {
+        const int source_frame = (*frames_source)[i];
+        const int encoded_frame = (*frames_encoded)[i];
         uint8_t *src_buffer = frame_buffer_pool.pop();
         uint8_t *enc_buffer = frame_buffer_pool.pop();
 
         auto future_src =
-            std::async(std::launch::async, [&v1, i, src_buffer]() {
-                v1.fetch_frame_into_buffer(i, src_buffer);
+            std::async(std::launch::async, [&v1, source_frame, src_buffer]() {
+                v1.fetch_frame_into_buffer(source_frame, src_buffer);
             });
 
         auto future_enc =
-            std::async(std::launch::async, [&v2, i, encoded_offset, enc_buffer]() {
-                v2.fetch_frame_into_buffer(i+encoded_offset, enc_buffer);
+            std::async(std::launch::async, [&v2, encoded_frame, enc_buffer]() {
+                v2.fetch_frame_into_buffer(encoded_frame, enc_buffer);
             });
 
         future_src.get();
         future_enc.get();
 
-        frame_tuple_t frame_tuple = std::make_tuple((i-start)/every, src_buffer, enc_buffer);
+        frame_tuple_t frame_tuple = std::make_tuple(i, src_buffer, enc_buffer);
         queue.push(frame_tuple);
     }
 }
@@ -71,7 +66,8 @@ struct frame_reader_thread2_arguments{
     FFMS_Index* source_index; FFMS_Index* encoded_index;
     int source_video_track_index; int encoded_video_track_index;
     int threadid; int threadnum;
-    int start; int end; int every; int encoded_offset;
+    std::vector<int>* frames_source;
+    std::vector<int>* frames_encoded;
     int width = -1; int height = -1;
     frame_queue_t* frame_queue; frame_pool_t* frame_buffer_pool;
 };
@@ -79,7 +75,7 @@ struct frame_reader_thread2_arguments{
 void frame_reader_thread2(frame_reader_thread2_arguments args){
     VideoManager v1(args.source_path, args.source_index, args.source_video_track_index, args.width, args.height);
     VideoManager v2(args.encoded_path, args.encoded_index, args.encoded_video_track_index, args.width, args.height);
-    frame_reader_thread(v1, v2, args.start, args.end, args.every, args.encoded_offset, args.threadid, args.threadnum, *args.frame_queue, *args.frame_buffer_pool);
+    frame_reader_thread(v1, v2, args.frames_source, args.frames_encoded, args.threadid, args.threadnum, *args.frame_queue, *args.frame_buffer_pool);
 }
 
 void frame_worker_thread(frame_queue_t &input_queue,
@@ -258,7 +254,50 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    int num_frames = (end - start + every-1)/every;
+    //now we can use source_indices and encoded_indices to create a vector of all frames to cover, taking into account start end every and encoded offset
+    std::vector<int> frames_source;
+    std::vector<int> frames_encoded;
+
+    if (cli_args.source_indices_list.empty()){
+        frames_source.reserve((end - start + every-1)/every);
+        for (int i = start; i < end; i += every) frames_source.push_back(i);
+    } else {
+        for (const int el : cli_args.source_indices_list){
+            if (el*every + start >= end){
+                std::cerr << "Source Invalid frame index found " << el << " which will be placed at " << el*every+start << " after computed end " << end << std::endl;
+                return 1;
+            }
+            frames_source.push_back(start + el*every);
+        }
+    }
+
+    if (cli_args.encoded_indices_list.empty() && cli_args.source_indices_list.empty()){
+        frames_encoded.reserve((end - start + every-1)/every);
+        for (int i = start; i < end; i += every) frames_encoded.push_back(i+encoded_offset);
+    } else if (cli_args.encoded_indices_list.empty() && !cli_args.source_indices_list.empty()) {
+        for (const int el : cli_args.source_indices_list){
+            if (el*every + start >= end){
+                std::cerr << "Encoded Invalid frame index found " << el << " which will be placed at " << el*every+start+encoded_offset << " after computed end " << end+encoded_offset << std::endl;
+                return 1;
+            }
+            frames_encoded.push_back(start + el*every + encoded_offset);
+        }
+    } else {
+        for (const int el : cli_args.encoded_indices_list){
+            if (el*every + start >= end){
+                std::cerr << "Encoded Invalid frame index found " << el << " which will be placed at " << el*every+start+encoded_offset << " after computed end " << end+encoded_offset << std::endl;
+                return 1;
+            }
+            frames_encoded.push_back(start + el*every + encoded_offset);
+        }
+    }
+
+    if (frames_encoded.size() != frames_source.size()){
+        std::cerr << "Source indices and Encoded indices are of different sizes, aborting" << std::endl;
+        return 1;
+    }
+
+    int num_frames = frames_source.size();
 
     if (cli_args.live_index_score_output) std::cout << num_frames << std::endl;
 
@@ -278,7 +317,7 @@ int main(int argc, char **argv) {
     }
 
     std::vector<std::thread> reader_threads;
-    reader_threads.emplace_back(frame_reader_thread, std::ref(v1), std::ref(v2), start, end, every, encoded_offset, 0, cli_args.cpu_threads,
+    reader_threads.emplace_back(frame_reader_thread, std::ref(v1), std::ref(v2), &frames_source, &frames_encoded, 0, cli_args.cpu_threads,
                             std::ref(frame_queue), std::ref(frame_buffer_pool));
 
     if (cli_args.cpu_threads > 1){
@@ -287,10 +326,8 @@ int main(int argc, char **argv) {
         reader_args.source_index = source_index.index; reader_args.encoded_index = encode_index.index;
         reader_args.source_video_track_index = source_index.selected_video_track; reader_args.encoded_video_track_index = encode_index.selected_video_track;
         reader_args.threadnum = cli_args.cpu_threads;
-        reader_args.start = start;
-        reader_args.end = end;
-        reader_args.every = every;
-        reader_args.encoded_offset = encoded_offset;
+        reader_args.frames_source = &frames_source;
+        reader_args.frames_encoded = &frames_encoded;
         reader_args.width = width;
         reader_args.height = height;
         reader_args.frame_queue = &frame_queue;
