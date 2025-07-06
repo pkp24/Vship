@@ -55,8 +55,6 @@ __device__ void GaussianSmartSharedLoad(float3* tampon, const float3* src, int64
 __device__ void GaussianSmart_Device(float3* tampon, int64_t x, int64_t y, int64_t width, int64_t height, float* gaussiankernel, float* gaussiankernel_integral){
     const int thx = threadIdx.x;
     const int thy = threadIdx.y;
-    const int tampon_base_x = x - thx - 8;
-    const int tampon_base_y = y - thy - 8;
 
     //horizontalBlur on tampon restraint into rectangle [8 - 24][0 - 32] -> 2 pass per thread
 
