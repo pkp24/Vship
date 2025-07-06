@@ -35,30 +35,23 @@ class GpuWorker {
   private:
     int image_width;
     int image_height;
-    int max_shared_memory;
-
-    void *pinned_memory = nullptr;
-    ssimu2::GaussianHandle ssim_gaussianhandle;
 
     MetricType selected_metric;
-    butter::GaussianHandle butter_gaussian_handle;
-    hipStream_t hip_stream = nullptr;
+
+    ssimu2::SSIMU2ComputingImplementation ssimu2worker;
+    butter::ButterComputingImplementation butterworker;
 
   public:
-    GpuWorker(MetricType metric, int width, int height, int maxshared)
-        : image_width(width), image_height(height),
-          max_shared_memory(maxshared), selected_metric(metric) {
-        allocate_gpu_memory();
-        hipStreamCreate(&hip_stream);
+    GpuWorker(MetricType metric, int width, int height, float intensity_multiplier)
+        : image_width(width), image_height(height), selected_metric(metric) {
+        allocate_gpu_memory(intensity_multiplier);
     }
     ~GpuWorker(){
         deallocate_gpu_memory();
-        hipStreamDestroy(hip_stream);
     }
 
     std::tuple<float, float, float>
-    compute_metric_score(uint8_t *source_frame, uint8_t *encoded_frame,
-                         float intensity_multiplier) {
+    compute_metric_score(uint8_t *source_frame, uint8_t *encoded_frame) {
         const int stride_bytes =
             image_width * static_cast<int>(sizeof(uint16_t));
         const int channel_offset_bytes =
@@ -73,21 +66,15 @@ class GpuWorker {
             encoded_frame + 2 * channel_offset_bytes};
 
         if (selected_metric == MetricType::SSIMULACRA2) {
-            const double score = ssimu2::ssimu2process<UINT16>(
-                source_channels, encoded_channels,
-                (float3*)pinned_memory, stride_bytes,
-                image_width, image_height, ssim_gaussianhandle,
-                max_shared_memory, hip_stream);
+            const double score = ssimu2worker.run<UINT16>(
+                source_channels, encoded_channels, stride_bytes);
             float s = static_cast<float>(score);
             return {s, s, s};
         }
 
         if (selected_metric == MetricType::Butteraugli) {
-            return butter::butterprocess<UINT16>(
-                nullptr, 0, source_channels, encoded_channels,
-                reinterpret_cast<float *>(pinned_memory),
-                butter_gaussian_handle, stride_bytes, image_width, image_height,
-                intensity_multiplier, max_shared_memory, hip_stream);
+            return butterworker.run<UINT16>(
+                nullptr, 0, source_channels, encoded_channels, stride_bytes);
         }
 
         ASSERT_WITH_MESSAGE(false, "Unknown metric specified for GpuWorker.");
@@ -115,44 +102,34 @@ class GpuWorker {
     }
 
   private:
-    void allocate_gpu_memory() {
-        int allocation_size_bytes = 0;
-
+    void allocate_gpu_memory(float intensity_multiplier = 203) {
         if (selected_metric == MetricType::SSIMULACRA2) {
-            allocation_size_bytes =
-                ssimu2::allocsizeScore(image_width, image_height,
-                                       max_shared_memory) *
-                sizeof(float3);
+            try {
+                ssimu2worker.init(image_width, image_height);
+            } catch (const VshipError& e){
+                std::cerr << e.getErrorMessage() << std::endl;
+                ASSERT_WITH_MESSAGE(false, "Failed to initialize Butteraugli Worker");
+                return;
+            }
         } else if (selected_metric == MetricType::Butteraugli) {
-            allocation_size_bytes =
-                butter::allocsizeScore(image_width, image_height) *
-                sizeof(float);
+            try {
+                butterworker.init(image_width, image_height, intensity_multiplier);
+            } catch (const VshipError& e){
+                std::cerr << e.getErrorMessage() << std::endl;
+                ASSERT_WITH_MESSAGE(false, "Failed to initialize Butteraugli Worker");
+                return;
+            }
         } else {
             ASSERT_WITH_MESSAGE(false,
                                 "Unknown metric during memory allocation.");
         }
-
-        const hipError_t allocation_result =
-            hipHostMalloc(&pinned_memory, allocation_size_bytes);
-        ASSERT_WITH_MESSAGE(allocation_result == hipSuccess,
-                            "Failed to allocate pinned memory for GpuWorker.");
-
-        if (selected_metric == MetricType::SSIMULACRA2) {
-            ssim_gaussianhandle.init();
-        } else if (selected_metric == MetricType::Butteraugli) {
-            butter_gaussian_handle.init();
-        }
     }
 
     void deallocate_gpu_memory() {
-        const hipError_t allocation_result = hipHostFree(pinned_memory);
-        ASSERT_WITH_MESSAGE(allocation_result == hipSuccess,
-                            "Failed to free pinned memory for GpuWorker.");
-
         if (selected_metric == MetricType::SSIMULACRA2) {
-            ssim_gaussianhandle.destroy();
+            ssimu2worker.destroy();
         } else if (selected_metric == MetricType::Butteraugli) {
-            butter_gaussian_handle.destroy();
+            butterworker.destroy();
         }
     }
 };
@@ -465,6 +442,10 @@ struct CommandLineOptions {
     int end_frame = -1;
     int every_nth_frame = 1;
     int encoded_offset = 0;
+
+    std::vector<int> source_indices_list;
+    std::vector<int> encoded_indices_list;
+
     int intensity_target_nits = 203;
     int gpu_id = 0;
     int gpu_threads = 3;
@@ -477,6 +458,21 @@ struct CommandLineOptions {
 
     bool live_index_score_output = false;
 };
+
+std::vector<int> splitPerToken(std::string inp){
+    std::vector<int> out;
+
+    const char *del = ",";
+    char *src = const_cast<char*>(inp.c_str());
+    char *t = strtok(src, del);
+
+    while (t != NULL){
+        out.push_back(std::stoi(t));
+        t = strtok(NULL, del);
+    }
+
+    return out;
+}
 
 MetricType parse_metric_name(const std::string &name) {
     std::string lowered;
@@ -498,6 +494,8 @@ CommandLineOptions parse_command_line_arguments(int argc, char **argv) {
     helper::ArgParser parser;
 
     std::string metric_name;
+    //std::string source_indices_str;
+    //std::string encoded_indices_str;
 
     CommandLineOptions opts;
 
@@ -511,6 +509,8 @@ CommandLineOptions parse_command_line_arguments(int argc, char **argv) {
     parser.add_flag({"--end"}, &opts.end_frame, "Ending frame of source");
     parser.add_flag({"--encoded-offset"}, &opts.encoded_offset, "Frame offset of encoded video to source");
     parser.add_flag({"--every"}, &opts.every_nth_frame, "Frame sampling rate");
+    //parser.add_flag({"--source-indices"}, &source_indices_str, "List of source indices, overwrite other indices primitives for Source. Format is integers separated by comma");
+    //parser.add_flag({"--encoded-indices"}, &encoded_indices_str, "List of encoded indices, overwrite other indices primitive for encoded. Format is integers separated by comma");
     parser.add_flag({"--intensity-target"}, &opts.intensity_target_nits, "Target nits for Butteraugli");
     parser.add_flag({"--threads", "-t"}, &opts.cpu_threads, "Number of Decoder process, recommended is 2");
     parser.add_flag({"--gpu-threads", "-g"}, &opts.gpu_threads, "GPU thread count, recommended is 3");
@@ -523,6 +523,22 @@ CommandLineOptions parse_command_line_arguments(int argc, char **argv) {
     }
 
     if (opts.list_gpus) return opts;
+
+    /*
+    try {
+        opts.source_indices_list = splitPerToken(source_indices_str);
+    } catch (...){
+        std::cerr << "Invalid integer found in --source-indices" << std::endl;
+        opts.NoAssertExit = true;
+        return opts;
+    }
+    try {
+        opts.encoded_indices_list = splitPerToken(encoded_indices_str);
+    } catch (...){
+        std::cerr << "Invalid integer found in --encoded-indices" << std::endl;
+        opts.NoAssertExit = true;
+        return opts;
+    }*/
 
     if (opts.source_file.empty()){
         std::cerr << "Source file is not specified" << std::endl;

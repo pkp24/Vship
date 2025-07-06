@@ -96,8 +96,7 @@ void frame_worker_thread(frame_queue_t &input_queue,
 
         std::tuple<float, float, float> scores;
         try {
-            scores = gpu_worker.compute_metric_score(src_buffer, enc_buffer,
-                                                     intensity_multiplier);
+            scores = gpu_worker.compute_metric_score(src_buffer, enc_buffer);
         } catch (const VshipError &e) {
             std::cout << " error: " << e.getErrorMessage() << std::endl;
             frame_buffer_pool.insert(src_buffer);
@@ -222,12 +221,6 @@ int main(int argc, char **argv) {
 
     auto init = std::chrono::high_resolution_clock::now();
 
-    int device;
-    hipDeviceProp_t devattr;
-    hipGetDevice(&device);
-    hipGetDeviceProperties(&devattr, device);
-    const int maxshared = devattr.sharedMemPerBlock;
-
     const int queue_capacity = cli_args.cpu_threads;
 
     const int num_gpus = cli_args.gpu_threads;
@@ -281,7 +274,7 @@ int main(int argc, char **argv) {
     gpu_workers.reserve(num_gpus);
 
     for (int i = 0; i < num_gpus; i++){
-        gpu_workers.emplace_back(cli_args.metric, width, height, maxshared);
+        gpu_workers.emplace_back(cli_args.metric, width, height, cli_args.intensity_target_nits);
     }
 
     std::vector<std::thread> reader_threads;

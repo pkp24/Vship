@@ -195,4 +195,47 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int64_t dstst
     return finalres;
 }
 
+class ButterComputingImplementation{
+    float* pinned;
+    GaussianHandle gaussianhandle;
+    float intensity_multiplier;
+    int64_t width;
+    int64_t height;
+    int maxshared;
+    hipStream_t stream;
+public:
+    void init(int64_t width, int64_t height, float intensity_multiplier){
+        this->width = width;
+        this->height = height;
+        this->intensity_multiplier = intensity_multiplier;
+
+        gaussianhandle.init();
+        hipStreamCreate(&stream);
+
+        int device;
+        hipDeviceProp_t devattr;
+        hipGetDevice(&device);
+        hipGetDeviceProperties(&devattr, device);
+
+        maxshared = devattr.sharedMemPerBlock;
+
+        const int64_t pinnedsize = allocsizeScore(width, height);
+        hipError_t erralloc = hipHostMalloc(&pinned, sizeof(float)*pinnedsize);
+        if (erralloc != hipSuccess){
+            gaussianhandle.destroy();
+            throw VshipError(OutOfRAM, __FILE__, __LINE__);
+        }
+    }
+    void destroy(){
+        gaussianhandle.destroy();
+        hipStreamDestroy(stream);
+        hipHostFree(pinned);
+    }
+    //if dstp is NULL, distmap won't be retrieved
+    template <InputMemType T>
+    std::tuple<float, float, float> run(const uint8_t *dstp, int64_t dststride, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride){
+        return butterprocess<T>(dstp, dststride, srcp1, srcp2, pinned, gaussianhandle, stride, width, height, intensity_multiplier, maxshared, stream);
+    }
+};
+
 }

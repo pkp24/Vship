@@ -149,4 +149,44 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* p
     return res;
 }
 
+class SSIMU2ComputingImplementation{
+    float3* pinned;
+    GaussianHandle gaussianhandle;
+    int64_t width;
+    int64_t height;
+    int maxshared;
+    hipStream_t stream;
+public:
+    void init(int64_t width, int64_t height){
+        this->width = width;
+        this->height = height;
+
+        gaussianhandle.init();
+        hipStreamCreate(&stream);
+
+        int device;
+        hipDeviceProp_t devattr;
+        hipGetDevice(&device);
+        hipGetDeviceProperties(&devattr, device);
+
+        maxshared = devattr.sharedMemPerBlock;
+
+        const int64_t pinnedsize = allocsizeScore(width, height, maxshared);
+        hipError_t erralloc = hipHostMalloc(&pinned, sizeof(float3)*pinnedsize);
+        if (erralloc != hipSuccess){
+            gaussianhandle.destroy();
+            throw VshipError(OutOfRAM, __FILE__, __LINE__);
+        }
+    }
+    void destroy(){
+        gaussianhandle.destroy();
+        hipStreamDestroy(stream);
+        hipHostFree(pinned);
+    }
+    template <InputMemType T>
+    double run(const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride){
+        return ssimu2process<T>(srcp1, srcp2, pinned, stride, width, height, gaussianhandle, maxshared, stream);
+    }
+};
+
 }

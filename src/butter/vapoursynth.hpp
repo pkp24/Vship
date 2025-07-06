@@ -7,12 +7,8 @@ namespace butter{
     typedef struct ButterData{
         VSNode *reference;
         VSNode *distorted;
-        float intensity_multiplier;
-        float** PinnedMemPool;
-        GaussianHandle gaussianHandle;
-        int64_t maxshared;
+        ButterComputingImplementation* butterStreams;
         int diffmap;
-        hipStream_t* streams;
         int streamnum = 0;
         threadSet<int>* streamSet;
     } ButterData;
@@ -55,11 +51,12 @@ namespace butter{
             std::tuple<float, float, float> val;
             
             const int stream = d->streamSet->pop();
+            ButterComputingImplementation& butterstream = d->butterStreams[stream];
             try{
                 if (d->diffmap){
-                    val = butterprocess<FLOAT>(vsapi->getWritePtr(dst, 0), vsapi->getStride(dst, 0), srcp1, srcp2, d->PinnedMemPool[stream], d->gaussianHandle, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[stream]);
+                    val = butterstream.run<FLOAT>(vsapi->getWritePtr(dst, 0), vsapi->getStride(dst, 0), srcp1, srcp2, stride);
                 } else {
-                    val = butterprocess<FLOAT>(NULL, 0, srcp1, srcp2, d->PinnedMemPool[stream], d->gaussianHandle, stride, width, height, d->intensity_multiplier, d->maxshared, d->streams[stream]);
+                    val = butterstream.run<FLOAT>(NULL, 0, srcp1, srcp2, stride);
                 }
             } catch (const VshipError& e){
                 vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);
@@ -93,14 +90,10 @@ namespace butter{
         vsapi->freeNode(d->distorted);
     
         for (int i = 0; i < d->streamnum; i++){
-            hipHostFree(d->PinnedMemPool[i]);
-            hipStreamDestroy(d->streams[i]);
+            d->butterStreams[i].destroy();
         }
-        free(d->PinnedMemPool);
-        free(d->streams);
-        d->gaussianHandle.destroy();
+        free(d->butterStreams);
         delete d->streamSet;
-        //vsapi->setThreadCount(d->oldthreadnum, core);
     
         free(d);
     }
@@ -134,9 +127,9 @@ namespace butter{
         }
     
         int error;
-        d.intensity_multiplier = vsapi->mapGetFloat(in, "intensity_multiplier", 0, &error);
+        float intensity_multiplier = vsapi->mapGetFloat(in, "intensity_multiplier", 0, &error);
         if (error != peSuccess){
-            d.intensity_multiplier = 203.0f;
+            intensity_multiplier = 203.0f;
         }
         int gpuid = vsapi->mapGetInt(in, "gpu_id", 0, &error);
         if (error != peSuccess){
@@ -159,44 +152,16 @@ namespace butter{
             return;
         }
     
-        //hipSetDevice(gpuid);
-    
-        hipDeviceSetCacheConfig(hipFuncCachePreferNone);
-        int device;
-        hipDeviceProp_t devattr;
-        hipGetDevice(&device);
-        hipGetDeviceProperties(&devattr, device);
-    
-        //int videowidth = viref->width;
-        //int videoheight = viref->height;
-        //put optimal thread number
-        VSCoreInfo infos;
-        vsapi->getCoreInfo(core, &infos);
-        //d.oldthreadnum = infos.numThreads;
-        //int64_t freemem, totalmem;
-        //hipMemGetInfo (&freemem, &totalmem);
-    
-        //vsapi->setThreadCount(std::min((int)((float)(freemem - 20*(1llu << 20))/(8*sizeof(float3)*videowidth*videoheight*(1.33333))), d.oldthreadnum), core);
-    
         d.streamnum = vsapi->mapGetInt(in, "numStream", 0, &error);
         if (error != peSuccess){
-            d.streamnum = infos.numThreads;
+            d.streamnum = 4;
         }
-    
-        try {
-            d.gaussianHandle.init();
-        } catch (const VshipError& e){
-            vsapi->mapSetError(out, e.getErrorMessage().c_str());
-            return;
-        }
+
+        VSCoreInfo infos;
+        vsapi->getCoreInfo(core, &infos);
     
         d.streamnum = std::min(d.streamnum, infos.numThreads);
-        d.streamnum = std::min((int64_t)d.streamnum, (int64_t)((int64_t)devattr.totalGlobalMem/(32llu*4llu*(int64_t)viref->width*(int64_t)viref->height))); //VRAM overcommit partial protection
         d.streamnum = std::max(d.streamnum, 1);
-        d.streams = (hipStream_t*)malloc(sizeof(hipStream_t)*d.streamnum);
-        for (int i = 0; i < d.streamnum; i++){
-            hipStreamCreate(d.streams + i);
-        }
     
         std::set<int> newstreamset;
         for (int i = 0; i < d.streamnum; i++){
@@ -204,26 +169,19 @@ namespace butter{
         }
         d.streamSet = new threadSet(newstreamset);
     
-        const int64_t pinnedsize = allocsizeScore(viref->width, viref->height);
-        d.PinnedMemPool = (float**)malloc(sizeof(float*)*d.streamnum);
-        hipError_t erralloc;
-        for (int i = 0; i < d.streamnum; i++){
-            erralloc = hipHostMalloc(d.PinnedMemPool+i, sizeof(float)*pinnedsize);
-            if (erralloc != hipSuccess){
-                vsapi->mapSetError(out, VshipError(OutOfRAM, __FILE__, __LINE__).getErrorMessage().c_str());
-                vsapi->freeNode(d.reference);
-                vsapi->freeNode(d.distorted);
-                return;
-            }
-        }
-    
         data = (ButterData *)malloc(sizeof(d));
         *data = d;
-    
-        for (int i = 0; i < d.streamnum; i++){
-            data->streams[i] = d.streams[i];
+
+        try{
+            data->butterStreams = (ButterComputingImplementation*)malloc(sizeof(ButterComputingImplementation)*d.streamnum);
+            if (data->butterStreams == NULL) throw VshipError(OutOfRAM, __FILE__, __LINE__);
+            for (int i = 0; i < d.streamnum; i++){
+                data->butterStreams[i].init(viref->width, viref->height, intensity_multiplier);
+            }
+        } catch (const VshipError& e){
+            vsapi->mapSetError(out, e.getErrorMessage().c_str());
+            return;
         }
-        data->maxshared = devattr.sharedMemPerBlock;
     
         VSFilterDependency deps[] = {{d.reference, rpStrictSpatial}, {d.distorted, rpStrictSpatial}};
         vsapi->createVideoFilter(out, "vship", &viout, butterGetFrame, butterFree, fmParallel, deps, 2, data, core);

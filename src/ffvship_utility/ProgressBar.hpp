@@ -45,6 +45,7 @@ public:
 
         int termWidth, termHeight;
         get_terminal_size(termWidth, termHeight);
+        termWidth = std::min(termWidth, 100);
 
         std::stringstream ss;
 
