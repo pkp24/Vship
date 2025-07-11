@@ -471,7 +471,7 @@ std::vector<int> splitPerToken(std::string inp){
             temp.push_back(c);
         }
     }
-    out.push_back(std::stoi(temp));
+    if (temp != "") out.push_back(std::stoi(temp));
 
     return out;
 }
