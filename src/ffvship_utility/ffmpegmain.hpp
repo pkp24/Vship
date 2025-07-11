@@ -461,15 +461,17 @@ struct CommandLineOptions {
 
 std::vector<int> splitPerToken(std::string inp){
     std::vector<int> out;
+    std::string temp;
 
-    const char *del = ",";
-    char *src = const_cast<char*>(inp.c_str());
-    char *t = strtok(src, del);
-
-    while (t != NULL){
-        out.push_back(std::stoi(t));
-        t = strtok(NULL, del);
+    for (const char c: inp){
+        if (c == ','){
+            out.push_back(std::stoi(temp));
+            temp.clear();
+        } else {
+            temp.push_back(c);
+        }
     }
+    out.push_back(std::stoi(temp));
 
     return out;
 }
