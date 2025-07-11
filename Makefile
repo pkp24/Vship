@@ -5,13 +5,15 @@ DESTDIR ?=
 
 ifeq ($(OS),Windows_NT)
     dllend := .dll
+	exeend := .exe
     fpiccuda :=
     fpicamd :=
     plugin_install_path := $(APPDATA)\VapourSynth\plugins64
-    exe_install_path := $(ProgramFiles)\FFVship
+    exe_install_path := $(ProgramFiles)\FFVship.exe
     ffvshiplibheader := -I include -lz_imp -lz -lffms2
 else
     dllend := .so
+	exeend :=
     fpiccuda := -Xcompiler -fPIC
     fpicamd := -fPIC
     plugin_install_path := $(DESTDIR)$(PREFIX)/lib/vapoursynth
@@ -22,16 +24,16 @@ endif
 .FORCE:
 
 buildFFVSHIP: src/ffmpegmain.cpp .FORCE
-	hipcc src/ffmpegmain.cpp -std=c++17 --offload-arch=native -Wno-unused-result -Wno-ignored-attributes $(ffvshiplibheader) -o FFVship
+	hipcc src/ffmpegmain.cpp -std=c++17 --offload-arch=native -Wno-unused-result -Wno-ignored-attributes $(ffvshiplibheader) -o FFVship$(exeend)
 
 buildFFVSHIPcuda: src/ffmpegmain.cpp .FORCE
-	nvcc -x cu src/ffmpegmain.cpp -std=c++17  -arch=native $(subst -pthread,-Xcompiler="-pthread",$(ffvshiplibheader)) -o FFVship
+	nvcc -x cu src/ffmpegmain.cpp -std=c++17  -arch=native $(subst -pthread,-Xcompiler="-pthread",$(ffvshiplibheader)) -o FFVship$(exeend)
 
 buildFFVSHIPall: src/ffmpegmain.cpp .FORCE
-	hipcc src/ffmpegmain.cpp -std=c++17 --offload-arch=gfx1100,gfx1101,gfx1102,gfx1103,gfx1030,gfx1031,gfx1032,gfx906,gfx801,gfx802,gfx803 -Wno-unused-result -Wno-ignored-attributes $(ffvshiplibheader) -o FFVship
+	hipcc src/ffmpegmain.cpp -std=c++17 --offload-arch=gfx1100,gfx1101,gfx1102,gfx1103,gfx1030,gfx1031,gfx1032,gfx906,gfx801,gfx802,gfx803 -Wno-unused-result -Wno-ignored-attributes $(ffvshiplibheader) -o FFVship$(exeend)
 
 buildFFVSHIPcudaall: src/ffmpegmain.cpp .FORCE
-	nvcc -x cu src/ffmpegmain.cpp -std=c++17 -arch=all $(subst -pthread,-Xcompiler="-pthread",$(ffvshiplibheader)) -o FFVship
+	nvcc -x cu src/ffmpegmain.cpp -std=c++17 -arch=all $(subst -pthread,-Xcompiler="-pthread",$(ffvshiplibheader)) -o FFVship$(exeend)
 
 build: src/vapoursynthPlugin.cpp .FORCE
 	hipcc src/vapoursynthPlugin.cpp -std=c++17 --offload-arch=native -I "$(current_dir)include" -Wno-unused-result -Wno-ignored-attributes -shared $(fpicamd) -o "$(current_dir)vship$(dllend)"
