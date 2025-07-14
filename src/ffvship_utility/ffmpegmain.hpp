@@ -452,6 +452,7 @@ struct CommandLineOptions {
     int cpu_threads = 1;
 
     bool list_gpus = false;
+    bool version = false;
     MetricType metric = MetricType::SSIMULACRA2; //SSIMULACRA2 by default
 
     bool NoAssertExit = false; //please exit without creating an assertion failed scary error
@@ -518,13 +519,14 @@ CommandLineOptions parse_command_line_arguments(int argc, char **argv) {
     parser.add_flag({"--gpu-threads", "-g"}, &opts.gpu_threads, "GPU thread count, recommended is 3");
     parser.add_flag({"--gpu-id"}, &opts.gpu_id, "GPU index");
     parser.add_flag({"--list-gpu"}, &opts.list_gpus, "List available GPUs");
+    parser.add_flag({"--version"}, &opts.version, "Print FFVship version");
 
     if (parser.parse_cli_args(args) != 0) { //the parser will have already printed an error
         opts.NoAssertExit = true;
         return opts;
     }
 
-    if (opts.list_gpus) return opts;
+    if (opts.list_gpus || opts.version) return opts;
 
     try {
         opts.source_indices_list = splitPerToken(source_indices_str);

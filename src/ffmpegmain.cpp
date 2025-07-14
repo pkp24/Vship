@@ -109,7 +109,7 @@ void frame_worker_thread(frame_queue_t &input_queue,
 
 void aggregate_scores_function(score_queue_t& input_score_queue,
                                std::vector<float>& aggregated_scores,
-                               ProgressBarT& progressBar,
+                               ProgressBarT* progressBar,
                                MetricType metric, bool livePrint) {
     while (true) {
         std::optional<std::tuple<int, std::tuple<float, float, float>>>
@@ -124,13 +124,13 @@ void aggregate_scores_function(score_queue_t& input_score_queue,
 
         if (should_store_first_score) {
             aggregated_scores[frame_index] = std::get<0>(scores_tuple);
-            progressBar.add_value(std::get<0>(scores_tuple));
+            if (progressBar) progressBar->add_value(std::get<0>(scores_tuple));
             if (livePrint) std::cout << frame_index << " " << std::get<0>(scores_tuple) << std::endl;
         } else {
             aggregated_scores[frame_index * 3] = std::get<0>(scores_tuple);
             aggregated_scores[frame_index * 3 + 1] = std::get<1>(scores_tuple);
             aggregated_scores[frame_index * 3 + 2] = std::get<2>(scores_tuple);
-            progressBar.add_value(std::get<2>(scores_tuple));
+            if (progressBar) progressBar->add_value(std::get<2>(scores_tuple));
             if (livePrint) std::cout << frame_index << " " << std::get<0>(scores_tuple) << " " << std::get<1>(scores_tuple) << " " << std::get<2>(scores_tuple) << std::endl;
         }
     }
@@ -194,7 +194,12 @@ void print_aggergate_metric_statistics(const std::vector<float> &data,
 int main(int argc, char **argv) {
     CommandLineOptions cli_args = parse_command_line_arguments(argc, argv);
     if (cli_args.NoAssertExit){
-        return 0; //error is already handled
+        return 1; //error is already handled
+    }
+
+    if (cli_args.version){
+        std::cout << "FFVship 3.0.1-d" << std::endl;
+        return 0;
     }
 
     if (cli_args.list_gpus) {
@@ -202,6 +207,7 @@ int main(int argc, char **argv) {
             std::cout << helper::listGPU();
         } catch (const VshipError &e) {
             std::cout << e.getErrorMessage() << std::endl;
+            return 1;
         }
         return 0;
     }
@@ -354,10 +360,11 @@ int main(int argc, char **argv) {
                                       ? num_frames
                                       : num_frames * 3;
     std::vector<float> scores(score_vector_size);
-    ProgressBarT progressBar(num_frames);
+    ProgressBarT* progressBar;
+    if (!cli_args.live_index_score_output) progressBar = new ProgressBarT(num_frames);
 
     std::thread score_thread(aggregate_scores_function, std::ref(score_queue),
-                             std::ref(scores), std::ref(progressBar), cli_args.metric, cli_args.live_index_score_output);
+                             std::ref(scores), progressBar, cli_args.metric, cli_args.live_index_score_output);
 
     for (auto& reader_thread: reader_threads) reader_thread.join();
     frame_queue.close();
@@ -368,7 +375,10 @@ int main(int argc, char **argv) {
     score_queue.close();
     score_thread.join();
 
-    std::cerr << std::endl; //end of progressbar
+    if (!cli_args.live_index_score_output){
+        std::cout << std::endl; //end of progressbar
+        delete progressBar;
+    }
 
     auto fin = std::chrono::high_resolution_clock::now();
 
