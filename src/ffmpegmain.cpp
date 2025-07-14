@@ -199,6 +199,7 @@ int main(int argc, char **argv) {
 
     if (cli_args.version){
         std::cout << "FFVship 3.0.1-d" << std::endl;
+        std::cout << "Repository : https://github.com/Line-fr/Vship" << std::endl;
         return 0;
     }
 
