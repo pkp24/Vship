@@ -25,6 +25,7 @@ struct ArgParser {
 
     ArgParser() {
         add_flag({"-h", "--help"}, &show_help_flag, "Display this help message");
+        add_flag({"--config-file"}, &config_filepath, "Allows to input CLI Arguments specifying additional options (parsed after CLI)");
     }
 
     template<typename TargetType>
@@ -51,12 +52,45 @@ struct ArgParser {
             }
             ++current_arg_index;
         }
+        if (!config_filepath.empty()){
+            return parse_config();
+        }
         if (show_help_flag || args.size() == 1) { print_help(); return 2; }
         return 0;
     }
 
+    int parse_config(){
+        std::ifstream file(config_filepath);
+        if (!file){
+            std::cerr << "Error opening config file " << config_filepath << std::endl;
+            return 1;
+        }
+
+        std::string newcli_args;
+        if (!std::getline(file, newcli_args)){
+            std::cerr << "Error retrieving first line of config file " << config_filepath << std::endl;
+            return 1;
+        }
+        std::vector<std::string> arguments(1, binary_name);
+        std::string temp;
+        for (const char c: newcli_args){
+            switch (c){
+                case ' ':
+                    if (!temp.empty()) arguments.push_back(temp);
+                    temp.clear();
+                    break;
+                default:
+                    temp.push_back(c);
+            }
+        }
+        if (!temp.empty()) arguments.push_back(temp);
+        config_filepath = ""; //we can't parse it twice.
+        return parse_cli_args(arguments);
+    }
+
 private:
     mutable bool show_help_flag = false;
+    std::string config_filepath;
 
     // Parse a flag at index in 'arguments', returns false if unknown or invalid
     bool parse_flag(const std::vector<std::string>& arguments, size_t& index) {

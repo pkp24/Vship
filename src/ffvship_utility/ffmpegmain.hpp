@@ -465,14 +465,18 @@ std::vector<int> splitPerToken(std::string inp){
     std::string temp;
 
     for (const char c: inp){
-        if (c == ','){
-            out.push_back(std::stoi(temp));
-            temp.clear();
-        } else {
-            temp.push_back(c);
+        switch (c){
+            case ',':
+                out.push_back(std::stoi(temp));
+                temp.clear();
+                break;
+            case ' ':
+                continue;
+            default:
+                temp.push_back(c);
         }
     }
-    if (temp != "") out.push_back(std::stoi(temp));
+    if (!temp.empty()) out.push_back(std::stoi(temp));
 
     return out;
 }
