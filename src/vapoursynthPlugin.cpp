@@ -42,12 +42,12 @@ static void VS_CC GpuInfo(const VSMap *in, VSMap *out, void *userData, VSCore *c
         hipGetDeviceProperties(&devattr, device);
         ss << "Name: " << devattr.name << std::endl;
         ss << "MultiProcessorCount: " << devattr.multiProcessorCount << std::endl;
-        ss << "ClockRate: " << ((float)devattr.clockRate)/1000000 << " Ghz" << std::endl;
+        //ss << "ClockRate: " << ((float)devattr.clockRate)/1000000 << " Ghz" << std::endl; deprecated, removed in cuda 13
         ss << "MaxSharedMemoryPerBlock: " << devattr.sharedMemPerBlock << " bytes" << std::endl;
         ss << "WarpSize: " << devattr.warpSize << std::endl;
         ss << "VRAMCapacity: " << ((float)devattr.totalGlobalMem)/1000000000 << " GB" << std::endl;
         ss << "MemoryBusWidth: " << devattr.memoryBusWidth << " bits" << std::endl;
-        ss << "MemoryClockRate: " << ((float)devattr.memoryClockRate)/1000000 << " Ghz" << std::endl;
+        //ss << "MemoryClockRate: " << ((float)devattr.memoryClockRate)/1000000 << " Ghz" << std::endl; deprecated, removed in cuda13
         ss << "Integrated: " << devattr.integrated << std::endl;
         ss << "PassKernelCheck : " << (int)helper::gpuKernelCheck() << std::endl;
     }
