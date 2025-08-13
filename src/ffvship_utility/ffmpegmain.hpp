@@ -143,13 +143,16 @@ class FFMSIndexResult {
 
   public:
     std::string file_path;
+    std::string index_file_path;
     FFMS_Index* index = NULL;
     FFMS_Track* track = NULL;
     int selected_video_track = -1;
     int numFrame = 0;
+    int write = 0;
 
-    explicit FFMSIndexResult(const std::string &input_file_path) {
+    explicit FFMSIndexResult(const std::string& input_file_path, std::string input_index_file_path, const bool cache_index, const bool debug_out = false) {
         file_path = input_file_path;
+        index_file_path = input_index_file_path;
         FFMS_Init(0, 0);
 
         error_info.Buffer = error_message_buffer;
@@ -157,18 +160,47 @@ class FFMSIndexResult {
         error_info.ErrorType = FFMS_ERROR_SUCCESS;
         error_info.SubType = FFMS_ERROR_SUCCESS;
 
-        FFMS_Indexer *indexer =
-            FFMS_CreateIndexer(input_file_path.c_str(), &error_info);
-        ASSERT_WITH_MESSAGE(indexer != nullptr,
+        bool from_file_success = false;
+
+        //if cached but no path specified, we default to this path
+        if (input_index_file_path == "" && cache_index) input_index_file_path = input_file_path + ".ffindex";
+
+        //if path not empty, we try to read
+        if (input_index_file_path != ""){
+            index = FFMS_ReadIndex(input_index_file_path.c_str(), &error_info);
+            if (index != nullptr && !FFMS_IndexBelongsToFile(index, input_file_path.c_str(), &error_info)) {
+                from_file_success = true;
+                if (debug_out) std::cout << "Successfully read index from [" << input_index_file_path << "]" << std::endl;
+            } else {
+                if (debug_out) std::cout << "Index file at [" << input_index_file_path << "] is invalid or does not exist, creating" << std::endl;
+            }
+        }
+
+        //if failed, we will need to compute ourself
+        if (!from_file_success){
+            FFMS_Indexer *indexer = FFMS_CreateIndexer(input_file_path.c_str(), &error_info);
+            ASSERT_WITH_MESSAGE(indexer != nullptr,
                             ("FFMS2: Failed to create indexer for file [" +
-                             input_file_path + "] - " + error_message_buffer)
+                            input_file_path + "] - " + error_message_buffer)
                                 .c_str());
 
-        index = FFMS_DoIndexing2(indexer, FFMS_IEH_ABORT, &error_info);
-        ASSERT_WITH_MESSAGE(index != nullptr,
+            index = FFMS_DoIndexing2(indexer, FFMS_IEH_ABORT, &error_info);
+            ASSERT_WITH_MESSAGE(index != nullptr,
                             ("FFMS2: Failed to index file [" + input_file_path +
-                             "] - " + error_message_buffer)
+                            "] - " + error_message_buffer)
                                 .c_str());
+        }
+
+        //if we need to cache and it s computed (compiler will optimize automatically)
+        //we will write the cache file
+        if (!from_file_success && cache_index){
+            write = FFMS_WriteIndex(input_index_file_path.c_str(), index, &error_info);
+            ASSERT_WITH_MESSAGE(write == 0,
+                                ("FFMS2: Failed to write index to file [" + input_index_file_path +
+                                "] - " + error_message_buffer)
+                                    .c_str());
+            if (debug_out) std::cout << "Successfully wrote index to [" << input_index_file_path << "]" << std::endl;
+        }
 
         selected_video_track =
             FFMS_GetFirstTrackOfType(index, FFMS_TYPE_VIDEO, &error_info);
@@ -437,6 +469,8 @@ struct CommandLineOptions {
     std::string source_file;
     std::string encoded_file;
     std::string json_output_file;
+    std::string source_index;
+    std::string encoded_index;
 
     int start_frame = 0;
     int end_frame = -1;
@@ -458,6 +492,8 @@ struct CommandLineOptions {
     bool NoAssertExit = false; //please exit without creating an assertion failed scary error
 
     bool live_index_score_output = false;
+
+    bool cache_index = false;
 };
 
 std::vector<int> splitPerToken(std::string inp){
@@ -511,6 +547,9 @@ CommandLineOptions parse_command_line_arguments(int argc, char **argv) {
     parser.add_flag({"--metric", "-m"}, &metric_name, "Which metric to use [SSIMULACRA2, Butteraugli]");
     parser.add_flag({"--json"}, &opts.json_output_file, "Outputs metric results to a json file");
     parser.add_flag({"--live-score-output"}, &opts.live_index_score_output, "replace stdout output with index-score lines");
+    parser.add_flag({"--source-index"}, &opts.source_index, "FFMS2 index file for source video");
+    parser.add_flag({"--encoded-index"}, &opts.encoded_index, "FFMS2 index file for encoded video");
+    parser.add_flag({"--cache-index"}, &opts.cache_index, "Write index files to disk and reuse if available");
 
     parser.add_flag({"--start"}, &opts.start_frame, "Starting frame of source");
     parser.add_flag({"--end"}, &opts.end_frame, "Ending frame of source");
