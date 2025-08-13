@@ -270,8 +270,8 @@ int main(int argc, char **argv) {
         for (int i = start; i < end; i += every) frames_source.push_back(i);
     } else {
         for (const int el : cli_args.source_indices_list){
-            if (el*every + start >= end){
-                std::cerr << "Source Invalid frame index found " << el << " which will be placed at " << el*every+start << " after computed end " << end << std::endl;
+            if (el*every + start >= v1.reader->total_frame_count){
+                std::cerr << "Source Invalid frame index found " << el << " which will be placed at " << el*every+start << " after computed end " << v1.reader->total_frame_count << std::endl;
                 return 1;
             }
             frames_source.push_back(start + el*every);
@@ -283,8 +283,8 @@ int main(int argc, char **argv) {
         for (int i = start; i < end; i += every) frames_encoded.push_back(i+encoded_offset);
     } else if (cli_args.encoded_indices_list.empty() && !cli_args.source_indices_list.empty()) {
         for (const int el : cli_args.source_indices_list){
-            if (el*every + start >= end){
-                std::cerr << "Encoded Invalid frame index found " << el << " which will be placed at " << el*every+start+encoded_offset << " after computed end " << end+encoded_offset << std::endl;
+            if (el*every + start + encoded_offset >= v2.reader->total_frame_count){
+                std::cerr << "Encoded Invalid frame index found " << el << " which will be placed at " << el*every+start+encoded_offset << " after computed end " << v2.reader->total_frame_count << std::endl;
                 return 1;
             }
             frames_encoded.push_back(start + el*every + encoded_offset);
