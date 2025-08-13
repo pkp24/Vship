@@ -150,7 +150,7 @@ class FFMSIndexResult {
     int numFrame = 0;
     int write = 0;
 
-    explicit FFMSIndexResult(const std::string &input_file_path, const std::string &input_index_file_path, const bool cache_index) {
+    explicit FFMSIndexResult(const std::string& input_file_path, std::string input_index_file_path, const bool cache_index, const bool debug_out = false) {
         file_path = input_file_path;
         index_file_path = input_index_file_path;
         FFMS_Init(0, 0);
@@ -160,89 +160,46 @@ class FFMSIndexResult {
         error_info.ErrorType = FFMS_ERROR_SUCCESS;
         error_info.SubType = FFMS_ERROR_SUCCESS;
 
-        if (input_index_file_path != "") {
-            if (cache_index) {
-                index = FFMS_ReadIndex(input_index_file_path.c_str(), &error_info);
-                if (index == nullptr || FFMS_IndexBelongsToFile(index, input_file_path.c_str(), &error_info)) {
-                    std::cout << "Index file at [" << input_index_file_path << "] is invalid or does not exist, creating" << std::endl;
-                    FFMS_Indexer *indexer =
-                        FFMS_CreateIndexer(input_file_path.c_str(), &error_info);
-                    ASSERT_WITH_MESSAGE(indexer != nullptr,
-                                        ("FFMS2: Failed to create indexer for file [" +
-                                        input_file_path + "] - " + error_message_buffer)
-                                            .c_str());
+        bool from_file_success = false;
 
-                    index = FFMS_DoIndexing2(indexer, FFMS_IEH_ABORT, &error_info);
-                    ASSERT_WITH_MESSAGE(index != nullptr,
-                                        ("FFMS2: Failed to index file [" + input_file_path +
-                                        "] - " + error_message_buffer)
-                                            .c_str());
+        //if cached but no path specified, we default to this path
+        if (input_index_file_path == "" && cache_index) input_index_file_path = input_file_path + ".ffindex";
 
-                    write = FFMS_WriteIndex(input_index_file_path.c_str(), index, &error_info);
-                    ASSERT_WITH_MESSAGE(write == 0,
-                                        ("FFMS2: Failed to write index to file [" + input_index_file_path +
-                                        "] - " + error_message_buffer)
-                                            .c_str());
-                    std::cout << "Successfully wrote index to [" << input_index_file_path << "]" << std::endl;
-                } else
-                    std::cout << "Successfully read index from [" << input_index_file_path << "]" << std::endl;
+        //if path not empty, we try to read
+        if (input_index_file_path != ""){
+            index = FFMS_ReadIndex(input_index_file_path.c_str(), &error_info);
+            if (index != nullptr && !FFMS_IndexBelongsToFile(index, input_file_path.c_str(), &error_info)) {
+                from_file_success = true;
+                if (debug_out) std::cout << "Successfully read index from [" << input_index_file_path << "]" << std::endl;
             } else {
-                index = FFMS_ReadIndex(input_index_file_path.c_str(), &error_info);
-                if (index == nullptr || FFMS_IndexBelongsToFile(index, input_file_path.c_str(), &error_info)) {
-                    std::cout << "Index file at [" << input_index_file_path << "] is invalid or does not exist, ignoring" << std::endl;
-                    FFMS_Indexer *indexer =
-                        FFMS_CreateIndexer(input_file_path.c_str(), &error_info);
-                    ASSERT_WITH_MESSAGE(indexer != nullptr,
-                                        ("FFMS2: Failed to create indexer for file [" +
-                                        input_file_path + "] - " + error_message_buffer)
-                                            .c_str());
-
-                    index = FFMS_DoIndexing2(indexer, FFMS_IEH_ABORT, &error_info);
-                    ASSERT_WITH_MESSAGE(index != nullptr,
-                                        ("FFMS2: Failed to index file [" + input_file_path +
-                                        "] - " + error_message_buffer)
-                                            .c_str());
-                } else
-                    std::cout << "Successfully read index from [" << input_index_file_path << "]" << std::endl;
+                if (debug_out) std::cout << "Index file at [" << input_index_file_path << "] is invalid or does not exist, creating" << std::endl;
             }
-        } else if (cache_index) {
-            index = FFMS_ReadIndex((input_file_path + ".ffindex").c_str(), &error_info);
-            if (index == nullptr || FFMS_IndexBelongsToFile(index, input_file_path.c_str(), &error_info)) {
-                std::cout << "Index file at [" << input_file_path << ".ffindex] is invalid or does not exist, creating" << std::endl;
-                FFMS_Indexer *indexer =
-                    FFMS_CreateIndexer(input_file_path.c_str(), &error_info);
-                ASSERT_WITH_MESSAGE(indexer != nullptr,
-                                    ("FFMS2: Failed to create indexer for file [" +
-                                    input_file_path + "] - " + error_message_buffer)
-                                        .c_str());
+        }
 
-                index = FFMS_DoIndexing2(indexer, FFMS_IEH_ABORT, &error_info);
-                ASSERT_WITH_MESSAGE(index != nullptr,
-                                    ("FFMS2: Failed to index file [" + input_file_path +
-                                    "] - " + error_message_buffer)
-                                        .c_str());
-
-                write = FFMS_WriteIndex((input_file_path + ".ffindex").c_str(), index, &error_info);
-                ASSERT_WITH_MESSAGE(write == 0,
-                                    ("FFMS2: Failed to write index to file [" + input_file_path +
-                                    ".ffindex] - " + error_message_buffer)
-                                        .c_str());
-                std::cout << "Successfully wrote index to [" << input_file_path << ".ffindex]" << std::endl;
-            } else
-                std::cout << "Successfully read index from [" << input_file_path << ".ffindex]" << std::endl;
-        } else {
-            FFMS_Indexer *indexer =
-                FFMS_CreateIndexer(input_file_path.c_str(), &error_info);
+        //if failed, we will need to compute ourself
+        if (!from_file_success){
+            FFMS_Indexer *indexer = FFMS_CreateIndexer(input_file_path.c_str(), &error_info);
             ASSERT_WITH_MESSAGE(indexer != nullptr,
-                                ("FFMS2: Failed to create indexer for file [" +
-                                input_file_path + "] - " + error_message_buffer)
-                                    .c_str());
+                            ("FFMS2: Failed to create indexer for file [" +
+                            input_file_path + "] - " + error_message_buffer)
+                                .c_str());
 
             index = FFMS_DoIndexing2(indexer, FFMS_IEH_ABORT, &error_info);
             ASSERT_WITH_MESSAGE(index != nullptr,
-                                ("FFMS2: Failed to index file [" + input_file_path +
+                            ("FFMS2: Failed to index file [" + input_file_path +
+                            "] - " + error_message_buffer)
+                                .c_str());
+        }
+
+        //if we need to cache and it s computed (compiler will optimize automatically)
+        //we will write the cache file
+        if (!from_file_success && cache_index){
+            write = FFMS_WriteIndex(input_index_file_path.c_str(), index, &error_info);
+            ASSERT_WITH_MESSAGE(write == 0,
+                                ("FFMS2: Failed to write index to file [" + input_index_file_path +
                                 "] - " + error_message_buffer)
                                     .c_str());
+            if (debug_out) std::cout << "Successfully wrote index to [" << input_index_file_path << "]" << std::endl;
         }
 
         selected_video_track =
