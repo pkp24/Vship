@@ -3,6 +3,8 @@
 int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
     zimg_image_format_default(&out, ZIMG_API_VERSION);
 
+    auto range = in->ColorRange;
+
     out.width = in->EncodedWidth;
     out.height = in->EncodedHeight;
 
@@ -126,6 +128,36 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
         break;
         case AV_PIX_FMT_YUV440P12LE:
             out.depth = 12;
+            out.subsample_w = 0;
+            out.subsample_h = 1;
+        break;
+        case AV_PIX_FMT_YUVJ420P:
+            range = AVCOL_RANGE_JPEG;
+            out.depth = 8;
+            out.subsample_w = 1;
+            out.subsample_h = 1;
+        break;
+        case AV_PIX_FMT_YUVJ422P:
+            range = AVCOL_RANGE_JPEG;
+            out.depth = 8;
+            out.subsample_w = 1;
+            out.subsample_h = 0;
+        break;
+        case AV_PIX_FMT_YUVJ444P:
+            range = AVCOL_RANGE_JPEG;
+            out.depth = 8;
+            out.subsample_w = 0;
+            out.subsample_h = 0;
+        break;
+        case AV_PIX_FMT_YUVJ411P:
+            range = AVCOL_RANGE_JPEG;
+            out.depth = 8;
+            out.subsample_w = 2;
+            out.subsample_h = 0;
+        break;
+        case AV_PIX_FMT_YUVJ440P:
+            range = AVCOL_RANGE_JPEG;
+            out.depth = 8;
             out.subsample_w = 0;
             out.subsample_h = 1;
         break;
@@ -328,7 +360,7 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
             return 1;
     }
 
-    switch (in->ColorRange){
+    switch (range){
         case AVCOL_RANGE_UNSPECIFIED:
             //std::cout << "Warning: unspecified color range, defaulting to full" << std::endl;
         case AVCOL_RANGE_MPEG:
