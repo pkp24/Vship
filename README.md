@@ -200,7 +200,3 @@ Special thanks to dnjulek for the Zig-based SSIMULACRA2 implementation in
 
 This project is licensed under the MIT license. License information is provided
 by the [LICENSE](LICENSE).
-
-## Visit Counter
-
-![Visit Counter](https://profile-counter.glitch.me/Line-fr-vship/count.svg)

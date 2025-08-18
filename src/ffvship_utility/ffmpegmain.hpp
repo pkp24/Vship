@@ -8,6 +8,7 @@ extern "C" {
 
 // #include "util/CLI_Parser.hpp"
 #include "ffmpegToZimgFormat.hpp"
+#include "unpack.hpp"
 #include "../util/preprocessor.hpp"
 
 #include <cstdio>
