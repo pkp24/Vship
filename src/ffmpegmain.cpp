@@ -236,6 +236,7 @@ int main(int argc, char **argv) {
     VideoManager v1(cli_args.source_file, source_index.index,
                     source_index.selected_video_track);
     int width = v1.reader->frame_width, height = v1.reader->frame_height;
+    int stride = align_stride(width*sizeof(uint16_t));
 
     VideoManager v2(cli_args.encoded_file, encode_index.index,
                     encode_index.selected_video_track, width, height);
@@ -310,7 +311,7 @@ int main(int argc, char **argv) {
 
     std::set<uint8_t *> frame_buffers;
     for (unsigned int i = 0; i < num_frame_buffer; ++i) {
-        frame_buffers.insert(GpuWorker::allocate_external_rgb_buffer(width, height));
+        frame_buffers.insert(GpuWorker::allocate_external_rgb_buffer(stride, height));
     }
 
     frame_pool_t frame_buffer_pool(frame_buffers);
@@ -320,7 +321,7 @@ int main(int argc, char **argv) {
     gpu_workers.reserve(num_gpus);
 
     for (int i = 0; i < num_gpus; i++){
-        gpu_workers.emplace_back(cli_args.metric, width, height, cli_args.intensity_target_nits);
+        gpu_workers.emplace_back(cli_args.metric, width, height, stride, cli_args.intensity_target_nits);
     }
 
     std::vector<std::thread> reader_threads;

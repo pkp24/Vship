@@ -25,6 +25,10 @@ if (!(condition)) {\
 
 enum class MetricType { SSIMULACRA2, Butteraugli, Unknown };
 
+int inline align_stride(int stride){
+    return ((stride-1)/32+1)*32;
+}
+
 static void print_zimg_error(void) {
     char err_msg[1024];
     int err_code = zimg_get_last_error(err_msg, sizeof(err_msg));
@@ -36,6 +40,7 @@ class GpuWorker {
   private:
     int image_width;
     int image_height;
+    int image_stride;
 
     MetricType selected_metric;
 
@@ -43,8 +48,8 @@ class GpuWorker {
     butter::ButterComputingImplementation butterworker;
 
   public:
-    GpuWorker(MetricType metric, int width, int height, float intensity_multiplier)
-        : image_width(width), image_height(height), selected_metric(metric) {
+    GpuWorker(MetricType metric, int width, int height, int stride, float intensity_multiplier)
+        : image_width(width), image_height(height), selected_metric(metric), image_stride(stride){
         allocate_gpu_memory(intensity_multiplier);
     }
     ~GpuWorker(){
@@ -53,10 +58,8 @@ class GpuWorker {
 
     std::tuple<float, float, float>
     compute_metric_score(uint8_t *source_frame, uint8_t *encoded_frame) {
-        const int stride_bytes =
-            image_width * static_cast<int>(sizeof(uint16_t));
         const int channel_offset_bytes =
-            image_width * image_height * static_cast<int>(sizeof(uint16_t));
+            image_stride * image_height;
 
         const uint8_t *source_channels[3] = {
             source_frame, source_frame + channel_offset_bytes,
@@ -68,22 +71,22 @@ class GpuWorker {
 
         if (selected_metric == MetricType::SSIMULACRA2) {
             const double score = ssimu2worker.run<UINT16>(
-                source_channels, encoded_channels, stride_bytes);
+                source_channels, encoded_channels, image_stride);
             float s = static_cast<float>(score);
             return {s, s, s};
         }
 
         if (selected_metric == MetricType::Butteraugli) {
             return butterworker.run<UINT16>(
-                nullptr, 0, source_channels, encoded_channels, stride_bytes);
+                nullptr, 0, source_channels, encoded_channels, image_stride);
         }
 
         ASSERT_WITH_MESSAGE(false, "Unknown metric specified for GpuWorker.");
         return {0.0f, 0.0f, 0.0f};
     }
 
-    static uint8_t *allocate_external_rgb_buffer(int width, int height) {
-        const size_t buffer_size_bytes = static_cast<size_t>(width) * height * sizeof(uint16_t) * 3;
+    static uint8_t *allocate_external_rgb_buffer(int stride, int height) {
+        const size_t buffer_size_bytes = stride * height * 3;
         uint8_t *buffer_ptr = nullptr;
 
         const hipError_t result = hipHostMalloc(
@@ -449,7 +452,7 @@ class VideoManager {
             resize_height = reader->frame_height;
 
         plane_size_bytes = resize_width * resize_height * sizeof(uint16_t);
-        plane_stride_bytes = resize_width * sizeof(uint16_t);
+        plane_stride_bytes = align_stride(resize_width * sizeof(uint16_t)); //this needs to be divisible by 32
 
         processor = std::make_unique<ZimgProcessor>(
             reader->current_frame, resize_width, resize_height);
