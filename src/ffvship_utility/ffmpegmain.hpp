@@ -359,30 +359,51 @@ class ZimgProcessor {
     void *tmp_buffer = nullptr;
     size_t tmp_size = 0;
 
+    AVPixelFormat src_pixfmt;
+    uint8_t* unpack_buffer = nullptr;
+    int unpack_stride = 0;
+
     ZimgProcessor(const FFMS_Frame *ref_frame, int target_width,
                   int target_height) {
         initialize_formats(ref_frame, target_width, target_height);
+        build_unpack();
         build_graph();
         allocate_tmp_buffer();
     }
 
     ~ZimgProcessor() {
-        if (graph)
-            zimg_filter_graph_free(graph);
-        if (tmp_buffer)
+        if (unpack_buffer) {
+            free(unpack_buffer);
+            unpack_buffer = NULL;
+        }
+        if (graph) zimg_filter_graph_free(graph);
+        if (tmp_buffer) {
             free(tmp_buffer);
+            tmp_buffer = NULL;
+        }
     }
 
     void process(const FFMS_Frame *src, uint8_t *dst, int stride,
                  int plane_size) {
+
+        if (unpack_buffer != NULL){
+            unpack(src);
+        }
+
         for (int p = 0; p < 3; ++p) {
             dst_buffer.plane[p].data = dst + p * plane_size;
             dst_buffer.plane[p].stride = stride;
             dst_buffer.plane[p].mask = ZIMG_BUFFER_MAX;
 
-            src_buffer.plane[p].data = src->Data[p];
-            src_buffer.plane[p].stride = src->Linesize[p];
             src_buffer.plane[p].mask = ZIMG_BUFFER_MAX;
+            if (unpack_buffer == NULL){
+                src_buffer.plane[p].data = src->Data[p];
+                src_buffer.plane[p].stride = src->Linesize[p];
+            } else {
+                //we have unpacked so we choose the data in unpack_buffer
+                src_buffer.plane[p].data = unpack_buffer+p*unpack_stride*src_format.height;
+                src_buffer.plane[p].stride = unpack_stride;
+            }
         }
 
         int ret = zimg_filter_graph_process(graph, &src_buffer, &dst_buffer,
@@ -409,6 +430,57 @@ class ZimgProcessor {
         dst_format.color_primaries = ZIMG_PRIMARIES_BT709;
         dst_format.depth = 16;
         dst_format.pixel_range = ZIMG_RANGE_FULL;
+
+        src_pixfmt = (AVPixelFormat)frame->EncodedPixelFormat;
+    }
+
+    void build_unpack(){
+        int depth;
+        //list supported formats (they are repeated in ffmpegToZimgFormat to handle them correctly)
+        switch (src_pixfmt){
+
+            //bitdepth 8
+            case AV_PIX_FMT_ARGB:
+            case AV_PIX_FMT_RGBA:
+            depth = 8;
+            break;
+
+            default:
+                return; //no unpack
+        }
+        unpack_stride = src_format.width * depth; //in bits
+        unpack_stride = ((unpack_stride-1)/256+1)*256; //align to 32 bytes for zimg
+        unpack_stride >>= 3; //in bytes
+
+        unpack_buffer = (uint8_t*)aligned_alloc(32, sizeof(uint8_t)*unpack_stride*src_format.height*3);
+    }
+
+    void unpack(const FFMS_Frame *src){
+        switch (src_pixfmt){
+            case AV_PIX_FMT_RGBA:
+                for (int i = 0; i < src_format.width; i++){
+                    for (int j = 0; j < src_format.height; j++){
+                        unpack_buffer[j*unpack_stride+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i];
+                        unpack_buffer[j*unpack_stride+i + unpack_stride*src_format.height] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+1];
+                        unpack_buffer[j*unpack_stride+i + 2*unpack_stride*src_format.height] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+2];
+                    }
+                }
+            break;
+            case AV_PIX_FMT_ARGB:
+                for (int i = 0; i < src_format.width; i++){
+                    for (int j = 0; j < src_format.height; j++){
+                        unpack_buffer[j*unpack_stride+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+1];
+                        unpack_buffer[j*unpack_stride+i + unpack_stride*src_format.height] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+2];
+                        unpack_buffer[j*unpack_stride+i + 2*unpack_stride*src_format.height] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+3];
+                    }
+                }
+            break;
+
+            default:
+                //this should not happen and result of forgiveness of the dev, better to place this in case
+                std::cout << "Error: Trying to unpack an unsupported format " << src_pixfmt << " line " << __LINE__ << " of " << __FILE__ << std::endl;
+                return;
+        }
     }
 
     void build_graph() {
@@ -451,8 +523,8 @@ class VideoManager {
         if (resize_height < 0)
             resize_height = reader->frame_height;
 
-        plane_size_bytes = resize_width * resize_height * sizeof(uint16_t);
         plane_stride_bytes = align_stride(resize_width * sizeof(uint16_t)); //this needs to be divisible by 32
+        plane_size_bytes = plane_stride_bytes * resize_height;
 
         processor = std::make_unique<ZimgProcessor>(
             reader->current_frame, resize_width, resize_height);

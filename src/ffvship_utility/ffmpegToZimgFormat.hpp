@@ -3,8 +3,6 @@
 int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
     zimg_image_format_default(&out, ZIMG_API_VERSION);
 
-    auto range = in->ColorRange;
-
     out.width = in->EncodedWidth;
     out.height = in->EncodedHeight;
 
@@ -132,34 +130,42 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
             out.subsample_h = 1;
         break;
         case AV_PIX_FMT_YUVJ420P:
-            range = AVCOL_RANGE_JPEG;
+            out.pixel_range = ZIMG_RANGE_FULL;
             out.depth = 8;
             out.subsample_w = 1;
             out.subsample_h = 1;
         break;
         case AV_PIX_FMT_YUVJ422P:
-            range = AVCOL_RANGE_JPEG;
+            out.pixel_range = ZIMG_RANGE_FULL;
             out.depth = 8;
             out.subsample_w = 1;
             out.subsample_h = 0;
         break;
         case AV_PIX_FMT_YUVJ444P:
-            range = AVCOL_RANGE_JPEG;
+            out.pixel_range = ZIMG_RANGE_FULL;
             out.depth = 8;
             out.subsample_w = 0;
             out.subsample_h = 0;
         break;
         case AV_PIX_FMT_YUVJ411P:
-            range = AVCOL_RANGE_JPEG;
+            out.pixel_range = ZIMG_RANGE_FULL;
             out.depth = 8;
             out.subsample_w = 2;
             out.subsample_h = 0;
         break;
         case AV_PIX_FMT_YUVJ440P:
-            range = AVCOL_RANGE_JPEG;
+            out.pixel_range = ZIMG_RANGE_FULL;
             out.depth = 8;
             out.subsample_w = 0;
             out.subsample_h = 1;
+        break;
+        case AV_PIX_FMT_RGBA:
+        case AV_PIX_FMT_ARGB:
+            out.color_family = ZIMG_COLOR_RGB;
+            out.matrix_coefficients = ZIMG_MATRIX_RGB;
+            out.depth = 8;
+            out.subsample_w = 0;
+            out.subsample_h = 0;
         break;
         default:
             std::cout << "Unhandled LibAV Pixel Format " << (AVPixelFormat)in->EncodedPixelFormat << std::endl;
@@ -264,6 +270,7 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
     switch (in->TransferCharateristics){
         case AVCOL_TRC_UNSPECIFIED:
             //std::cout << "missing transfer function, using BT709" << std::endl;;
+            break;    
         case AVCOL_TRC_BT709:
             out.transfer_characteristics = ZIMG_TRANSFER_BT709;
             break;
@@ -321,6 +328,7 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
     switch (in->ColorPrimaries){
         case AVCOL_PRI_UNSPECIFIED:
             //std::cout << "unspecified primaries, defaulting to BT709" << std::endl;
+            break;
         case AVCOL_PRI_BT709:
             out.color_primaries = ZIMG_PRIMARIES_BT709;
             break;
@@ -360,9 +368,10 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
             return 1;
     }
 
-    switch (range){
+    switch (in->ColorRange){
         case AVCOL_RANGE_UNSPECIFIED:
             //std::cout << "Warning: unspecified color range, defaulting to full" << std::endl;
+            break;
         case AVCOL_RANGE_MPEG:
             out.pixel_range = ZIMG_RANGE_LIMITED;
             break;
