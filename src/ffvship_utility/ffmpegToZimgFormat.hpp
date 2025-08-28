@@ -20,6 +20,7 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
             out.subsample_w = 1;
             out.subsample_h = 1;
         break;
+        case AV_PIX_FMT_YUYV422:
         case AV_PIX_FMT_YUVA422P:
         case AV_PIX_FMT_YUV422P:
             out.depth = 8;
@@ -173,6 +174,7 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
             out.subsample_w = 0;
             out.subsample_h = 1;
         break;
+        case AV_PIX_FMT_RGB24:
         case AV_PIX_FMT_RGBA:
         case AV_PIX_FMT_ARGB:
             out.color_family = ZIMG_COLOR_RGB;

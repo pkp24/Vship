@@ -360,8 +360,8 @@ class ZimgProcessor {
     size_t tmp_size = 0;
 
     AVPixelFormat src_pixfmt;
-    uint8_t* unpack_buffer = nullptr;
-    int unpack_stride = 0;
+    uint8_t* unpack_buffer[3] = {nullptr, nullptr, nullptr};
+    int unpack_stride[3] = {0, 0, 0};
 
     ZimgProcessor(const FFMS_Frame *ref_frame, int target_width,
                   int target_height) {
@@ -372,9 +372,9 @@ class ZimgProcessor {
     }
 
     ~ZimgProcessor() {
-        if (unpack_buffer) {
-            free(unpack_buffer);
-            unpack_buffer = NULL;
+        if (unpack_buffer[0]) {
+            free(unpack_buffer[0]);
+            unpack_buffer[0] = NULL;
         }
         if (graph) zimg_filter_graph_free(graph);
         if (tmp_buffer) {
@@ -386,7 +386,7 @@ class ZimgProcessor {
     void process(const FFMS_Frame *src, uint8_t *dst, int stride,
                  int plane_size) {
 
-        if (unpack_buffer != NULL){
+        if (unpack_buffer[0] != NULL){
             unpack(src);
         }
 
@@ -396,13 +396,13 @@ class ZimgProcessor {
             dst_buffer.plane[p].mask = ZIMG_BUFFER_MAX;
 
             src_buffer.plane[p].mask = ZIMG_BUFFER_MAX;
-            if (unpack_buffer == NULL){
+            if (unpack_buffer[0] == NULL){
                 src_buffer.plane[p].data = src->Data[p];
                 src_buffer.plane[p].stride = src->Linesize[p];
             } else {
                 //we have unpacked so we choose the data in unpack_buffer
-                src_buffer.plane[p].data = unpack_buffer+p*unpack_stride*src_format.height;
-                src_buffer.plane[p].stride = unpack_stride;
+                src_buffer.plane[p].data = unpack_buffer[p];
+                src_buffer.plane[p].stride = unpack_stride[p];
             }
         }
 
@@ -439,39 +439,84 @@ class ZimgProcessor {
         //list supported formats (they are repeated in ffmpegToZimgFormat to handle them correctly)
         switch (src_pixfmt){
 
-            //bitdepth 8
+            //bitdepth 8, 422
+            case AV_PIX_FMT_YUYV422:
+            depth = 8;
+            unpack_stride[0] = src_format.width * depth; //in bits
+            unpack_stride[1] = (src_format.width/2) * depth; //in bits
+            unpack_stride[0] = ((unpack_stride[0]-1)/256+1)*256; //align to 32 bytes for zimg
+            unpack_stride[1] = ((unpack_stride[1]-1)/256+1)*256; //align to 32 bytes for zimg
+            unpack_stride[0] >>= 3; //in bytes
+            unpack_stride[1] >>= 3; //in bytes
+
+            unpack_stride[2] = unpack_stride[1]; //same for both chroma
+
+            unpack_buffer[0] = (uint8_t*)aligned_alloc(32, sizeof(uint8_t)*(unpack_stride[0]+unpack_stride[1]+unpack_stride[2])*src_format.height);
+            unpack_buffer[1] = unpack_buffer[0] + unpack_stride[0]*src_format.height;
+            unpack_buffer[2] = unpack_buffer[1] + unpack_stride[1]*src_format.height;
+            break;
+
+            //bitdepth 8, 444
+            case AV_PIX_FMT_RGB24:
             case AV_PIX_FMT_ARGB:
             case AV_PIX_FMT_RGBA:
             depth = 8;
+            unpack_stride[0] = src_format.width * depth; //in bits
+            unpack_stride[0] = ((unpack_stride[0]-1)/256+1)*256; //align to 32 bytes for zimg
+            unpack_stride[0] >>= 3; //in bytes
+            unpack_stride[1] = unpack_stride[0]; //444, same stride everywhere
+            unpack_stride[2] = unpack_stride[0];
+
+            unpack_buffer[0] = (uint8_t*)aligned_alloc(32, sizeof(uint8_t)*unpack_stride[0]*src_format.height*3);
+            unpack_buffer[1] = unpack_buffer[0] + unpack_stride[0]*src_format.height;
+            unpack_buffer[2] = unpack_buffer[1] + unpack_stride[0]*src_format.height;
             break;
 
             default:
                 return; //no unpack
         }
-        unpack_stride = src_format.width * depth; //in bits
-        unpack_stride = ((unpack_stride-1)/256+1)*256; //align to 32 bytes for zimg
-        unpack_stride >>= 3; //in bytes
-
-        unpack_buffer = (uint8_t*)aligned_alloc(32, sizeof(uint8_t)*unpack_stride*src_format.height*3);
     }
 
     void unpack(const FFMS_Frame *src){
         switch (src_pixfmt){
+            case AV_PIX_FMT_YUYV422:
+                for (int j = 0; j < src_format.height; j++){
+                    for (int i = 0; i < src_format.width/2; i++){
+                        //Y
+                        unpack_buffer[0][j*unpack_stride[0]+2*i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i];
+                        //U
+                        unpack_buffer[1][j*unpack_stride[1]+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+1];
+                        //Y
+                        unpack_buffer[0][j*unpack_stride[0]+2*i+1] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+2];
+                        //V
+                        unpack_buffer[2][j*unpack_stride[2]+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+3];
+                    }
+                }
+            break;
+            case AV_PIX_FMT_RGB24:
+                for (int j = 0; j < src_format.height; j++){
+                    for (int i = 0; i < src_format.width; i++){
+                        unpack_buffer[0][j*unpack_stride[0]+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+3*i];
+                        unpack_buffer[1][j*unpack_stride[1]+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+3*i+1];
+                        unpack_buffer[2][j*unpack_stride[2]+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+3*i+2];
+                    }
+                }
+            break;
             case AV_PIX_FMT_RGBA:
-                for (int i = 0; i < src_format.width; i++){
-                    for (int j = 0; j < src_format.height; j++){
-                        unpack_buffer[j*unpack_stride+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i];
-                        unpack_buffer[j*unpack_stride+i + unpack_stride*src_format.height] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+1];
-                        unpack_buffer[j*unpack_stride+i + 2*unpack_stride*src_format.height] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+2];
+                for (int j = 0; j < src_format.height; j++){
+                    for (int i = 0; i < src_format.width; i++){
+                        unpack_buffer[0][j*unpack_stride[0]+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i];
+                        unpack_buffer[1][j*unpack_stride[1]+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+1];
+                        unpack_buffer[2][j*unpack_stride[2]+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+2];
                     }
                 }
             break;
             case AV_PIX_FMT_ARGB:
-                for (int i = 0; i < src_format.width; i++){
-                    for (int j = 0; j < src_format.height; j++){
-                        unpack_buffer[j*unpack_stride+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+1];
-                        unpack_buffer[j*unpack_stride+i + unpack_stride*src_format.height] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+2];
-                        unpack_buffer[j*unpack_stride+i + 2*unpack_stride*src_format.height] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+3];
+                for (int j = 0; j < src_format.height; j++){
+                    for (int i = 0; i < src_format.width; i++){
+                        unpack_buffer[0][j*unpack_stride[0]+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+1];
+                        unpack_buffer[1][j*unpack_stride[1]+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+2];
+                        unpack_buffer[2][j*unpack_stride[2]+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+3];
                     }
                 }
             break;
