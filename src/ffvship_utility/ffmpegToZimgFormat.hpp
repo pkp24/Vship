@@ -14,16 +14,19 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
     out.color_primaries = ZIMG_PRIMARIES_BT709;
     out.pixel_range = ZIMG_RANGE_LIMITED;
     switch ((AVPixelFormat)in->EncodedPixelFormat){
+        case AV_PIX_FMT_YUVA420P:
         case AV_PIX_FMT_YUV420P:
             out.depth = 8;
             out.subsample_w = 1;
             out.subsample_h = 1;
         break;
+        case AV_PIX_FMT_YUVA422P:
         case AV_PIX_FMT_YUV422P:
             out.depth = 8;
             out.subsample_w = 1;
             out.subsample_h = 0;
         break;
+        case AV_PIX_FMT_YUVA444P:
         case AV_PIX_FMT_YUV444P:
             out.depth = 8;
             out.subsample_w = 0;
@@ -44,46 +47,55 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
             out.subsample_w = 0;
             out.subsample_h = 1;
         break;
+        case AV_PIX_FMT_YUVA420P16LE:
         case AV_PIX_FMT_YUV420P16LE:
             out.depth = 16;
             out.subsample_w = 1;
             out.subsample_h = 1;
         break;
+        case AV_PIX_FMT_YUVA422P16LE:
         case AV_PIX_FMT_YUV422P16LE:
             out.depth = 16;
             out.subsample_w = 1;
             out.subsample_h = 0;
         break;
+        case AV_PIX_FMT_YUVA444P16LE:
         case AV_PIX_FMT_YUV444P16LE:
             out.depth = 16;
             out.subsample_w = 0;
             out.subsample_h = 0;
         break;
+        case AV_PIX_FMT_YUVA420P9LE:
         case AV_PIX_FMT_YUV420P9LE:
             out.depth = 9;
             out.subsample_w = 1;
             out.subsample_h = 1;
         break;
+        case AV_PIX_FMT_YUVA420P10LE:
         case AV_PIX_FMT_YUV420P10LE:
             out.depth = 10;
             out.subsample_w = 1;
             out.subsample_h = 1;
         break;
+        case AV_PIX_FMT_YUVA422P10LE:
         case AV_PIX_FMT_YUV422P10LE:
             out.depth = 10;
             out.subsample_w = 1;
             out.subsample_h = 0;
         break;
+        case AV_PIX_FMT_YUVA444P9LE:
         case AV_PIX_FMT_YUV444P9LE:
             out.depth = 9;
             out.subsample_w = 0;
             out.subsample_h = 0;
         break;
+        case AV_PIX_FMT_YUVA444P10LE:
         case AV_PIX_FMT_YUV444P10LE:
             out.depth = 10;
             out.subsample_w = 0;
             out.subsample_h = 0;
         break;
+        case AV_PIX_FMT_YUVA422P9LE:
         case AV_PIX_FMT_YUV422P9LE:
             out.depth = 9;
             out.subsample_w = 1;
@@ -99,6 +111,7 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
             out.subsample_w = 1;
             out.subsample_h = 1;
         break;
+        case AV_PIX_FMT_YUVA422P12LE:
         case AV_PIX_FMT_YUV422P12LE:
             out.depth = 12;
             out.subsample_w = 1;
@@ -109,6 +122,7 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
             out.subsample_w = 1;
             out.subsample_h = 0;
         break;
+        case AV_PIX_FMT_YUVA444P12LE:
         case AV_PIX_FMT_YUV444P12LE:
             out.depth = 12;
             out.subsample_w = 0;
