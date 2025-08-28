@@ -185,6 +185,14 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
             out.subsample_w = 0;
             out.subsample_h = 0;
         break;
+        case AV_PIX_FMT_RGB48LE:
+        case AV_PIX_FMT_RGBA64LE:
+            out.color_family = ZIMG_COLOR_RGB;
+            out.matrix_coefficients = ZIMG_MATRIX_RGB;
+            out.depth = 16;
+            out.subsample_w = 0;
+            out.subsample_h = 0;
+        break;
         default:
             std::cout << "Unhandled LibAV Pixel Format " << (AVPixelFormat)in->EncodedPixelFormat << std::endl;
             return 1;

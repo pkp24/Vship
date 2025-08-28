@@ -469,7 +469,22 @@ class ZimgProcessor {
             unpack_stride[1] = unpack_stride[0]; //444, same stride everywhere
             unpack_stride[2] = unpack_stride[0];
 
-            unpack_buffer[0] = (uint8_t*)aligned_alloc(32, sizeof(uint8_t)*unpack_stride[0]*src_format.height*3);
+            unpack_buffer[0] = (uint8_t*)aligned_alloc(32, unpack_stride[0]*src_format.height*3);
+            unpack_buffer[1] = unpack_buffer[0] + unpack_stride[0]*src_format.height;
+            unpack_buffer[2] = unpack_buffer[1] + unpack_stride[0]*src_format.height;
+            break;
+
+            //depth 16, 444
+            case AV_PIX_FMT_RGB48LE:
+            case AV_PIX_FMT_RGBA64LE:
+            depth = 16;
+            unpack_stride[0] = src_format.width * depth; //in bits
+            unpack_stride[0] = ((unpack_stride[0]-1)/256+1)*256; //align to 32 bytes for zimg
+            unpack_stride[0] >>= 3; //in bytes
+            unpack_stride[1] = unpack_stride[0]; //444, same stride everywhere
+            unpack_stride[2] = unpack_stride[0];
+
+            unpack_buffer[0] = (uint8_t*)aligned_alloc(32, unpack_stride[0]*src_format.height*3);
             unpack_buffer[1] = unpack_buffer[0] + unpack_stride[0]*src_format.height;
             unpack_buffer[2] = unpack_buffer[1] + unpack_stride[0]*src_format.height;
             break;
@@ -495,6 +510,25 @@ class ZimgProcessor {
                     }
                 }
             break;
+            case AV_PIX_FMT_RGB48LE:
+                for (int j = 0; j < src_format.height; j++){
+                    for (int i = 0; i < src_format.width; i++){
+                        ((uint16_t*)(unpack_buffer[0]+j*unpack_stride[0]))[i] = ((uint16_t*)(src->Data[0]+j*src->Linesize[0]))[3*i];
+                        ((uint16_t*)(unpack_buffer[1]+j*unpack_stride[1]))[i] = ((uint16_t*)(src->Data[0]+j*src->Linesize[0]))[3*i+1];
+                        ((uint16_t*)(unpack_buffer[2]+j*unpack_stride[2]))[i] = ((uint16_t*)(src->Data[0]+j*src->Linesize[0]))[3*i+2];
+                    }
+                }
+            break;
+            case AV_PIX_FMT_RGBA64LE:
+                for (int j = 0; j < src_format.height; j++){
+                    for (int i = 0; i < src_format.width; i++){
+                        ((uint16_t*)(unpack_buffer[0]+j*unpack_stride[0]))[i] = ((uint16_t*)(src->Data[0]+j*src->Linesize[0]))[4*i];
+                        ((uint16_t*)(unpack_buffer[1]+j*unpack_stride[1]))[i] = ((uint16_t*)(src->Data[0]+j*src->Linesize[0]))[4*i+1];
+                        ((uint16_t*)(unpack_buffer[2]+j*unpack_stride[2]))[i] = ((uint16_t*)(src->Data[0]+j*src->Linesize[0]))[4*i+2];
+                    }
+                }
+            break;
+
             case AV_PIX_FMT_RGB24:
                 for (int j = 0; j < src_format.height; j++){
                     for (int i = 0; i < src_format.width; i++){
