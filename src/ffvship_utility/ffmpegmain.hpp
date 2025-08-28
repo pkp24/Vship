@@ -460,6 +460,8 @@ class ZimgProcessor {
             case AV_PIX_FMT_RGB24:
             case AV_PIX_FMT_ARGB:
             case AV_PIX_FMT_RGBA:
+            case AV_PIX_FMT_ABGR:
+            case AV_PIX_FMT_BGRA:
             depth = 8;
             unpack_stride[0] = src_format.width * depth; //in bits
             unpack_stride[0] = ((unpack_stride[0]-1)/256+1)*256; //align to 32 bytes for zimg
@@ -517,6 +519,24 @@ class ZimgProcessor {
                         unpack_buffer[0][j*unpack_stride[0]+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+1];
                         unpack_buffer[1][j*unpack_stride[1]+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+2];
                         unpack_buffer[2][j*unpack_stride[2]+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+3];
+                    }
+                }
+            break;
+            case AV_PIX_FMT_ABGR:
+                for (int j = 0; j < src_format.height; j++){
+                    for (int i = 0; i < src_format.width; i++){
+                        unpack_buffer[0][j*unpack_stride[0]+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+3];
+                        unpack_buffer[1][j*unpack_stride[1]+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+2];
+                        unpack_buffer[2][j*unpack_stride[2]+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+1];
+                    }
+                }
+            break;
+            case AV_PIX_FMT_BGRA:
+                for (int j = 0; j < src_format.height; j++){
+                    for (int i = 0; i < src_format.width; i++){
+                        unpack_buffer[0][j*unpack_stride[0]+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+2];
+                        unpack_buffer[1][j*unpack_stride[1]+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+1];
+                        unpack_buffer[2][j*unpack_stride[2]+i] = ((uint8_t*)(src->Data[0]))[j*src->Linesize[0]+4*i+0];
                     }
                 }
             break;

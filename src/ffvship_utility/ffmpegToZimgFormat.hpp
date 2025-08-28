@@ -177,6 +177,8 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
         case AV_PIX_FMT_RGB24:
         case AV_PIX_FMT_RGBA:
         case AV_PIX_FMT_ARGB:
+        case AV_PIX_FMT_ABGR:
+        case AV_PIX_FMT_BGRA:
             out.color_family = ZIMG_COLOR_RGB;
             out.matrix_coefficients = ZIMG_MATRIX_RGB;
             out.depth = 8;
