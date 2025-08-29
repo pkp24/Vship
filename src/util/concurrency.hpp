@@ -155,10 +155,9 @@ public:
     std::optional<T> pop(){
         //return the lowest element
         lock.lock();
-        if (closed) return std::nullopt;
         while (data.empty()){
+            if (closed && data.empty()) return std::nullopt;
             com.wait(lock);
-            if (closed) return std::nullopt;
         }
         T ret = *data.begin();
         data.erase(ret);
