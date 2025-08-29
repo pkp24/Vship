@@ -149,10 +149,12 @@ void print_aggergate_metric_statistics(const std::vector<float> &data,
     double squared_sum = 0;
     for (int i = 0; i < sorted.size(); i++){
         average += sorted[i];
-        squared_sum += sorted[i]*sorted[i];
     }
     average /= count;
-    const double stddev = std::sqrt(std::max((double)0,squared_sum / count - average * average));
+    for (int i = 0; i < sorted.size(); i++){
+        squared_sum += (sorted[i] - average)*(sorted[i] - average);
+    }
+    const double stddev = std::sqrt(squared_sum/count);
 
     std::vector<std::pair<std::string, double>> stats = {
         {"Average", average},
