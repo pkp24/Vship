@@ -18,10 +18,11 @@ VSNode * toRGBS(VSNode * source, VSCore *core, const VSAPI *vsapi, bool mode16bi
     vsapi->mapSetInt(args, "matrix_in", matrix, maReplace); //BT709 and the old one
     vsapi->mapSetInt(args, "transfer_in", 1, maReplace); //BT709
     vsapi->mapSetInt(args, "primaries_in", 1, maReplace); //BT709
+    vsapi->mapSetInt(args, "range_in", 0, maReplace); //limited
     vsapi->mapSetInt(args, "matrix", 0, maReplace); //RGB
     vsapi->mapSetInt(args, "transfer", 1, maReplace); //BT709
     vsapi->mapSetInt(args, "primaries", 1, maReplace); //BT709/RGB primaries
-    vsapi->mapSetInt(args, "range", 1, maReplace); //BT709/RGB primaries
+    vsapi->mapSetInt(args, "range", 1, maReplace); //full range
     vsapi->mapSetInt(args, "format", mode16bit?pfRGBH:pfRGBS, maReplace);
 
     VSPlugin* vsplugin = vsapi->getPluginByID(VSH_RESIZE_PLUGIN_ID, core);
