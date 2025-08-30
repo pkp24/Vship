@@ -60,10 +60,17 @@ int main(){
         return 0;
     }
     std::cout << "Butter..." << std::endl;
-    std::tuple<float, float, float> resb = butterprocess.run<FLOAT>(NULL, 0, imb1.csrcp, imb2.csrcp, 10000);
+    Image<FLOAT> distmap(1076, 2400, 1076*4); //only use the first plane
+    std::tuple<float, float, float> resb = butterprocess.run<FLOAT>(distmap.csrcp[0], 1076, imb1.csrcp, imb2.csrcp, 10000);
     if (std::get<0>(resb) != 0 || std::get<1>(resb) != 0. || std::get<2>(resb) != 0.){
         std::cout << "|Error| : failed previous test with " << std::get<0>(resb) << ", " << std::get<1>(resb) << " and " << std::get<2>(resb) << " instead of 0., 0. and 0." << std::endl;
         return 0;
+    }
+    for (int i = 0; i < 1076*2400; i++){
+        if (((float*)(distmap.csrcp[0]))[i] != 0.){
+            std::cout << "|Error| : failed previous test with a non 0. distmap" << std::endl;
+            return 0;
+        }
     }
 
     ssimu2process.destroy();
