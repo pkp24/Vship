@@ -50,18 +50,10 @@ __device__ inline void rgb_to_positive_xyb_d(float3& a){
 }
 
 __device__ inline void rgb_to_linrgbfunc(float& a){
-    if (a < 0.f){
-        if (a < -0.04045f){
-            a = -powf(((-a+0.055f)*(1.0f/1.055f)), 2.4f);
-        } else {
-            a *= 1.0f/12.92f;
-        }
+    if (a < 0){
+        a = -powf(-a, 2.4);
     } else {
-        if (a > 0.04045f){
-            a = powf(((a+0.055f)*(1.0f/1.055f)), 2.4f);
-        } else {
-            a *= 1.0f/12.92f;
-        }
+        a = powf(a, 2.4);
     }
 }
 
