@@ -39,7 +39,7 @@ public:
     void refresh(bool force = false){
         const auto timeend = std::chrono::steady_clock::now();
         const auto milli = std::chrono::duration_cast<std::chrono::milliseconds>(timeend - timeinit);
-        if (!force && milli.count() < RefreshRate) return;
+        if (!force && milli.count() < RefreshRate && (!(num == total))) return;
         timeinit = timeend;
         const auto total_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(timeend - firsttime);
 
