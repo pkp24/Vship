@@ -1,4 +1,4 @@
-#include "../src/VshipAPI.h"
+#include "VshipAPI.h"
 #include<stdio.h>
 
 int main(){

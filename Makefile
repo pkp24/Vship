@@ -17,7 +17,9 @@ else
     fpiccuda := -Xcompiler -fPIC
     fpicamd := -fPIC
     plugin_install_path := $(DESTDIR)$(PREFIX)/lib/vapoursynth
+	lib_install_path := $(DESTDIR)$(PREFIX)/lib
     exe_install_path := $(DESTDIR)$(PREFIX)/bin
+	header_install_path := $(DESTDIR)$(PREFIX)/include
     ffvshiplibheader := $(shell pkg-config --libs ffms2 zimg)
 endif
 
@@ -55,6 +57,8 @@ install:
 	@if [ -f "$(current_dir)vship$(dllend)" ]; then \
 		install -d "$(plugin_install_path)"; \
 		install -m755 "$(current_dir)vship$(dllend)" "$(plugin_install_path)/vship$(dllend)"; \
+		install -m755 "$(current_dir)vship$(dllend)" "$(lib_install_path)/vship$(dllend)"; \
+		install -m755 "$(current_dir)src/VshipAPI.h" "$(header_install_path)/VshipAPI.h"; \
 	fi
 	@if [ -f "FFVship" ]; then \
 		install -d "$(exe_install_path)"; \

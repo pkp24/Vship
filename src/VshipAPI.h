@@ -83,9 +83,11 @@ Vship_Exception Vship_SSIMU2Init(Vship_SSIMU2Handler* handler, int width, int he
 //handler pointer can be discarded after this function.
 Vship_Exception Vship_SSIMU2Free(Vship_SSIMU2Handler* handler);
 
+//the frame is not overwritten
 //when input is RGB with BT709 transfer function float frame
 Vship_Exception Vship_ComputeSSIMU2Float(Vship_SSIMU2Handler* handler, double* score, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
 
+//the frame is not overwritten
 //when input is RGB with BT709 transfer function uint16_t frame
 Vship_Exception Vship_ComputeSSIMU2Uint16(Vship_SSIMU2Handler* handler, double* score, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
 
@@ -105,12 +107,14 @@ Vship_Exception Vship_ButteraugliInit(Vship_ButteraugliHandler* handler, int wid
 //handler pointer can be discarded after this function.
 Vship_Exception Vship_ButteraugliFree(Vship_ButteraugliHandler* handler);
 
+//the frame is not overwritten
 //dstp must either be NULL (in this case, the distortion map will never be retrieved from the gpu)
 //or be allocated of size dststride*height
 //when input is RGB with BT709 transfer function float frame
 //output in score
 Vship_Exception Vship_ComputeButteraugliFloat(Vship_ButteraugliHandler* handler, Vship_ButteraugliScore* score, const uint8_t *dstp, int64_t dststride, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
 
+//the frame is not overwritten
 //dstp must either be NULL (in this case, the distortion map will never be retrieved from the gpu)
 //or be allocated of size dststride*height
 //when input is RGB with BT709 transfer function uint16_t frame
