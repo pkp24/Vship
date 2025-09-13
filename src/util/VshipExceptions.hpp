@@ -62,6 +62,9 @@ std::string errorMessage(VSHIPEXCEPTTYPE type){
         case BadDeviceCode:
         return "BadDeviceCode: Vship was unable to run a simple GPU Kernel. This usually indicate that the code was compiled for the wrong architecture. (Advice) Try to compile vship yourself, eventually replace --offload-arch=native to your arch";
 
+        case BadHandler:
+        return "BadHandler: The handler used was not allocated. This indicates an issue in Vship API Usage. Did you call the Init function or altered the handler id?";
+
         case BadErrorType:
         return "BadErrorType: There was an unknown error";
     }
