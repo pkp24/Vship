@@ -57,7 +57,7 @@ install:
 	@if [ -f "$(current_dir)vship$(dllend)" ]; then \
 		install -d "$(plugin_install_path)"; \
 		install -m755 "$(current_dir)vship$(dllend)" "$(lib_install_path)/vship$(dllend)"; \
-		ln -sf "$(lib_install_path)/vship$(dllend)" "$(plugin_install_path)/vship$(dllend)"; \
+		ln -sf "../vship$(dllend)" "$(plugin_install_path)/vship$(dllend)"; \
 		install -m755 "$(current_dir)src/VshipAPI.h" "$(header_install_path)/VshipAPI.h"; \
 	fi
 	@if [ -f "FFVship" ]; then \
