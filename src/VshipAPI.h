@@ -1,0 +1,123 @@
+#ifndef VSHIP_API_HEADER
+#define VSHIP_API_HEADER
+
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C"{
+#endif
+
+typedef enum{
+    Vship_HIP = 0,
+    Vship_Cuda = 1,
+} Vship_Backend;
+
+typedef struct {
+    int major;
+    int minor;
+    int minorMinor;
+    Vship_Backend backend;
+} Vship_Version;
+
+Vship_Version Vship_GetVersion();
+
+//this is general purpose, it contains error that cannot be encountered using the API
+typedef enum{
+    Vship_NoError = 0,
+
+    //vship internal issues
+    Vship_OutOfVRAM,
+    Vship_OutOfRAM,
+    
+    //input issues
+    Vship_DifferingInputType,
+    Vship_NonRGBSInput, //should never happen since .resize should give RGBS always
+    
+    //Device related
+    Vship_DeviceCountError,
+    Vship_NoDeviceDetected,
+    Vship_BadDeviceArgument,
+    Vship_BadDeviceCode,
+
+    //API related
+    Vship_BadHandler,
+
+    //should not be used
+    Vship_BadErrorType,
+} Vship_Exception;
+
+//Get the number of GPU
+Vship_Exception Vship_GetDeviceCount(int* number);
+
+//default device is default by HIP/Cuda (0)
+Vship_Exception Vship_SetDevice(int gpu_id);
+
+//more features might be added later on in this struct
+typedef struct{
+    char name[256];
+    uint64_t VRAMSize; //size in bytes
+    int integrated; //iGPU? (boolean)
+    int MultiProcessorCount;
+    int WarpSize;
+} Vship_DeviceInfo;
+
+Vship_Exception Vship_GetDeviceInfo(Vship_DeviceInfo* device_info, int gpu_id);
+
+//very useful function allowing to see if vship is going to work there are multiple errors possible returned
+Vship_Exception Vship_GPUFullCheck(int gpu_id);
+
+//you can allocate typically 1024 bytes to retrieve the full error message
+//however, if you want the exact amount, the integer returned is the size needed. So you can use len=0 to retrieve the size, allocate and then the correct len.
+int Vship_GetErrorMessage(Vship_Exception exception, char* out_message, int len);
+
+//for maximum throughput, it is recommend to use 3 SSIMU2Handler with each a thread to use in parallel
+//is only an id to refer to an object in an array in the API dll.
+//this is because the original object contains types that are not represented without hip and the original code.
+typedef struct{
+    int id;
+} Vship_SSIMU2Handler;
+
+//handler pointer will be replaced, it is a return value. Don't forget to free it after usage.
+Vship_Exception Vship_SSIMU2Init(Vship_SSIMU2Handler* handler, int width, int height);
+
+//handler pointer can be discarded after this function.
+Vship_Exception Vship_SSIMU2Free(Vship_SSIMU2Handler* handler);
+
+//when input is RGB with BT709 transfer function float frame
+Vship_Exception Vship_ComputeSSIMU2Float(Vship_SSIMU2Handler* handler, double* score, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
+
+//when input is RGB with BT709 transfer function uint16_t frame
+Vship_Exception Vship_ComputeSSIMU2Uint16(Vship_SSIMU2Handler* handler, double* score, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
+
+typedef struct{
+    int id;
+} Vship_ButteraugliHandler;
+
+typedef struct{
+    int norm2;
+    int norm3;
+    int norminf;
+} Vship_ButteraugliScore;
+
+//handler pointer will be replaced, it is a return value. Don't forget to free it after usage.
+Vship_Exception Vship_ButteraugliInit(Vship_ButteraugliHandler* handler, int width, int height, float intensity_multiplier);
+
+//handler pointer can be discarded after this function.
+Vship_Exception Vship_ButteraugliFree(Vship_ButteraugliHandler* handler);
+
+//dstp must either be NULL (in this case, the distortion map will never be retrieved from the gpu)
+//or be allocated of size dststride*height
+//when input is RGB with BT709 transfer function float frame
+//output in score
+Vship_Exception Vship_ComputeButteraugliFloat(Vship_ButteraugliHandler* handler, Vship_ButteraugliScore* score, const uint8_t *dstp, int64_t dststride, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
+
+//dstp must either be NULL (in this case, the distortion map will never be retrieved from the gpu)
+//or be allocated of size dststride*height
+//when input is RGB with BT709 transfer function uint16_t frame
+//output in score
+Vship_Exception Vship_ComputeButteraugliUint16(Vship_ButteraugliHandler* handler, Vship_ButteraugliScore* score, const uint8_t *dstp, int64_t dststride, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
+
+#ifdef __cplusplus
+} //extern "C"
+#endif
+#endif //ifndef VSHIP_API_HEADER

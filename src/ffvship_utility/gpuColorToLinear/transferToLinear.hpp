@@ -53,6 +53,7 @@ __device__ void inline transferLinearize<AVCOL_TRC_IEC61966_2_1>(float& a){
 
 //source https://www.image-engineering.de/library/technotes/714-color-spaces-rec-709-vs-srgb
 //I inversed the function myself
+/*
 template <>
 __device__ void inline transferLinearize<AVCOL_TRC_BT709>(float& a){
     if (a < 0){
@@ -67,6 +68,16 @@ __device__ void inline transferLinearize<AVCOL_TRC_BT709>(float& a){
         } else {
             a *= 1.0/4.5;
         }
+    }
+}*/
+
+//BT709 as Pure gamma since it is what is commonly used in reality
+template <>
+__device__ void inline transferLinearize<AVCOL_TRC_BT709>(float& a){
+    if (a < 0){
+        a = -powf(-a, 2.4);
+    } else {
+        a = powf(a, 2.4);
     }
 }
 

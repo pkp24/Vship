@@ -10,6 +10,8 @@
 // - At line {line} of {file}
 
 enum VSHIPEXCEPTTYPE{
+    NoError = 0,
+
     //vship internal issues
     OutOfVRAM,
     OutOfRAM,
@@ -24,12 +26,18 @@ enum VSHIPEXCEPTTYPE{
     BadDeviceArgument,
     BadDeviceCode,
 
+    //API related
+    BadHandler,
+
     //should not be used
     BadErrorType,
 };
 
 std::string errorMessage(VSHIPEXCEPTTYPE type){
     switch (type){
+        case NoError:
+        return "NoError: Vship succeeded";
+
         case OutOfVRAM:
         return "OutOfVRAM: Vship was not able to perform GPU memory allocation. (Advice) Reduce or Set numStream argument";
 
@@ -53,7 +61,7 @@ std::string errorMessage(VSHIPEXCEPTTYPE type){
 
         case BadDeviceCode:
         return "BadDeviceCode: Vship was unable to run a simple GPU Kernel. This usually indicate that the code was compiled for the wrong architecture. (Advice) Try to compile vship yourself, eventually replace --offload-arch=native to your arch";
-    
+
         case BadErrorType:
         return "BadErrorType: There was an unknown error";
     }
@@ -62,10 +70,10 @@ std::string errorMessage(VSHIPEXCEPTTYPE type){
 
 class VshipError : public std::exception
 {
-    VSHIPEXCEPTTYPE type;
     std::string file;
     int line;
 public:
+    VSHIPEXCEPTTYPE type;
     VshipError(VSHIPEXCEPTTYPE type, const std::string filename, const int line) : std::exception(), type(type), file(filename), line(line){
     }
     

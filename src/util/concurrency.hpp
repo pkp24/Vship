@@ -171,3 +171,30 @@ public:
         lock.unlock();
     }
 };
+
+template<typename T>
+class RessourceManager{
+public:
+    std::mutex lock;
+    std::vector<T> elements;
+    std::vector<int> freeplaces;
+    void addel(){
+        elements.push_back(T());
+        freeplaces.push_back(elements.size()-1);
+    }
+//beware you should call init yourself
+    int allocate(){
+        lock.lock();
+        if (freeplaces.empty()) addel();
+        int id = freeplaces.back();
+        freeplaces.pop_back();
+        lock.unlock();
+        return id;
+    }
+    //you should call destroy on the object yourself
+    void free(int id){
+        lock.lock();
+        freeplaces.push_back(id);
+        lock.unlock();
+    }
+};
