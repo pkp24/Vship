@@ -47,6 +47,17 @@ int main(){
     original.fillZeroStrideOne();
     other.fillZeroStrideOne();
 
+    Vship_Version apiver = Vship_GetVersion();
+    std::cout << "Vship version: " << apiver.major << "." << apiver.minor << "." << apiver.minorMinor << std::endl;
+    switch (apiver.backend){
+        case Vship_HIP:
+            std::cout << "Running on HIP" << std::endl;
+            break;
+        case Vship_Cuda:
+            std::cout << "Running on Cuda" << std::endl;
+            break;
+    }
+
     //first initilization time measure
     std::cout << "--------------------API-Testing-----------------------" << std::endl;
     int numgpu;
