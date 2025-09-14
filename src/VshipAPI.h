@@ -3,6 +3,16 @@
 
 #include <stdint.h>
 
+#if defined(_WIN32)
+#if defined(EXPORTVSHIPLIB)
+#define EXPORTPREPROCESS __declspec(dllexport)
+#else
+#define EXPORTPREPROCESS __declspec(dllimport)
+#endif
+#else
+#define EXPORTPREPROCESS
+#endif
+
 #ifdef __cplusplus
 extern "C"{
 #endif
@@ -19,7 +29,7 @@ typedef struct {
     Vship_Backend backend;
 } Vship_Version;
 
-Vship_Version Vship_GetVersion();
+EXPORTPREPROCESS Vship_Version Vship_GetVersion();
 
 //this is general purpose, it contains error that cannot be encountered using the API
 typedef enum{
@@ -47,10 +57,10 @@ typedef enum{
 } Vship_Exception;
 
 //Get the number of GPU
-Vship_Exception Vship_GetDeviceCount(int* number);
+EXPORTPREPROCESS Vship_Exception Vship_GetDeviceCount(int* number);
 
 //default device is default by HIP/Cuda (0)
-Vship_Exception Vship_SetDevice(int gpu_id);
+EXPORTPREPROCESS Vship_Exception Vship_SetDevice(int gpu_id);
 
 //more features might be added later on in this struct
 typedef struct{
@@ -61,14 +71,14 @@ typedef struct{
     int WarpSize;
 } Vship_DeviceInfo;
 
-Vship_Exception Vship_GetDeviceInfo(Vship_DeviceInfo* device_info, int gpu_id);
+EXPORTPREPROCESS Vship_Exception Vship_GetDeviceInfo(Vship_DeviceInfo* device_info, int gpu_id);
 
 //very useful function allowing to see if vship is going to work there are multiple errors possible returned
-Vship_Exception Vship_GPUFullCheck(int gpu_id);
+EXPORTPREPROCESS Vship_Exception Vship_GPUFullCheck(int gpu_id);
 
 //you can allocate typically 1024 bytes to retrieve the full error message
 //however, if you want the exact amount, the integer returned is the size needed. So you can use len=0 to retrieve the size, allocate and then the correct len.
-int Vship_GetErrorMessage(Vship_Exception exception, char* out_message, int len);
+EXPORTPREPROCESS int Vship_GetErrorMessage(Vship_Exception exception, char* out_message, int len);
 
 //for maximum throughput, it is recommend to use 3 SSIMU2Handler with each a thread to use in parallel
 //is only an id to refer to an object in an array in the API dll.
@@ -78,18 +88,18 @@ typedef struct{
 } Vship_SSIMU2Handler;
 
 //handler pointer will be replaced, it is a return value. Don't forget to free it after usage.
-Vship_Exception Vship_SSIMU2Init(Vship_SSIMU2Handler* handler, int width, int height);
+EXPORTPREPROCESS Vship_Exception Vship_SSIMU2Init(Vship_SSIMU2Handler* handler, int width, int height);
 
 //handler pointer can be discarded after this function.
-Vship_Exception Vship_SSIMU2Free(Vship_SSIMU2Handler* handler);
+EXPORTPREPROCESS Vship_Exception Vship_SSIMU2Free(Vship_SSIMU2Handler* handler);
 
 //the frame is not overwritten
 //when input is RGB with BT709 transfer function float frame
-Vship_Exception Vship_ComputeSSIMU2Float(Vship_SSIMU2Handler* handler, double* score, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
+EXPORTPREPROCESS Vship_Exception Vship_ComputeSSIMU2Float(Vship_SSIMU2Handler* handler, double* score, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
 
 //the frame is not overwritten
 //when input is RGB with BT709 transfer function uint16_t frame
-Vship_Exception Vship_ComputeSSIMU2Uint16(Vship_SSIMU2Handler* handler, double* score, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
+EXPORTPREPROCESS Vship_Exception Vship_ComputeSSIMU2Uint16(Vship_SSIMU2Handler* handler, double* score, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
 
 typedef struct{
     int id;
@@ -102,24 +112,24 @@ typedef struct{
 } Vship_ButteraugliScore;
 
 //handler pointer will be replaced, it is a return value. Don't forget to free it after usage.
-Vship_Exception Vship_ButteraugliInit(Vship_ButteraugliHandler* handler, int width, int height, float intensity_multiplier);
+EXPORTPREPROCESS Vship_Exception Vship_ButteraugliInit(Vship_ButteraugliHandler* handler, int width, int height, float intensity_multiplier);
 
 //handler pointer can be discarded after this function.
-Vship_Exception Vship_ButteraugliFree(Vship_ButteraugliHandler* handler);
+EXPORTPREPROCESS Vship_Exception Vship_ButteraugliFree(Vship_ButteraugliHandler* handler);
 
 //the frame is not overwritten
 //dstp must either be NULL (in this case, the distortion map will never be retrieved from the gpu)
 //or be allocated of size dststride*height
 //when input is RGB with BT709 transfer function float frame
 //output in score
-Vship_Exception Vship_ComputeButteraugliFloat(Vship_ButteraugliHandler* handler, Vship_ButteraugliScore* score, const uint8_t *dstp, int64_t dststride, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
+EXPORTPREPROCESS Vship_Exception Vship_ComputeButteraugliFloat(Vship_ButteraugliHandler* handler, Vship_ButteraugliScore* score, const uint8_t *dstp, int64_t dststride, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
 
 //the frame is not overwritten
 //dstp must either be NULL (in this case, the distortion map will never be retrieved from the gpu)
 //or be allocated of size dststride*height
 //when input is RGB with BT709 transfer function uint16_t frame
 //output in score
-Vship_Exception Vship_ComputeButteraugliUint16(Vship_ButteraugliHandler* handler, Vship_ButteraugliScore* score, const uint8_t *dstp, int64_t dststride, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
+EXPORTPREPROCESS Vship_Exception Vship_ComputeButteraugliUint16(Vship_ButteraugliHandler* handler, Vship_ButteraugliScore* score, const uint8_t *dstp, int64_t dststride, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
 
 #ifdef __cplusplus
 } //extern "C"

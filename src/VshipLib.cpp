@@ -62,6 +62,7 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI
 }
 
 //let's define the API
+#define EXPORTVSHIPLIB //to use dllexport for windows
 #include "VshipAPI.h"
 
 extern "C"{
