@@ -40,4 +40,83 @@ To verify that everything works for you, you can try compiling yourself [this ex
 
 # API detailed tutorial and description
 
-WIP
+## Interactive Tutorial
+
+For this tutorial, we will suppose that we wish to retrieve a Butteraugli distortion map using Vship and that you possess the planar RGB with BT709 transfer frames for which we will compute this distmap.
+
+### Error Managment
+
+For this tutorial, we will not bother too much with errors with will create a simple preprocessor wrapper to handle vship errors:
+
+```Cpp
+#include<stdio.h>
+#include<stdlib.h>
+
+Vship_Exception err;
+char errmsg[1024];
+#define ErrorCheck(line) err = line;\
+if (err != 0){\
+    Vship_GetErrorMessage(err, errmsg, 1024);\
+    printf("Vship Error occured: %s", errmsg);\
+    exit(1);\
+}
+```
+
+This macro will simply print vship error message if an error was to occur
+
+### Verify that vship will work before using it
+
+```Cpp
+//check if gpu 0 exist and if it can work with vship
+ErrorCheck(Vship_GPUFullCheck(0));
+```
+
+Thanks to our macro, the error message will be displayed to the user before exiting, and nothing will happen if it goes well.
+
+### Create a Butteraugli Handler
+
+Vship being made for maximal throughput, it does some preprocessing. A handler may be used for processing a lot of frames (but only one at a time). To create a handler, you can do this
+
+```Cpp
+Vship_ButteraugliHandler butterhandler;
+//This will initialize a handler with intensity_target 203 in butteraugli
+Vship_ButteraugliInit(&butterhandler, imaage_width, image_height, 203.);
+```
+
+### Frame Processing
+
+Our RGB planar BT709 transfer frames must be of type: `const uint8*[3]` but the actual data inside the plane will be in uint16_t in this example
+
+```Cpp
+//I suppose that you have already set the data of the frame
+const uint8* image1[3];
+const uint8* image2[3];
+
+//the result will be here!
+//let's allocate the space required to store the distortion map. It is always float
+//you can use image_width as a stride in this case
+const uint8* distortionMap = (uint8_t*)malloc(sizeof(float)*image_height*image_stride);
+
+Vship_ButteraugliScore score;
+
+//ask vship to compute! We use the Uint16 version since our frames are coded as uint16_t
+ErrorCheck(Vship_ComputeButteraugliUint16(&butterhandler, &score, distortionMap, image_stride, image1, image2, image_stride));
+
+//now score contains butteraugli scores and distortionMap contains the distortion map!
+```
+
+### Exiting properly
+
+We want to avoid leaks so there is a little step to add
+
+```Cpp
+//free the distortion map we just allocated
+free(distortionMap);
+
+//free the butteraugli handler
+Vship_ButteraugliFree(&butterhandler);
+```
+
+## Good practices
+
+## Details on every function
