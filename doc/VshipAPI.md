@@ -100,7 +100,7 @@ const uint8* distortionMap = (uint8_t*)malloc(sizeof(float)*image_height*image_s
 Vship_ButteraugliScore score;
 
 //ask vship to compute! We use the Uint16 version since our frames are coded as uint16_t
-ErrorCheck(Vship_ComputeButteraugliUint16(&butterhandler, &score, distortionMap, image_stride, image1, image2, image_stride));
+ErrorCheck(Vship_ComputeButteraugliUint16(butterhandler, &score, distortionMap, image_stride, image1, image2, image_stride));
 
 //now score contains butteraugli scores and distortionMap contains the distortion map!
 ```
@@ -114,7 +114,7 @@ We want to avoid leaks so there is a little step to add
 free(distortionMap);
 
 //free the butteraugli handler
-Vship_ButteraugliFree(&butterhandler);
+Vship_ButteraugliFree(butterhandler);
 ```
 
 ## Good practices

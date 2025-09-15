@@ -91,10 +91,10 @@ int main(){
 
     double score;
     time1 = std::chrono::system_clock::now();
-    Vship_ComputeSSIMU2Uint16(&ssimu2handler, &score, original.csrcp, other.csrcp, stride);
+    Vship_ComputeSSIMU2Uint16(ssimu2handler, &score, original.csrcp, other.csrcp, stride);
     time2 = std::chrono::system_clock::now();
-    Vship_ComputeSSIMU2Uint16(&ssimu2handler, &score, original.csrcp, other.csrcp, stride);
-    Vship_ComputeSSIMU2Uint16(&ssimu2handler, &score, original.csrcp, other.csrcp, stride);
+    Vship_ComputeSSIMU2Uint16(ssimu2handler, &score, original.csrcp, other.csrcp, stride);
+    Vship_ComputeSSIMU2Uint16(ssimu2handler, &score, original.csrcp, other.csrcp, stride);
     time3 = std::chrono::system_clock::now();
     std::cout << "SSIMU2 Process Uint16 time ((latency + 2*process)/2): " << (time3 - time2).count()/2000000000. << "s" << std::endl;
     std::cout << "SSIMU2 Process Uint16 time (latency + process): " << (time2 - time1).count()/1000000000. << "s" << std::endl;
@@ -102,10 +102,10 @@ int main(){
     std::cout << "=> SSIMU2 Process Uint16 \"latency time\": " << (time2 - time3).count()/1000000000. + 2*(time2 - time1).count()/1000000000. << "s" << std::endl;
 
     time1 = std::chrono::system_clock::now();
-    Vship_SSIMU2Free(&ssimu2handler);
+    Vship_SSIMU2Free(ssimu2handler);
     time2 = std::chrono::system_clock::now();
-    Vship_SSIMU2Free(&ssimu2handler2);
-    Vship_SSIMU2Free(&ssimu2handler3);
+    Vship_SSIMU2Free(ssimu2handler2);
+    Vship_SSIMU2Free(ssimu2handler3);
     time3 = std::chrono::system_clock::now();
     std::cout << "Free SSIMU2 Handler time ((latency + 2*process)/2): " << (time3 - time2).count()/2000000000. << "s" << std::endl;
     std::cout << "Free SSIMU2 Handler time (latency + process): " << (time2 - time1).count()/1000000000. << "s" << std::endl;
@@ -131,10 +131,10 @@ int main(){
 
     Vship_ButteraugliScore scorebutter;
     time1 = std::chrono::system_clock::now();
-    Vship_ComputeButteraugliUint16(&butterhandler, &scorebutter, NULL, 0, original.csrcp, other.csrcp, stride);
+    Vship_ComputeButteraugliUint16(butterhandler, &scorebutter, NULL, 0, original.csrcp, other.csrcp, stride);
     time2 = std::chrono::system_clock::now();
-    Vship_ComputeButteraugliUint16(&butterhandler, &scorebutter, NULL, 0, original.csrcp, other.csrcp, stride);
-    Vship_ComputeButteraugliUint16(&butterhandler, &scorebutter, NULL, 0, original.csrcp, other.csrcp, stride);
+    Vship_ComputeButteraugliUint16(butterhandler, &scorebutter, NULL, 0, original.csrcp, other.csrcp, stride);
+    Vship_ComputeButteraugliUint16(butterhandler, &scorebutter, NULL, 0, original.csrcp, other.csrcp, stride);
     time3 = std::chrono::system_clock::now();
     std::cout << "Butteraugli Process Uint16 time ((latency + 2*process)/2): " << (time3 - time2).count()/2000000000. << "s" << std::endl;
     std::cout << "Butteraugli Process Uint16 time (latency + process): " << (time2 - time1).count()/1000000000. << "s" << std::endl;
@@ -142,10 +142,10 @@ int main(){
     std::cout << "=> Butteraugli Process Uint16 \"latency time\": " << (time2 - time3).count()/1000000000. + 2*(time2 - time1).count()/1000000000. << "s" << std::endl;
 
     time1 = std::chrono::system_clock::now();
-    Vship_ButteraugliFree(&butterhandler);
+    Vship_ButteraugliFree(butterhandler);
     time2 = std::chrono::system_clock::now();
-    Vship_ButteraugliFree(&butterhandler2);
-    Vship_ButteraugliFree(&butterhandler3);
+    Vship_ButteraugliFree(butterhandler2);
+    Vship_ButteraugliFree(butterhandler3);
     time3 = std::chrono::system_clock::now();
     std::cout << "Free Butteraugli Handler time ((latency + 2*process)/2): " << (time3 - time2).count()/2000000000. << "s" << std::endl;
     std::cout << "Free Butteraugli Handler time (latency + process): " << (time2 - time1).count()/1000000000. << "s" << std::endl;
