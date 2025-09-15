@@ -80,7 +80,7 @@ Vship being made for maximal throughput, it does some preprocessing. A handler m
 ```Cpp
 Vship_ButteraugliHandler butterhandler;
 //This will initialize a handler with intensity_target 203 in butteraugli
-Vship_ButteraugliInit(&butterhandler, imaage_width, image_height, 203.);
+ErrorCheck(Vship_ButteraugliInit(&butterhandler, imaage_width, image_height, 203.));
 ```
 
 ### Frame Processing
@@ -105,7 +105,7 @@ ErrorCheck(Vship_ComputeButteraugliUint16(butterhandler, &score, distortionMap, 
 //now score contains butteraugli scores and distortionMap contains the distortion map!
 ```
 
-### Exiting properly
+### Cleanup
 
 We want to avoid leaks so there is a little step to add
 
@@ -114,9 +114,132 @@ We want to avoid leaks so there is a little step to add
 free(distortionMap);
 
 //free the butteraugli handler
-Vship_ButteraugliFree(butterhandler);
+ErrorCheck(Vship_ButteraugliFree(butterhandler));
 ```
 
 ## Good practices
 
+### RGB with BT709 transfer?
+
+You might be wondering how to convert your frame to this planar RGB with BT709 transfer. A way to do this is to use [Zimg](https://github.com/sekrit-twc/zimg) which is what is used in FFVship.
+
+### Performance concerns
+
+It is important if you wish to maximize throughput to create about 3 handlers that process frames in parallel. You can test the importance of this by playing with the `-g` option of FFVship. 
+
+Note that it can increase VRAM usage. You can verify the amount of VRAM used per working handler [here (SSIMU2)](SSIMULACRA2.md) and [here (Butteraugli)](BUTTERAUGLI.md). You can also retrieve the total amount of VRAM of the GPU using `Vship_GetDeviceInfo`.
+
 ## Details on every function
+
+### Vship_GetVersion
+
+This function returns a Vship_Version type containing the version of Vship
+For example, at the time I am writing this documentation we have
+
+```Cpp
+Vship_Version v = Vship_GetVersion();
+v.major; //3
+v.minor; //1
+v.minorMinor; //0
+// => 3.1.0
+```
+
+It is also possible to retrieve the type of GPU present (NVIDIA or HIP) using v.backend
+
+### Vship_GetDeviceCount(int* number)
+
+This function returns an exception if it failed to get the wanted information. In case of success, the integer passed as an argument will be equal to the number of GPU detected by Vship.
+
+### Vship_SetDevice(int gpu_id)
+
+This function allows to choose the detected GPU to run vship on. If the gpu_id chosen is not valid, an exception is returned. You can have information to choose the GPU you wish to use using the following function. But in general, GPU 0 is the most relevant GPU to use.
+
+### Vship_GetDeviceInfo(Vship_DeviceInfo* device_info, int gpu_id)
+
+This function allows to retrieve some GPU information in the Vship_DeviceInfo struct defined here:
+
+```Cpp
+struct{
+    char name[256];
+    //size in bytes
+    uint64_t VRAMSize;
+    //iGPU? (boolean)
+    int integrated;
+    int MultiProcessorCount;
+    int WarpSize;
+}
+```
+
+You choose the GPU wiht gpu_id and device_info will possess the wanted informations.
+
+### Vship_GPUFullCheck(int gpu_id)
+
+This function allows to check if Vship will be able to run on the given GPU or not. It can return a variety of exceptions depending on the check that fails. If no error is returned, the main concerns for later parts could be a failed RAM or VRAM allocation. This function is highly recommended as done in the interactive example
+
+### int Vship_GetErrorMessage(Vship_Exception exception, char* out_message, int len)
+
+This function is used to get a detailed error message from an exception. It is useful to manage errors lazifully while still giving advices to solve the issue. There are 2 ways to use it:
+
+```Cpp
+char errmsg[1024];
+//will not overflow, the function is aware of the size of the allocation "1024". However, if a message was to be bigger thana 1024 characters, it would be cut.
+Vship_GetErrorMessage(error, errmsg, 1024);
+
+//----------------
+//the other way to not overflow and to be sure to retrieve the whole message
+char* errmsg2;
+int predicted_size = Vship_GetErrorMessage(error, NULL, 0); //retrieve size
+//allocate
+errmsg2 = (char*)malloc(sizeof(char)*predicted_size);
+//retrieve the message
+Vship_GetErrorMessage(error, errmsg2, predicted_size);
+
+//do what you want with the errmsg and then free
+free(errmsg2);
+```
+
+### Vship_SSIMU2Init(Vship_SSIMU2Handler* handler, int width, int height)
+
+This function is used to perform some preprocessing using the width and height. It creates a handler to be used on the compute function. A handler should only be used to process one frame at a time, should not be used after free but it can process multiple frames sequentially. It is possible and even recommended to create multiple Handler to process multiple frames in parallel.
+
+### Vship_SSIMU2Free(Vship_SSIMU2Handler handler)
+
+To avoid leaks, every handler that was allocated should be freed later using this function.
+
+### Vship_ComputeSSIMU2Float(Vship_SSIMU2Handler handler, double* score, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
+
+Using an allocated handler, you can retrieve the score between two `const uint8_t*[3]` frames which both have a given stride.
+
+these frames must be planar RGB with BT709 transfer and their color data encoded in 32bit Float.
+
+### Vship_ComputeSSIMU2Uint16(Vship_SSIMU2Handler handler, double* score, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
+
+Using an allocated handler, you can retrieve the score between two `const uint8_t*[3]` frames which both have a given stride.
+
+these frames must be planar RGB with BT709 transfer and their color data encoded in 16bit Unsigned integer.
+
+### Vship_ButteraugliInit(Vship_ButteraugliHandler* handler, int width, int height, float intensity_multiplier)
+
+This function is used to perform some preprocessing using the width and height. It creates a handler to be used on the compute function. A handler should only be used to process one frame at a time, should not be used after free but it can process multiple frames sequentially. It is possible and even recommended to create multiple Handler to process multiple frames in parallel.
+
+The intensity multiplier corresponds to the screen luminosity in nits. It is usually set at 203 nits or 80 nits.
+
+### Vship_ButteraugliFree(Vship_ButteraugliHandler handler)
+
+To avoid leaks, every handler that was allocated should be freed later using this function.
+
+### Vship_ComputeButteraugliFloat(Vship_ButteraugliHandler handler, Vship_ButteraugliScore* score, const uint8_t *dstp, int64_t dststride, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride)
+
+Using an allocated handler, you can retrieve the score between two `const uint8_t*[3]` frames which both have a given stride.
+
+these frames must be planar RGB with BT709 transfer and their color data encoded in 32bit Float.
+
+It is possible to retrieve the distortion map of butteraugli. If you supply NULL to dstp, the distortion map will be discarded without even going back to the CPU. As such, only the score will be obtained. However, if you supply a valid pointer allocated of the right size `sizeof(float)*image_height*dststride`, the distortion will be retrieved and stored here.
+
+### Vship_ComputeButteraugliUint16(Vship_ButteraugliHandler handler, Vship_ButteraugliScore* score, const uint8_t *dstp, int64_t dststride, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride)
+
+Using an allocated handler, you can retrieve the score between two `const uint8_t*[3]` frames which both have a given stride.
+
+these frames must be planar RGB with BT709 transfer and their color data encoded in 16bit Unsigned Integer.
+
+It is possible to retrieve the distortion map of butteraugli. If you supply NULL to dstp, the distortion map will be discarded without even going back to the CPU. As such, only the score will be obtained. However, if you supply a valid pointer allocated of the right size `sizeof(float)*image_height*dststride`, the distortion will be retrieved and stored here.
