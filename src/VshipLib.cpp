@@ -125,6 +125,22 @@ int Vship_GetErrorMessage(Vship_Exception exception, char* out_message, int len)
     return cppstr.size()+1;
 }
 
+Vship_Exception Vship_PinnedMalloc(void** ptr, uint64_t size){
+    hipError_t erralloc = hipHostMalloc(ptr, size);
+    if (erralloc != hipSuccess){
+        return Vship_OutOfRAM;
+    }
+    return Vship_NoError;
+}
+
+Vship_Exception Vship_PinnedFree(void* ptr){
+    hipError_t err = hipHostFree(ptr);
+    if (err != hipSuccess){
+        return Vship_BadPointer;
+    }
+    return Vship_NoError;
+}
+
 RessourceManager<ssimu2::SSIMU2ComputingImplementation> HandlerManagerSSIMU2;
 RessourceManager<butter::ButterComputingImplementation> HandlerManagerButteraugli;
 

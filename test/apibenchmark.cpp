@@ -13,7 +13,7 @@ public:
     uint64_t height;
     uint64_t stride;
     Image(uint64_t width, uint64_t height, uint64_t stride) : width(width), height(height), stride(stride){
-        srcp[0] = (uint8_t*)malloc(stride*height*3); //stride takes into account type of T
+        Vship_PinnedMalloc((void**)&srcp[0], stride*height*3); //stride takes into account type of T
         srcp[1] = srcp[0] + stride*height;
         srcp[2] = srcp[1] + stride*height;
         csrcp[0] = srcp[0];
@@ -34,7 +34,7 @@ public:
         }
     }
     ~Image(){
-        if (srcp[0]) free(srcp[0]);
+        if (srcp[0]) Vship_PinnedFree(srcp[0]);
         srcp[0] = NULL;
     }
 };

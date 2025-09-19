@@ -28,6 +28,7 @@ enum VSHIPEXCEPTTYPE{
 
     //API related
     BadHandler,
+    BadPointer,
 
     //should not be used
     BadErrorType,
@@ -64,6 +65,9 @@ std::string errorMessage(VSHIPEXCEPTTYPE type){
 
         case BadHandler:
         return "BadHandler: The handler used was not allocated. This indicates an issue in Vship API Usage. Did you call the Init function or altered the handler id?";
+
+        case BadPointer:
+        return "BadPointer: The pointer passed as an argument was not valid and returned an error. (Advice) If this happened while trying to free, was it allocated using the same method and not modified?";
 
         case BadErrorType:
         return "BadErrorType: There was an unknown error";

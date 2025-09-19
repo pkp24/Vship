@@ -198,6 +198,28 @@ Vship_GetErrorMessage(error, errmsg2, predicted_size);
 free(errmsg2);
 ```
 
+### Vship_PinnedMalloc(void** ptr, uint64_t size)
+
+This function allows a special and **expensive** type of allocation. The allocated data can be sent to the GPU with less latency and using less memory bandwidth by eliminating a memory copy. As such, for optimal speed, you should be using these planes for the images you plan on sending to the gpu for compute but only if you were to reuse the memory allocated because allocating and freeing for each frame with this function will occur slowdown.
+
+```Cpp
+uint8_t* mypointer;
+VshipException err = Vship_PinnedMalloc(&mypointer, allocationsize);
+//now you can use mypointer. But don't forget to free using the next function! it cannot be freed with just free(mypointer);
+```
+
+### Vship_PinnedFree(void* ptr)
+
+This function is used to free the pinned memory allocated above.
+
+```Cpp
+uint8_t* mypointer;
+Vship_PinnedMalloc(&mypointer, 1);
+mypointer[0] = 42;
+//yeay we wrote something
+Vship_PinnedFree(mypointer); //cleanup using this function
+```
+
 ### Vship_SSIMU2Init(Vship_SSIMU2Handler* handler, int width, int height)
 
 This function is used to perform some preprocessing using the width and height. It creates a handler to be used on the compute function. A handler should only be used to process one frame at a time, should not be used after free but it can process multiple frames sequentially. It is possible and even recommended to create multiple Handler to process multiple frames in parallel.

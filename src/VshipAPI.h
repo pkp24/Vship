@@ -51,6 +51,7 @@ typedef enum{
 
     //API related
     Vship_BadHandler,
+    Vship_BadPointer,
 
     //should not be used
     Vship_BadErrorType,
@@ -86,6 +87,10 @@ EXPORTPREPROCESS int Vship_GetErrorMessage(Vship_Exception exception, char* out_
 typedef struct{
     int id;
 } Vship_SSIMU2Handler;
+
+EXPORTPREPROCESS Vship_Exception Vship_PinnedMalloc(void** ptr, uint64_t size);
+
+EXPORTPREPROCESS Vship_Exception Vship_PinnedFree(void* ptr);
 
 //handler pointer will be replaced, it is a return value. Don't forget to free it after usage.
 EXPORTPREPROCESS Vship_Exception Vship_SSIMU2Init(Vship_SSIMU2Handler* handler, int width, int height);
