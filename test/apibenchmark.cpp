@@ -42,7 +42,7 @@ public:
 
 int main(){
     std::cout << "Tests performed at 1080p" << std::endl;
-    int width = 1920; int height = 1080; int stride = 2048;
+    int width = 1920; int height = 1080; int stride = 2048*sizeof(uint16_t);
     Image<uint16_t> original(width, height, stride);
     Image<uint16_t> other(width, height, stride);
     original.fillZeroStrideOne();
