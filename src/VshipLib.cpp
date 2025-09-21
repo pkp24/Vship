@@ -125,6 +125,19 @@ int Vship_GetErrorMessage(Vship_Exception exception, char* out_message, int len)
     return cppstr.size()+1;
 }
 
+Vship_Exception Vship_SetDevice(int gpu_id){
+    int numgpu;
+    Vship_Exception errcount = Vship_GetDeviceCount(&numgpu);
+    if (errcount != Vship_NoError){
+        return errcount;
+    }
+    if (gpu_id >= numgpu){
+        return Vship_BadDeviceArgument;
+    }
+    hipSetDevice(gpu_id);
+    return Vship_NoError;
+}
+
 Vship_Exception Vship_PinnedMalloc(void** ptr, uint64_t size){
     hipError_t erralloc = hipHostMalloc(ptr, size);
     if (erralloc != hipSuccess){
