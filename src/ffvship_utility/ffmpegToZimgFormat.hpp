@@ -198,6 +198,11 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
             return 1;
     }
 
+    if (out.width%(1 << out.subsample_w) != 0 || out.height%(1 << out.subsample_h)){
+        std::cout << "Width and height are not compatible with the subsampling. (For example odd width in YUV4:2:0). This is not supported by zimg" << std::endl;
+        return 1;
+    }
+
     if (out.depth <= 8) {
         out.pixel_type = ZIMG_PIXEL_BYTE;
     } else if (out.depth <= 16){
@@ -258,7 +263,10 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
             out.matrix_coefficients = ZIMG_MATRIX_FCC;                     
             break;
         case AVCOL_SPC_BT470BG:    
-            out.matrix_coefficients = ZIMG_MATRIX_BT470_BG;                
+            out.matrix_coefficients = ZIMG_MATRIX_BT470_BG;
+            //new default
+            out.transfer_characteristics = ZIMG_TRANSFER_BT470_BG;
+            out.color_primaries = ZIMG_PRIMARIES_BT470_BG;              
             break;
         case AVCOL_SPC_SMPTE170M:    
             out.matrix_coefficients = ZIMG_MATRIX_ST170_M;                 
