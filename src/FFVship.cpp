@@ -83,7 +83,7 @@ void frame_worker_thread(frame_queue_t &input_queue,
                          MetricType metric, float intensity_multiplier,
                          score_queue_t &output_score_queue,
                          int* error) {
-    while (true) {
+    while (!*error) {
         std::optional<std::tuple<int, uint8_t *, uint8_t *>> maybe_task =
             input_queue.pop();
         if (!maybe_task.has_value()) {
