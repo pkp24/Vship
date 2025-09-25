@@ -81,7 +81,8 @@ void frame_reader_thread2(frame_reader_thread2_arguments args){
 void frame_worker_thread(frame_queue_t &input_queue,
                          frame_pool_t &frame_buffer_pool, GpuWorker &gpu_worker,
                          MetricType metric, float intensity_multiplier,
-                         score_queue_t &output_score_queue) {
+                         score_queue_t &output_score_queue,
+                         int* error) {
     while (true) {
         std::optional<std::tuple<int, uint8_t *, uint8_t *>> maybe_task =
             input_queue.pop();
@@ -97,6 +98,7 @@ void frame_worker_thread(frame_queue_t &input_queue,
             std::cerr << " error: " << e.getErrorMessage() << std::endl;
             frame_buffer_pool.insert(src_buffer);
             frame_buffer_pool.insert(enc_buffer);
+            *error = 1;
             continue;
         }
 
@@ -359,13 +361,14 @@ int main(int argc, char **argv) {
 
     score_queue_t score_queue({});
 
+    int error = 0;
     std::vector<std::thread> workers;
     for (int i = 0; i < num_gpus; ++i) {
         workers.emplace_back(frame_worker_thread, std::ref(frame_queue),
                              std::ref(frame_buffer_pool),
                              std::ref(gpu_workers[i]), cli_args.metric,
                              cli_args.intensity_target_nits,
-                             std::ref(score_queue));
+                             std::ref(score_queue), &error);
     }
 
     const int score_vector_size = (cli_args.metric == MetricType::SSIMULACRA2)
@@ -386,6 +389,11 @@ int main(int argc, char **argv) {
 
     score_queue.close();
     score_thread.join();
+
+    if (error != 0){
+        std::cerr << "A frame worker returned an error, this indicates some frame failed to compute, check history for an error message" << std::endl;
+        return 1;
+    }
 
     if (!cli_args.live_index_score_output){
         std::cout << std::endl; //end of progressbar
