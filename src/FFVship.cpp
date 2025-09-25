@@ -94,7 +94,7 @@ void frame_worker_thread(frame_queue_t &input_queue,
         try {
             scores = gpu_worker.compute_metric_score(src_buffer, enc_buffer);
         } catch (const VshipError &e) {
-            std::cout << " error: " << e.getErrorMessage() << std::endl;
+            std::cerr << " error: " << e.getErrorMessage() << std::endl;
             frame_buffer_pool.insert(src_buffer);
             frame_buffer_pool.insert(enc_buffer);
             continue;
@@ -217,7 +217,7 @@ int main(int argc, char **argv) {
         try {
             std::cout << helper::listGPU();
         } catch (const VshipError &e) {
-            std::cout << e.getErrorMessage() << std::endl;
+            std::cerr << e.getErrorMessage() << std::endl;
             return 1;
         }
         return 0;
@@ -228,7 +228,7 @@ int main(int argc, char **argv) {
         // if succeed, this function also does hipSetDevice
         helper::gpuFullCheck(cli_args.gpu_id);
     } catch (const VshipError &e) {
-        std::cout << e.getErrorMessage() << std::endl;
+        std::cerr << e.getErrorMessage() << std::endl;
         return 1;
     }
 

@@ -194,12 +194,12 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
             out.subsample_h = 0;
         break;
         default:
-            std::cout << "Unhandled LibAV Pixel Format " << (AVPixelFormat)in->EncodedPixelFormat << std::endl;
+            std::cerr << "Unhandled LibAV Pixel Format " << (AVPixelFormat)in->EncodedPixelFormat << std::endl;
             return 1;
     }
 
     if (out.width%(1 << out.subsample_w) != 0 || out.height%(1 << out.subsample_h)){
-        std::cout << "Width and height are not compatible with the subsampling. (For example odd width in YUV4:2:0). This is not supported by zimg" << std::endl;
+        std::cerr << "Width and height are not compatible with the subsampling. (For example odd width in YUV4:2:0). This is not supported by zimg" << std::endl;
         return 1;
     }
 
@@ -208,7 +208,7 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
     } else if (out.depth <= 16){
         out.pixel_type = ZIMG_PIXEL_WORD;
     } else {
-        std::cout << "unsupported pixel depth" << std::endl;
+        std::cerr << "unsupported pixel depth" << std::endl;
         return 1;
     }
 
@@ -224,7 +224,7 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
 
     switch ((FFMS_ChromaLocations)in->ChromaLocation){
         case FFMS_LOC_UNSPECIFIED:
-            //std::cout << "unspecifed chroma location, defaulting on left" << std::endl;
+            //std::cerr << "unspecifed chroma location, defaulting on left" << std::endl;
         case FFMS_LOC_LEFT:
             out.chroma_location = ZIMG_CHROMA_LEFT;
             break;
@@ -245,7 +245,7 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
             break;
 
         default:
-            std::cout << "Unhandled LibAV Chroma position" << std::endl;
+            std::cerr << "Unhandled LibAV Chroma position" << std::endl;
             return 1;
     }
     
@@ -257,7 +257,7 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
             out.matrix_coefficients = ZIMG_MATRIX_BT709;                   
             break;
         case AVCOL_SPC_UNSPECIFIED:
-            //std::cout << "missing YUV matrix color, guessing..." << std::endl;                 
+            //std::cerr << "missing YUV matrix color, guessing..." << std::endl;                 
             break;
         case AVCOL_SPC_FCC:    
             out.matrix_coefficients = ZIMG_MATRIX_FCC;                     
@@ -297,13 +297,13 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
         //    break;
 
         default:
-            std::cout << "Unhandled LibAV YUV color matrix" << std::endl;
+            std::cerr << "Unhandled LibAV YUV color matrix" << std::endl;
             return 1;
     }
     
     switch (in->TransferCharateristics){
         case AVCOL_TRC_UNSPECIFIED:
-            //std::cout << "missing transfer function, using BT709" << std::endl;;
+            //std::cerr << "missing transfer function, using BT709" << std::endl;;
             break;    
         case AVCOL_TRC_BT709:
             out.transfer_characteristics = ZIMG_TRANSFER_BT709;
@@ -355,13 +355,13 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
             break;
 
         default:
-            std::cout << "Unhandled LibAV color transfer function" << std::endl;
+            std::cerr << "Unhandled LibAV color transfer function" << std::endl;
             return 1;
     }
     
     switch (in->ColorPrimaries){
         case AVCOL_PRI_UNSPECIFIED:
-            //std::cout << "unspecified primaries, defaulting to BT709" << std::endl;
+            //std::cerr << "unspecified primaries, defaulting to BT709" << std::endl;
             break;
         case AVCOL_PRI_BT709:
             out.color_primaries = ZIMG_PRIMARIES_BT709;
@@ -398,13 +398,13 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
             break;
             
         default:
-            std::cout << "Unhandled LibAV color primaries" << std::endl;
+            std::cerr << "Unhandled LibAV color primaries" << std::endl;
             return 1;
     }
 
     switch (in->ColorRange){
         case AVCOL_RANGE_UNSPECIFIED:
-            //std::cout << "Warning: unspecified color range, defaulting to full" << std::endl;
+            //std::cerr << "Warning: unspecified color range, defaulting to full" << std::endl;
             break;
         case AVCOL_RANGE_MPEG:
             out.pixel_range = ZIMG_RANGE_LIMITED;
@@ -413,7 +413,7 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
             out.pixel_range = ZIMG_RANGE_FULL;
             break;
         default:
-            std::cout << "Unhandled LibAV color range object received " << std::endl;
+            std::cerr << "Unhandled LibAV color range object received " << std::endl;
             return 1;
     }
     return 0;
