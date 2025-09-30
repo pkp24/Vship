@@ -3,6 +3,8 @@ current_dir := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 PREFIX ?= /usr/local
 DESTDIR ?=
 
+HIPARCH := gfx1201,gfx1100,gfx1101,gfx1102,gfx1103,gfx1012,gfx1030,gfx1031,gfx1032,gfx906,gfx801,gfx802,gfx803
+
 ifeq ($(OS),Windows_NT)
     dllend := .dll
 	exeend := .exe
@@ -32,7 +34,7 @@ buildFFVSHIPcuda: src/FFVship.cpp .FORCE
 	nvcc -x cu src/FFVship.cpp -std=c++17 -I "$(current_dir)include" -arch=native $(subst -pthread,-Xcompiler="-pthread",$(ffvshiplibheader)) -o FFVship$(exeend)
 
 buildFFVSHIPall: src/FFVship.cpp .FORCE
-	hipcc src/FFVship.cpp -std=c++17 -I "$(current_dir)include" --offload-arch=gfx1100,gfx1101,gfx1102,gfx1103,gfx1030,gfx1031,gfx1032,gfx906,gfx801,gfx802,gfx803 -Wno-unused-result -Wno-ignored-attributes $(ffvshiplibheader) -o FFVship$(exeend)
+	hipcc src/FFVship.cpp -std=c++17 -I "$(current_dir)include" --offload-arch=$(HIPARCH) -Wno-unused-result -Wno-ignored-attributes $(ffvshiplibheader) -o FFVship$(exeend)
 
 buildFFVSHIPcudaall: src/FFVship.cpp .FORCE
 	nvcc -x cu src/FFVship.cpp -std=c++17 -I "$(current_dir)include" -arch=all $(subst -pthread,-Xcompiler="-pthread",$(ffvshiplibheader)) -o FFVship$(exeend)
@@ -47,7 +49,7 @@ buildcudaall: src/VshipLib.cpp .FORCE
 	nvcc -x cu src/VshipLib.cpp -std=c++17 -arch=all -I "$(current_dir)include" -shared $(fpiccuda) -o "$(current_dir)vship$(dllend)"
 
 buildall: src/VshipLib.cpp .FORCE
-	hipcc src/VshipLib.cpp -std=c++17 --offload-arch=gfx1100,gfx1101,gfx1102,gfx1103,gfx1030,gfx1031,gfx1032,gfx906,gfx801,gfx802,gfx803 -I "$(current_dir)include" -Wno-unused-result -Wno-ignored-attributes -shared $(fpicamd) -o "$(current_dir)vship$(dllend)"
+	hipcc src/VshipLib.cpp -std=c++17 --offload-arch=$(HIPARCH) -I "$(current_dir)include" -Wno-unused-result -Wno-ignored-attributes -shared $(fpicamd) -o "$(current_dir)vship$(dllend)"
 
 ifeq ($(OS),Windows_NT)
 install:
