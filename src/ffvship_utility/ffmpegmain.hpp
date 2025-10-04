@@ -138,6 +138,12 @@ class GpuWorker {
     }
 };
 
+int IndexCallback(int64_t current, int64_t total, void* progp){
+    auto prog = (ProgressBar<100, false>*)progp;
+    prog->set_values(current/1000000, total/1000000);
+    return 0;
+}
+
 class FFMSIndexResult {
   private:
     static constexpr int error_message_buffer_size = 1024;
@@ -154,7 +160,7 @@ class FFMSIndexResult {
     int numFrame = 0;
     int write = 0;
 
-    explicit FFMSIndexResult(const std::string& input_file_path, std::string input_index_file_path, const bool cache_index, const bool debug_out = false) {
+    explicit FFMSIndexResult(const std::string& input_file_path, std::string input_index_file_path, const bool cache_index, const bool debug_out = false, const bool show_progress = true) {
         file_path = input_file_path;
         index_file_path = input_index_file_path;
         FFMS_Init(0, 0);
@@ -188,11 +194,24 @@ class FFMSIndexResult {
                             input_file_path + "] - " + error_message_buffer)
                                 .c_str());
 
+            ProgressBar<100, false>* prog;
+            if (show_progress){
+                std::cout << "Indexing Progress (MB) " << input_file_path << std::endl;
+                prog = new ProgressBar<100, false>(0);
+                FFMS_SetProgressCallback(indexer, IndexCallback, prog);
+            }
+
             index = FFMS_DoIndexing2(indexer, FFMS_IEH_ABORT, &error_info);
             ASSERT_WITH_MESSAGE(index != nullptr,
                             ("FFMS2: Failed to index file [" + input_file_path +
                             "] - " + error_message_buffer)
                                 .c_str());
+            
+            if (show_progress){
+                prog->refresh(true);
+                delete prog;
+                std::cout << std::endl; //end of progressbar
+            }
         }
 
         //if we need to cache and it s computed (compiler will optimize automatically)

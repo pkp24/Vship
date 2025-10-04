@@ -241,8 +241,8 @@ int main(int argc, char **argv) {
     const int num_gpus = cli_args.gpu_threads;
     const int num_frame_buffer = num_gpus*2 + 2*queue_capacity + 2*cli_args.cpu_threads; //maximum number of buffers in nature possible
 
-    FFMSIndexResult source_index = FFMSIndexResult(cli_args.source_file, cli_args.source_index, cli_args.cache_index, !cli_args.live_index_score_output);
-    FFMSIndexResult encode_index = FFMSIndexResult(cli_args.encoded_file, cli_args.encoded_index, cli_args.cache_index, !cli_args.live_index_score_output);
+    FFMSIndexResult source_index = FFMSIndexResult(cli_args.source_file, cli_args.source_index, cli_args.cache_index, !cli_args.live_index_score_output, !cli_args.live_index_score_output);
+    FFMSIndexResult encode_index = FFMSIndexResult(cli_args.encoded_file, cli_args.encoded_index, cli_args.cache_index, !cli_args.live_index_score_output, !cli_args.live_index_score_output);
 
     //initiliaze first sources to get width and height
     VideoManager v1(cli_args.source_file, source_index.index,
@@ -376,7 +376,10 @@ int main(int argc, char **argv) {
                                       : num_frames * 3;
     std::vector<float> scores(score_vector_size);
     ProgressBarT* progressBar;
-    if (!cli_args.live_index_score_output) progressBar = new ProgressBarT(num_frames);
+    if (!cli_args.live_index_score_output) {
+        std::cout << "Metric Processing Progress (Frames)" << std::endl;
+        progressBar = new ProgressBarT(num_frames);
+    }
 
     std::thread score_thread(aggregate_scores_function, std::ref(score_queue),
                              std::ref(scores), progressBar, cli_args.metric, cli_args.live_index_score_output);
