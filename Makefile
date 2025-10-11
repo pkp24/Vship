@@ -13,6 +13,7 @@ ifeq ($(OS),Windows_NT)
     plugin_install_path := $(APPDATA)\VapourSynth\plugins64
     exe_install_path := $(ProgramFiles)\FFVship.exe
     ffvshiplibheader := -I include -lz_imp -lz -lffms2
+	ffvshipincludeheader :=
 else
     dllend := .so
 	exeend :=
