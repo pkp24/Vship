@@ -45,7 +45,7 @@ __global__ void sumreduce(float* dst, float* src, int64_t width){
     }
 }
 
-__global__ void sumreducenorm(float* dst, float* src, int64_t width){
+__global__ void sumreducenorm(float* dst, float* src, int64_t width, int Qnorm){
     //dst must be of size 3*sizeof(float)*blocknum at least
     //shared memory needed is sizeof(float)*threadnum at least
     const int64_t x = threadIdx.x + blockIdx.x*blockDim.x;
@@ -59,7 +59,8 @@ __global__ void sumreducenorm(float* dst, float* src, int64_t width){
         sharedmem[1024+thx] = 0.0f;
         sharedmem[1024*2+thx] = 0.0f;
     } else {
-        sharedmem[thx] = src[x]*src[x];
+        //instead of norm2 we will have Qnorm now!
+        sharedmem[thx] = powf(src[x], Qnorm);
         sharedmem[1024+thx] = abs(src[x])*src[x]*src[x];
         sharedmem[1024*2+thx] = abs(src[x]);
     }
@@ -82,7 +83,7 @@ __global__ void sumreducenorm(float* dst, float* src, int64_t width){
     }
 }
 
-std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float* temp2, float* pinned, int64_t width, hipStream_t stream){
+std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float* temp2, float* pinned, int64_t width, int Qnorm, hipStream_t stream){
     bool first = true;
     int64_t basewidth = width;
     float* src = diffmap;
@@ -93,7 +94,7 @@ std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float*
         th_x = 1024;
         bl_x = (width - 1)/th_x + 1;
         if (first){
-            sumreducenorm<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temps[oscillate], src, width);
+            sumreducenorm<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temps[oscillate], src, width, Qnorm);
         } else {
             sumreduce<<<dim3(bl_x), dim3(th_x), 0, stream>>>(temps[oscillate], src, width);
         }
@@ -103,7 +104,7 @@ std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float*
         width = bl_x;
     }
     float* back_to_cpu = pinned;
-    float resnorm2 = 0.0f;
+    float resnormQ = 0.0f;
     float resnorm3 = 0.0f;
     float resnorminf = 0.0f;
     hipMemcpyDtoHAsync(back_to_cpu, src, sizeof(float)*width*3, stream);
@@ -112,19 +113,19 @@ std::tuple<float, float, float> diffmapscore(float* diffmap, float* temp, float*
 
     for (int i = 0; i < width; i++){
         if (first){
-            resnorm2 += std::pow(std::abs(back_to_cpu[i]), 2);
+            resnormQ += std::pow(std::abs(back_to_cpu[i]), Qnorm);
             resnorm3 += std::pow(std::abs(back_to_cpu[i]), 3);
             resnorminf = std::max(resnorminf, std::abs(back_to_cpu[i]));
         } else {
-            resnorm2 += std::abs(back_to_cpu[i]);
+            resnormQ += std::abs(back_to_cpu[i]);
             resnorm3 += std::abs(back_to_cpu[i+width]);
             resnorminf = std::max(resnorminf, std::abs(back_to_cpu[i+2*width]));
         }
     }
 
-    resnorm2 = std::pow(resnorm2/basewidth, 1./2.);
+    resnormQ = std::pow(resnormQ/basewidth, 1./(double)Qnorm);
     resnorm3 = std::pow(resnorm3/basewidth, 1./3.);
-    return std::make_tuple(resnorm2, resnorm3, resnorminf);
+    return std::make_tuple(resnormQ, resnorm3, resnorminf);
 }
 
 }

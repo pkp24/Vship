@@ -246,6 +246,10 @@ This function is used to perform some preprocessing using the width and height. 
 
 The intensity multiplier corresponds to the screen luminosity in nits. It is usually set at 203 nits or 80 nits.
 
+### Vship_ButteraugliInitv2(Vship_ButteraugliHandler* handler, int width, int height, int Qnorm, float intensity_multiplier)
+
+Same as the above but you can specify your own Qnorm to compute any wanted norm of the distmap on the gpu instead of norm2.
+
 ### Vship_ButteraugliFree(Vship_ButteraugliHandler handler)
 
 To avoid leaks, every handler that was allocated should be freed later using this function.

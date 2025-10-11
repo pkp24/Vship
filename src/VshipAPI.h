@@ -119,6 +119,9 @@ typedef struct{
 //handler pointer will be replaced, it is a return value. Don't forget to free it after usage.
 EXPORTPREPROCESS Vship_Exception Vship_ButteraugliInit(Vship_ButteraugliHandler* handler, int width, int height, float intensity_multiplier);
 
+//this version allows specifying a Qnorm instead of getting norm2
+EXPORTPREPROCESS Vship_Exception Vship_ButteraugliInitv2(Vship_ButteraugliHandler* handler, int width, int height, int Qnorm, float intensity_multiplier);
+
 //handler pointer can be discarded after this function.
 EXPORTPREPROCESS Vship_Exception Vship_ButteraugliFree(Vship_ButteraugliHandler handler);
 

@@ -67,7 +67,7 @@ namespace butter{
             }
             d->streamSet->insert(stream);
     
-            vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_BUTTERAUGLI_2Norm", std::get<0>(val), maReplace);
+            vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_BUTTERAUGLI_QNorm", std::get<0>(val), maReplace);
             vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_BUTTERAUGLI_3Norm", std::get<1>(val), maReplace);
             vsapi->mapSetFloat(vsapi->getFramePropertiesRW(dst), "_BUTTERAUGLI_INFNorm", std::get<2>(val), maReplace);
     
@@ -139,6 +139,10 @@ namespace butter{
         if (error != peSuccess){
             d.diffmap = 0.;
         }
+        int Qnorm = vsapi->mapGetInt(in, "qnorm", 0, &error);
+        if (error != peSuccess){
+            Qnorm = 2;
+        }
     
         if (d.diffmap){
             viout.format = formatout;
@@ -176,7 +180,7 @@ namespace butter{
             data->butterStreams = (ButterComputingImplementation*)malloc(sizeof(ButterComputingImplementation)*d.streamnum);
             if (data->butterStreams == NULL) throw VshipError(OutOfRAM, __FILE__, __LINE__);
             for (int i = 0; i < d.streamnum; i++){
-                data->butterStreams[i].init(viref->width, viref->height, intensity_multiplier);
+                data->butterStreams[i].init(viref->width, viref->height, Qnorm, intensity_multiplier);
             }
         } catch (const VshipError& e){
             vsapi->mapSetError(out, e.getErrorMessage().c_str());

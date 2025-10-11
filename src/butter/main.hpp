@@ -139,7 +139,7 @@ float* getmultiscalediffmap(float* src1_d[3], float* src2_d[3], float* mem_d, in
 }
 
 template <InputMemType T>
-std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int64_t dststride, const uint8_t *srcp1[3], const uint8_t *srcp2[3], float* pinned, GaussianHandle& gaussianHandle, int64_t stride, int64_t width, int64_t height, float intensity_multiplier, int64_t maxshared, hipStream_t stream){
+std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int64_t dststride, const uint8_t *srcp1[3], const uint8_t *srcp2[3], float* pinned, GaussianHandle& gaussianHandle, int64_t stride, int64_t width, int64_t height, int Qnorm, float intensity_multiplier, int64_t maxshared, hipStream_t stream){
     int64_t wh = width*height;
     const int64_t totalscalesize = wh;
 
@@ -184,7 +184,7 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int64_t dstst
 
     std::tuple<float, float, float> finalres;
     try{
-        finalres = diffmapscore(diffmap, mem_d+9*width*height, mem_d+10*width*height, pinned, width*height, stream);
+        finalres = diffmapscore(diffmap, mem_d+9*width*height, mem_d+10*width*height, pinned, width*height, Qnorm, stream);
     } catch (const VshipError& e){
         hipFree(mem_d);
         throw e;
@@ -198,15 +198,18 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int64_t dstst
 class ButterComputingImplementation{
     float* pinned;
     GaussianHandle gaussianhandle;
+    int Qnorm;
     float intensity_multiplier;
     int64_t width;
     int64_t height;
     int maxshared;
     hipStream_t stream;
 public:
-    void init(int64_t width, int64_t height, float intensity_multiplier){
+    //Qnorm replace the old norm2 and allows getting really any norm wanted
+    void init(int64_t width, int64_t height, int Qnorm, float intensity_multiplier){
         this->width = width;
         this->height = height;
+        this->Qnorm = Qnorm;
         this->intensity_multiplier = intensity_multiplier;
 
         gaussianhandle.init();
@@ -234,7 +237,7 @@ public:
     //if dstp is NULL, distmap won't be retrieved
     template <InputMemType T>
     std::tuple<float, float, float> run(const uint8_t *dstp, int64_t dststride, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride){
-        return butterprocess<T>(dstp, dststride, srcp1, srcp2, pinned, gaussianhandle, stride, width, height, intensity_multiplier, maxshared, stream);
+        return butterprocess<T>(dstp, dststride, srcp1, srcp2, pinned, gaussianhandle, stride, width, height, Qnorm, intensity_multiplier, maxshared, stream);
     }
 };
 

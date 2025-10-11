@@ -48,9 +48,9 @@ class GpuWorker {
     butter::ButterComputingImplementation butterworker;
 
   public:
-    GpuWorker(MetricType metric, int width, int height, int stride, float intensity_multiplier)
+    GpuWorker(MetricType metric, int width, int height, int stride, int Qnorm, float intensity_multiplier)
         : image_width(width), image_height(height), selected_metric(metric), image_stride(stride){
-        allocate_gpu_memory(intensity_multiplier);
+        allocate_gpu_memory(Qnorm, intensity_multiplier);
     }
     ~GpuWorker(){
         deallocate_gpu_memory();
@@ -106,7 +106,7 @@ class GpuWorker {
     }
 
   private:
-    void allocate_gpu_memory(float intensity_multiplier = 203) {
+    void allocate_gpu_memory(int Qnorm = 2, float intensity_multiplier = 203) {
         if (selected_metric == MetricType::SSIMULACRA2) {
             try {
                 ssimu2worker.init(image_width, image_height);
@@ -117,7 +117,7 @@ class GpuWorker {
             }
         } else if (selected_metric == MetricType::Butteraugli) {
             try {
-                butterworker.init(image_width, image_height, intensity_multiplier);
+                butterworker.init(image_width, image_height, Qnorm, intensity_multiplier);
             } catch (const VshipError& e){
                 std::cerr << e.getErrorMessage() << std::endl;
                 ASSERT_WITH_MESSAGE(false, "Failed to initialize Butteraugli Worker");
@@ -674,7 +674,10 @@ struct CommandLineOptions {
     std::vector<int> source_indices_list;
     std::vector<int> encoded_indices_list;
 
+    //for butteraugli
+    int Qnorm = 2;
     int intensity_target_nits = 203;
+
     int gpu_id = 0;
     int gpu_threads = 3;
     int cpu_threads = 1;
@@ -752,6 +755,7 @@ CommandLineOptions parse_command_line_arguments(int argc, char **argv) {
     parser.add_flag({"--source-indices"}, &source_indices_str, "List of source indices subjective to --start, --end, --every and --encoded-offset. If --encoded-indices isnt specified, this will be applied to encoded-indices too. Format is integers separated by comma");
     parser.add_flag({"--encoded-indices"}, &encoded_indices_str, "List of encoded indices subjective to --start, --end, --every and --encoded-offset. Format is integers separated by comma");
     parser.add_flag({"--intensity-target"}, &opts.intensity_target_nits, "Target nits for Butteraugli");
+    parser.add_flag({"--qnorm"}, &opts.Qnorm, "Optional Norm to compute (default to 2)");
     parser.add_flag({"--threads", "-t"}, &opts.cpu_threads, "Number of Decoder process, recommended is 2");
     parser.add_flag({"--gpu-threads", "-g"}, &opts.gpu_threads, "GPU thread count, recommended is 3");
     parser.add_flag({"--gpu-id"}, &opts.gpu_id, "GPU index");

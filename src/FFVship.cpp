@@ -333,7 +333,7 @@ int main(int argc, char **argv) {
     gpu_workers.reserve(num_gpus);
 
     for (int i = 0; i < num_gpus; i++){
-        gpu_workers.emplace_back(cli_args.metric, width, height, stride, cli_args.intensity_target_nits);
+        gpu_workers.emplace_back(cli_args.metric, width, height, stride, cli_args.Qnorm, cli_args.intensity_target_nits);
     }
 
     std::vector<std::thread> reader_threads;
@@ -455,16 +455,16 @@ int main(int argc, char **argv) {
               << std::endl;
 
     if (cli_args.metric == MetricType::Butteraugli) {
-        std::vector<float> norm2(num_frames), norm3(num_frames),
+        std::vector<float> normQ(num_frames), norm3(num_frames),
             norminf(num_frames);
 
         for (int i = 0; i < num_frames; ++i) {
-            norm2[i] = scores[3 * i];
+            normQ[i] = scores[3 * i];
             norm3[i] = scores[3 * i + 1];
             norminf[i] = scores[3 * i + 2];
         }
 
-        print_aggergate_metric_statistics(norm2, "2-Norm");
+        print_aggergate_metric_statistics(normQ, std::to_string(cli_args.Qnorm)+"-Norm");
         print_aggergate_metric_statistics(norm3, "3-Norm");
         print_aggergate_metric_statistics(norminf, "INF-Norm");
 

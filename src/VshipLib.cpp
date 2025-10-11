@@ -57,7 +57,7 @@ static void VS_CC GpuInfo(const VSMap *in, VSMap *out, void *userData, VSCore *c
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
     vspapi->configPlugin("com.lumen.vship", "vship", "VapourSynth SSIMULACRA2 on GPU", VS_MAKE_VERSION(3, 2), VAPOURSYNTH_API_VERSION, 0, plugin);
     vspapi->registerFunction("SSIMULACRA2", "reference:vnode;distorted:vnode;numStream:int:opt;gpu_id:int:opt;", "clip:vnode;", ssimu2::ssimulacra2Create, NULL, plugin);
-    vspapi->registerFunction("BUTTERAUGLI", "reference:vnode;distorted:vnode;intensity_multiplier:float:opt;distmap:int:opt;numStream:int:opt;gpu_id:int:opt;", "clip:vnode;", butter::butterCreate, NULL, plugin);
+    vspapi->registerFunction("BUTTERAUGLI", "reference:vnode;distorted:vnode;qnorm:int:opt;intensity_multiplier:float:opt;distmap:int:opt;numStream:int:opt;gpu_id:int:opt;", "clip:vnode;", butter::butterCreate, NULL, plugin);
     vspapi->registerFunction("GpuInfo", "gpu_id:int:opt;", "gpu_human_data:data;", GpuInfo, NULL, plugin);
 }
 
@@ -222,7 +222,22 @@ Vship_Exception Vship_ButteraugliInit(Vship_ButteraugliHandler* handler, int wid
     handler->id = HandlerManagerButteraugli.allocate();
     HandlerManagerButteraugli.lock.lock();
     try{
-        HandlerManagerButteraugli.elements[handler->id].init(width, height, intensity_multiplier);
+        //Qnorm = 2 by default to mimic old behavior
+        HandlerManagerButteraugli.elements[handler->id].init(width, height, 2, intensity_multiplier);
+    } catch (const VshipError& e){
+        err = (Vship_Exception)e.type;
+    }
+    HandlerManagerButteraugli.lock.unlock();
+    return err;
+}
+
+//allows specifying Qnorm
+Vship_Exception Vship_ButteraugliInitv2(Vship_ButteraugliHandler* handler, int width, int height, int Qnorm, float intensity_multiplier){
+    Vship_Exception err = Vship_NoError;
+    handler->id = HandlerManagerButteraugli.allocate();
+    HandlerManagerButteraugli.lock.lock();
+    try{
+        HandlerManagerButteraugli.elements[handler->id].init(width, height, Qnorm, intensity_multiplier);
     } catch (const VshipError& e){
         err = (Vship_Exception)e.type;
     }

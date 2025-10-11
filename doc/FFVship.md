@@ -105,6 +105,6 @@ This method is made to be able to retrieve per-frame scores from the computation
 [[score_frame_0], [score_frame_1], ...]
 
 #Butteraugli
-[[Norm2_score_frame_0, Norm3_score_frame_0, NormINF_score_frame_0], [Norm2_score_frame_1, Norm3_score_frame_1, NormINF_score_frame_1], ... ]
+[[NormQ_score_frame_0, Norm3_score_frame_0, NormINF_score_frame_0], [NormQ_score_frame_1, Norm3_score_frame_1, NormINF_score_frame_1], ... ]
 
 ```

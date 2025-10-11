@@ -6,6 +6,7 @@ Name | Type | Required | Default
 --- | --- | --- | ---
 reference | `vapoursynth.VideoNode` | Yes
 distorted | `vapoursynth.VideoNode` | Yes
+qnorm | `int` | No | `2`
 intensity_multiplier | `float` | No | `203`
 distmap | `int` (`0`-`1`) | No | `0`
 numStream | `int` | No | core.num_threads
@@ -18,6 +19,10 @@ Reference clip to compare distorted clip to. Must be a [Vapoursynth VideoNode][v
 ### distorted
 
 Distorted clip to compare to reference clip with. It must be a [Vapoursynth VideoNode][vs-videonode] with the same length, width, and height as the reference clip.
+
+### qnorm
+
+Instead of retrieving norm2, you can choose to retrieve any norm you wish on the distortion map specified by this integer
 
 ### intensity_multiplier
 
@@ -55,11 +60,12 @@ ID of the GPU to run VSHIP on. It will perform the GPU Check functions as descri
 
 ## Butteraugli Return Values
 
-The method will always return a [Vapoursynth VideoNode][vs-videonode] with the following properties on each individual [VideoFrame][vs-videoframe]: `_BUTTERAUGLI_2Norm`, `_BUTTERAUGLI_3Norm`, `_BUTTERAUGLI_INFNorm`. These values return regardless of the [`distmap`][wiki-distmap] argument value provided.
+The method will always return a [Vapoursynth VideoNode][vs-videonode] with the following properties on each individual [VideoFrame][vs-videoframe]: `_BUTTERAUGLI_QNorm`, `_BUTTERAUGLI_3Norm`, `_BUTTERAUGLI_INFNorm`. These values return regardless of the [`distmap`][wiki-distmap] argument value provided.
 
 Name | Type | Description
 --- | --- | ---
-`_BUTTERAUGLI_2Norm` | `float` |  Euclidian norm (norm 2) of the distmap
+`_BUTTERAUGLI_QNorm` | `float` |  Norm configurable with argument of the distmap
+`_BUTTERAUGLI_2Norm` | `float` |  equal to the above, deprecated
 `_BUTTERAUGLI_3Norm` | `float` | Norm 3 of the distmap
 `_BUTTERAUGLI_INFNorm` | `float` | Maximum value of the distmap
 
