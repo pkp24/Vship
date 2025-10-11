@@ -23,21 +23,22 @@ else
     exe_install_path := $(DESTDIR)$(PREFIX)/bin
 	header_install_path := $(DESTDIR)$(PREFIX)/include
     ffvshiplibheader := $(shell pkg-config --libs ffms2 zimg)
+	ffvshipincludeheader := $(shell pkg-config --cflags-only-I ffms2 zimg)
 endif
 
 .FORCE:
 
 buildFFVSHIP: src/FFVship.cpp .FORCE
-	hipcc src/FFVship.cpp -std=c++17 -I "$(current_dir)include" --offload-arch=native -Wno-unused-result -Wno-ignored-attributes $(ffvshiplibheader) -o FFVship$(exeend)
+	hipcc src/FFVship.cpp -std=c++17 $(ffvshipincludeheader) -I "$(current_dir)include" --offload-arch=native -Wno-unused-result -Wno-ignored-attributes $(ffvshiplibheader) -o FFVship$(exeend)
 
 buildFFVSHIPcuda: src/FFVship.cpp .FORCE
-	nvcc -x cu src/FFVship.cpp -std=c++17 -I "$(current_dir)include" -arch=native $(subst -pthread,-Xcompiler="-pthread",$(ffvshiplibheader)) -o FFVship$(exeend)
+	nvcc -x cu src/FFVship.cpp -std=c++17 $(ffvshipincludeheader) -I "$(current_dir)include" -arch=native $(subst -pthread,-Xcompiler="-pthread",$(ffvshiplibheader)) -o FFVship$(exeend)
 
 buildFFVSHIPall: src/FFVship.cpp .FORCE
-	hipcc src/FFVship.cpp -std=c++17 -I "$(current_dir)include" --offload-arch=$(HIPARCH) -Wno-unused-result -Wno-ignored-attributes $(ffvshiplibheader) -o FFVship$(exeend)
+	hipcc src/FFVship.cpp -std=c++17 $(ffvshipincludeheader) -I "$(current_dir)include" --offload-arch=$(HIPARCH) -Wno-unused-result -Wno-ignored-attributes $(ffvshiplibheader) -o FFVship$(exeend)
 
 buildFFVSHIPcudaall: src/FFVship.cpp .FORCE
-	nvcc -x cu src/FFVship.cpp -std=c++17 -I "$(current_dir)include" -arch=all $(subst -pthread,-Xcompiler="-pthread",$(ffvshiplibheader)) -o FFVship$(exeend)
+	nvcc -x cu src/FFVship.cpp -std=c++17 $(ffvshipincludeheader) -I "$(current_dir)include" -arch=all $(subst -pthread,-Xcompiler="-pthread",$(ffvshiplibheader)) -o FFVship$(exeend)
 
 build: src/VshipLib.cpp .FORCE
 	hipcc src/VshipLib.cpp -std=c++17 -I "$(current_dir)include" --offload-arch=native -I "$(current_dir)include" -Wno-unused-result -Wno-ignored-attributes -shared $(fpicamd) -o "$(current_dir)vship$(dllend)"
