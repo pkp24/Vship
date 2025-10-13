@@ -230,11 +230,15 @@ To avoid leaks, every handler that was allocated should be freed later using thi
 
 ### Vship_ComputeSSIMU2Float(Vship_SSIMU2Handler handler, double* score, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
 
+(There is a v2 that adds stride2 to specify a different srcp2 stride)
+
 Using an allocated handler, you can retrieve the score between two `const uint8_t*[3]` frames which both have a given stride.
 
 these frames must be planar RGB with BT709 transfer and their color data encoded in 32bit Float.
 
 ### Vship_ComputeSSIMU2Uint16(Vship_SSIMU2Handler handler, double* score, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
+
+(There is a v2 that adds stride2 to specify a different srcp2 stride)
 
 Using an allocated handler, you can retrieve the score between two `const uint8_t*[3]` frames which both have a given stride.
 
@@ -256,6 +260,8 @@ To avoid leaks, every handler that was allocated should be freed later using thi
 
 ### Vship_ComputeButteraugliFloat(Vship_ButteraugliHandler handler, Vship_ButteraugliScore* score, const uint8_t *dstp, int64_t dststride, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride)
 
+(There is a v2 that adds stride2 to specify a different srcp2 stride)
+
 Using an allocated handler, you can retrieve the score between two `const uint8_t*[3]` frames which both have a given stride.
 
 these frames must be planar RGB with BT709 transfer and their color data encoded in 32bit Float.
@@ -263,6 +269,8 @@ these frames must be planar RGB with BT709 transfer and their color data encoded
 It is possible to retrieve the distortion map of butteraugli. If you supply NULL to dstp, the distortion map will be discarded without even going back to the CPU. As such, only the score will be obtained. However, if you supply a valid pointer allocated of the right size `sizeof(float)*image_height*dststride`, the distortion will be retrieved and stored here.
 
 ### Vship_ComputeButteraugliUint16(Vship_ButteraugliHandler handler, Vship_ButteraugliScore* score, const uint8_t *dstp, int64_t dststride, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride)
+
+(There is a v2 that adds stride2 to specify a different srcp2 stride)
 
 Using an allocated handler, you can retrieve the score between two `const uint8_t*[3]` frames which both have a given stride.
 

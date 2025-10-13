@@ -26,6 +26,7 @@ static const VSFrame *VS_CC ssimulacra2GetFrame(int n, int activationReason, voi
         int64_t height = vsapi->getFrameHeight(src1, 0);
         int64_t width = vsapi->getFrameWidth(src1, 0);
         int64_t stride = vsapi->getStride(src1, 0);
+        int64_t stride2 = vsapi->getStride(src2, 0);
 
         VSFrame *dst = vsapi->copyFrame(src2, core);
 
@@ -45,7 +46,7 @@ static const VSFrame *VS_CC ssimulacra2GetFrame(int n, int activationReason, voi
         const int stream = d->streamSet->pop();
         SSIMU2ComputingImplementation& ssimu2Stream = d->ssimu2Streams[stream];
         try{
-            val = ssimu2Stream.run<FLOAT>(srcp1, srcp2, stride);
+            val = ssimu2Stream.run<FLOAT>(srcp1, srcp2, stride, stride2);
         } catch (const VshipError& e){
             vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);
             d->streamSet->insert(stream);

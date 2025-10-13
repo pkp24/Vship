@@ -68,6 +68,18 @@ Allows to specify specific frames to compute metrics on. It is affected by start
 example: --start 10 --every 2 --encoded-offset 1 --source-indices 13
 compare: frame 10+2*13 = 36 for source and frame 10+2*13+1 = 37 for encoded
 
+### --crop...
+
+There are multiple crop functions that can be seen in -h to define the crop rectangle of both source and encoded
+
+beware that any size mismatch will imply a resize! example:
+
+my source is 1910x1080 and my encoded is 1920x1080
+
+I crop my source at left by 10 to 1900x1080 and my encoded at left by 10 to 1910x1080
+Then FFVship will resize the decode the encoded to 1920x1080 then resize to 1910x1080 then crop to 1900x1080.
+(the step is: decode to normal size, resize to the right size such that once cropped, it matches source cropped size)
+
 ### -t / -g
 
 -t corresponds to the number of decoding process used. It is recommended to increase this value to -t 2 or -t 3 if your CPU has too much cores for the decoding process to fully use it (if it not already saturating your GPU). -g correponds to the number of stream in the GPU, -g 3 is usually considered enough, it can be lowered to reduce VRAM or increased a bit to help the GPU parallelize frames better if it fails to being fully used.

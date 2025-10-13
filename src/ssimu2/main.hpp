@@ -104,15 +104,16 @@ double ssimu2GPUProcess(float3* src1_d, float3* src2_d, float3* temp_d, float3* 
 }
 
 template <InputMemType T>
-double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* pinned, int64_t stride, int64_t width, int64_t height, GaussianHandle& gaussianhandle, int64_t maxshared, hipStream_t stream){
+double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* pinned, int64_t stride, int64_t stride2, int64_t width, int64_t height, GaussianHandle& gaussianhandle, int64_t maxshared, hipStream_t stream){
 
     const int64_t totalscalesize = getTotalScaleSize(width, height);
+    int64_t max_stride = std::max(stride, stride2);
 
     //big memory allocation, we will try it multiple time if failed to save when too much threads are used
     hipError_t erralloc;
 
     float3* mem_d;
-    erralloc = hipMallocAsync(&mem_d, sizeof(float3)*totalscalesize*(2) + std::max((int64_t)sizeof(float3)*totalscalesize, stride*height*3), stream); //2 base image and 1 reduction+copy buffer
+    erralloc = hipMallocAsync(&mem_d, sizeof(float3)*totalscalesize*(2) + std::max((int64_t)sizeof(float3)*totalscalesize, max_stride*height*3), stream); //2 base image and 1 reduction+copy buffer
     if (erralloc != hipSuccess){
         throw VshipError(OutOfVRAM, __FILE__, __LINE__);
     }
@@ -122,16 +123,16 @@ double ssimu2process(const uint8_t *srcp1[3], const uint8_t *srcp2[3], float3* p
 
     float3* temp_d = mem_d + 2*totalscalesize;
 
-    uint8_t *memory_placeholder[3] = {(uint8_t*)temp_d, (uint8_t*)temp_d+stride*height, (uint8_t*)temp_d+2*stride*height};
+    uint8_t *memory_placeholder[3] = {(uint8_t*)temp_d, (uint8_t*)temp_d+max_stride*height, (uint8_t*)temp_d+2*max_stride*height};
     GPU_CHECK(hipMemcpyHtoDAsync(memory_placeholder[0], (void*)srcp1[0], stride * height, stream));
     GPU_CHECK(hipMemcpyHtoDAsync(memory_placeholder[1], (void*)srcp1[1], stride * height, stream));
     GPU_CHECK(hipMemcpyHtoDAsync(memory_placeholder[2], (void*)srcp1[2], stride * height, stream));
     memoryorganizer<T>(src1_d, memory_placeholder[0], memory_placeholder[1], memory_placeholder[2], stride, width, height, stream);
 
-    GPU_CHECK(hipMemcpyHtoDAsync(memory_placeholder[0], (void*)srcp2[0], stride * height, stream));
-    GPU_CHECK(hipMemcpyHtoDAsync(memory_placeholder[1], (void*)srcp2[1], stride * height, stream));
-    GPU_CHECK(hipMemcpyHtoDAsync(memory_placeholder[2], (void*)srcp2[2], stride * height, stream));
-    memoryorganizer<T>(src2_d, memory_placeholder[0], memory_placeholder[1], memory_placeholder[2], stride, width, height, stream);
+    GPU_CHECK(hipMemcpyHtoDAsync(memory_placeholder[0], (void*)srcp2[0], stride2 * height, stream));
+    GPU_CHECK(hipMemcpyHtoDAsync(memory_placeholder[1], (void*)srcp2[1], stride2 * height, stream));
+    GPU_CHECK(hipMemcpyHtoDAsync(memory_placeholder[2], (void*)srcp2[2], stride2 * height, stream));
+    memoryorganizer<T>(src2_d, memory_placeholder[0], memory_placeholder[1], memory_placeholder[2], stride2, width, height, stream);
 
     rgb_to_linear(src1_d, totalscalesize, stream);
     rgb_to_linear(src2_d, totalscalesize, stream);
@@ -184,8 +185,8 @@ public:
         hipHostFree(pinned);
     }
     template <InputMemType T>
-    double run(const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride){
-        return ssimu2process<T>(srcp1, srcp2, pinned, stride, width, height, gaussianhandle, maxshared, stream);
+    double run(const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride, int64_t stride2){
+        return ssimu2process<T>(srcp1, srcp2, pinned, stride, stride2, width, height, gaussianhandle, maxshared, stream);
     }
 };
 

@@ -26,6 +26,7 @@ namespace butter{
             int height = vsapi->getFrameHeight(src1, 0);
             int width = vsapi->getFrameWidth(src1, 0);
             int stride = vsapi->getStride(src1, 0);
+            int stride2 = vsapi->getStride(src2, 0);
     
             VSFrame *dst;
             if (d->diffmap){
@@ -54,9 +55,9 @@ namespace butter{
             ButterComputingImplementation& butterstream = d->butterStreams[stream];
             try{
                 if (d->diffmap){
-                    val = butterstream.run<FLOAT>(vsapi->getWritePtr(dst, 0), vsapi->getStride(dst, 0), srcp1, srcp2, stride);
+                    val = butterstream.run<FLOAT>(vsapi->getWritePtr(dst, 0), vsapi->getStride(dst, 0), srcp1, srcp2, stride, stride2);
                 } else {
-                    val = butterstream.run<FLOAT>(NULL, 0, srcp1, srcp2, stride);
+                    val = butterstream.run<FLOAT>(NULL, 0, srcp1, srcp2, stride, stride2);
                 }
             } catch (const VshipError& e){
                 vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);

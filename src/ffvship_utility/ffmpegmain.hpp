@@ -25,6 +25,13 @@ if (!(condition)) {\
 
 enum class MetricType { SSIMULACRA2, Butteraugli, Unknown };
 
+struct CropRectangle{
+    int top = 0;
+    int bottom = 0;
+    int left = 0;
+    int right = 0;
+};
+
 int inline align_stride(int stride){
     return ((stride-1)/32+1)*32;
 }
@@ -42,14 +49,23 @@ class GpuWorker {
     int image_height;
     int image_stride;
 
+    CropRectangle cropSource;
+    CropRectangle cropEncoded;
+
+    int widthEncoded;
+    int heightEncoded;
+    int strideEncoded;
+
     MetricType selected_metric;
 
     ssimu2::SSIMU2ComputingImplementation ssimu2worker;
     butter::ButterComputingImplementation butterworker;
 
   public:
-    GpuWorker(MetricType metric, int width, int height, int stride, int Qnorm, float intensity_multiplier)
-        : image_width(width), image_height(height), selected_metric(metric), image_stride(stride){
+    GpuWorker(MetricType metric, int width, int height, int stride, int strideEncoded, CropRectangle cropSource, CropRectangle cropEncoded, int Qnorm, float intensity_multiplier)
+        : image_width(width), image_height(height), selected_metric(metric), image_stride(stride), strideEncoded(strideEncoded), cropSource(cropSource), cropEncoded(cropEncoded){
+        widthEncoded = width - cropSource.left - cropSource.right + cropEncoded.left + cropEncoded.right;
+        heightEncoded = height - cropSource.top - cropSource.bottom + cropEncoded.top + cropEncoded.bottom;
         allocate_gpu_memory(Qnorm, intensity_multiplier);
     }
     ~GpuWorker(){
@@ -60,33 +76,39 @@ class GpuWorker {
     compute_metric_score(uint8_t *source_frame, uint8_t *encoded_frame) {
         const int channel_offset_bytes =
             image_stride * image_height;
+        const int channel_offset_bytesEncoded =
+            strideEncoded * image_height;
+        
+        //for crop
+        int64_t topleftOffset = cropSource.top * image_stride + sizeof(uint16_t)*cropSource.left;
+        int64_t topleftOffsetEncoded = cropEncoded.top * strideEncoded + sizeof(uint16_t)*cropEncoded.left;
 
         const uint8_t *source_channels[3] = {
-            source_frame, source_frame + channel_offset_bytes,
-            source_frame + 2 * channel_offset_bytes};
+            source_frame + topleftOffset, source_frame + channel_offset_bytes + topleftOffset,
+            source_frame + 2 * channel_offset_bytes + topleftOffset};
 
         const uint8_t *encoded_channels[3] = {
-            encoded_frame, encoded_frame + channel_offset_bytes,
-            encoded_frame + 2 * channel_offset_bytes};
+            encoded_frame + topleftOffsetEncoded, encoded_frame + channel_offset_bytesEncoded + topleftOffsetEncoded,
+            encoded_frame + 2 * channel_offset_bytesEncoded + topleftOffsetEncoded};
 
         if (selected_metric == MetricType::SSIMULACRA2) {
             const double score = ssimu2worker.run<UINT16>(
-                source_channels, encoded_channels, image_stride);
+                source_channels, encoded_channels, image_stride, strideEncoded); 
             float s = static_cast<float>(score);
             return {s, s, s};
         }
 
         if (selected_metric == MetricType::Butteraugli) {
             return butterworker.run<UINT16>(
-                nullptr, 0, source_channels, encoded_channels, image_stride);
+                nullptr, 0, source_channels, encoded_channels, image_stride, strideEncoded);
         }
 
         ASSERT_WITH_MESSAGE(false, "Unknown metric specified for GpuWorker.");
         return {0.0f, 0.0f, 0.0f};
     }
 
-    static uint8_t *allocate_external_rgb_buffer(int stride, int height) {
-        const size_t buffer_size_bytes = stride * height * 3;
+    static uint8_t *allocate_external_rgb_buffer(int bytes) {
+        const size_t buffer_size_bytes = bytes * 3;
         uint8_t *buffer_ptr = nullptr;
 
         const hipError_t result = hipHostMalloc(
@@ -109,7 +131,7 @@ class GpuWorker {
     void allocate_gpu_memory(int Qnorm = 2, float intensity_multiplier = 203) {
         if (selected_metric == MetricType::SSIMULACRA2) {
             try {
-                ssimu2worker.init(image_width, image_height);
+                ssimu2worker.init(image_width-cropSource.left-cropSource.right, image_height-cropSource.top-cropSource.bottom);
             } catch (const VshipError& e){
                 std::cerr << e.getErrorMessage() << std::endl;
                 ASSERT_WITH_MESSAGE(false, "Failed to initialize Butteraugli Worker");
@@ -117,7 +139,7 @@ class GpuWorker {
             }
         } else if (selected_metric == MetricType::Butteraugli) {
             try {
-                butterworker.init(image_width, image_height, Qnorm, intensity_multiplier);
+                butterworker.init(image_width-cropSource.left-cropSource.right, image_height-cropSource.top-cropSource.bottom, Qnorm, intensity_multiplier);
             } catch (const VshipError& e){
                 std::cerr << e.getErrorMessage() << std::endl;
                 ASSERT_WITH_MESSAGE(false, "Failed to initialize Butteraugli Worker");
@@ -671,6 +693,9 @@ struct CommandLineOptions {
     int every_nth_frame = 1;
     int encoded_offset = 0;
 
+    CropRectangle cropSource;
+    CropRectangle cropEncoded;
+
     std::vector<int> source_indices_list;
     std::vector<int> encoded_indices_list;
 
@@ -754,6 +779,16 @@ CommandLineOptions parse_command_line_arguments(int argc, char **argv) {
     parser.add_flag({"--every"}, &opts.every_nth_frame, "Frame sampling rate");
     parser.add_flag({"--source-indices"}, &source_indices_str, "List of source indices subjective to --start, --end, --every and --encoded-offset. If --encoded-indices isnt specified, this will be applied to encoded-indices too. Format is integers separated by comma");
     parser.add_flag({"--encoded-indices"}, &encoded_indices_str, "List of encoded indices subjective to --start, --end, --every and --encoded-offset. Format is integers separated by comma");
+    
+    parser.add_flag({"--cropTopSource"}, &opts.cropSource.top, "Allows to crop source");
+    parser.add_flag({"--cropBottomSource"}, &opts.cropSource.bottom, "Allows to crop source");
+    parser.add_flag({"--cropLeftSource"}, &opts.cropSource.left, "Allows to crop source");
+    parser.add_flag({"--cropRightSource"}, &opts.cropSource.right, "Allows to crop source");
+    parser.add_flag({"--cropTopEncoded"}, &opts.cropEncoded.top, "Allows to crop Encoded");
+    parser.add_flag({"--cropBottomEncoded"}, &opts.cropEncoded.bottom, "Allows to crop Encoded");
+    parser.add_flag({"--cropLeftEncoded"}, &opts.cropEncoded.left, "Allows to crop Encoded");
+    parser.add_flag({"--cropRightEncoded"}, &opts.cropEncoded.right, "Allows to crop Encoded");
+
     parser.add_flag({"--intensity-target"}, &opts.intensity_target_nits, "Target nits for Butteraugli");
     parser.add_flag({"--qnorm"}, &opts.Qnorm, "Optional Norm to compute (default to 2)");
     parser.add_flag({"--threads", "-t"}, &opts.cpu_threads, "Number of Decoder process, recommended is 2");

@@ -68,13 +68,13 @@ struct frame_reader_thread2_arguments{
     int threadid; int threadnum;
     std::vector<int>* frames_source;
     std::vector<int>* frames_encoded;
-    int width = -1; int height = -1;
+    int width = -1; int height = -1; int widthEncoded = -1; int heightEncoded = -1;
     frame_queue_t* frame_queue; frame_pool_t* frame_buffer_pool;
 };
 
 void frame_reader_thread2(frame_reader_thread2_arguments args){
     VideoManager v1(args.source_path, args.source_index, args.source_video_track_index, args.width, args.height);
-    VideoManager v2(args.encoded_path, args.encoded_index, args.encoded_video_track_index, args.width, args.height);
+    VideoManager v2(args.encoded_path, args.encoded_index, args.encoded_video_track_index, args.widthEncoded, args.heightEncoded);
     frame_reader_thread(v1, v2, args.frames_source, args.frames_encoded, args.threadid, args.threadnum, *args.frame_queue, *args.frame_buffer_pool);
 }
 
@@ -205,7 +205,7 @@ int main(int argc, char **argv) {
     }
 
     if (cli_args.version){
-        std::cout << "FFVship 3.1.0" << std::endl;
+        std::cout << "FFVship 3.1.0-b" << std::endl;
         std::cout << "Repository : https://github.com/Line-fr/Vship" << std::endl;
         #if defined __CUDACC__
         std::cout << "Cuda version" << std::endl;
@@ -248,10 +248,15 @@ int main(int argc, char **argv) {
     VideoManager v1(cli_args.source_file, source_index.index,
                     source_index.selected_video_track);
     int width = v1.reader->frame_width, height = v1.reader->frame_height;
-    int stride = align_stride(width*sizeof(uint16_t));
+    int strideSource = align_stride(width*sizeof(uint16_t));
+
+    //we want that when cropped, the encoded video matches the cropped source.
+    int cropResizeWidth = width - cli_args.cropSource.left - cli_args.cropSource.right + cli_args.cropEncoded.left + cli_args.cropEncoded.right;
+    int cropResizeHeight = height - cli_args.cropSource.top - cli_args.cropSource.bottom + cli_args.cropEncoded.top + cli_args.cropEncoded.bottom;
+    int strideEncoded = align_stride(cropResizeWidth*sizeof(uint16_t));
 
     VideoManager v2(cli_args.encoded_file, encode_index.index,
-                    encode_index.selected_video_track, width, height);
+                    encode_index.selected_video_track, cropResizeWidth, cropResizeHeight);
 
     //sanitize start_frame, end_frame, every_nth_frame and encoded_offset
     int start = cli_args.start_frame;
@@ -323,7 +328,9 @@ int main(int argc, char **argv) {
 
     std::set<uint8_t *> frame_buffers;
     for (unsigned int i = 0; i < num_frame_buffer; ++i) {
-        frame_buffers.insert(GpuWorker::allocate_external_rgb_buffer(stride, height));
+        //we allocate so that each frame may it be source or encoded can fit in
+        //we use +1 for the stride because by offsetting left border, we might go to after the last line slighly. (so we allocate one more line to make it defined in memory)
+        frame_buffers.insert(GpuWorker::allocate_external_rgb_buffer(std::max((strideSource+1)*height, (strideEncoded+1)*cropResizeHeight)));
     }
 
     frame_pool_t frame_buffer_pool(frame_buffers);
@@ -333,7 +340,8 @@ int main(int argc, char **argv) {
     gpu_workers.reserve(num_gpus);
 
     for (int i = 0; i < num_gpus; i++){
-        gpu_workers.emplace_back(cli_args.metric, width, height, stride, cli_args.Qnorm, cli_args.intensity_target_nits);
+        //size of encoded version gets deduced by crops but stride needs to be given
+        gpu_workers.emplace_back(cli_args.metric, width, height, strideSource, strideEncoded, cli_args.cropSource, cli_args.cropEncoded, cli_args.Qnorm, cli_args.intensity_target_nits);
     }
 
     std::vector<std::thread> reader_threads;
@@ -350,6 +358,8 @@ int main(int argc, char **argv) {
         reader_args.frames_encoded = &frames_encoded;
         reader_args.width = width;
         reader_args.height = height;
+        reader_args.widthEncoded = width;
+        reader_args.heightEncoded = height;
         reader_args.frame_queue = &frame_queue;
         reader_args.frame_buffer_pool = &frame_buffer_pool;
 

@@ -102,9 +102,13 @@ EXPORTPREPROCESS Vship_Exception Vship_SSIMU2Free(Vship_SSIMU2Handler handler);
 //when input is RGB with BT709 transfer function float frame
 EXPORTPREPROCESS Vship_Exception Vship_ComputeSSIMU2Float(Vship_SSIMU2Handler handler, double* score, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
 
+EXPORTPREPROCESS Vship_Exception Vship_ComputeSSIMU2Floatv2(Vship_SSIMU2Handler handler, double* score, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride, int64_t stride2);
+
 //the frame is not overwritten
 //when input is RGB with BT709 transfer function uint16_t frame
 EXPORTPREPROCESS Vship_Exception Vship_ComputeSSIMU2Uint16(Vship_SSIMU2Handler handler, double* score, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
+
+EXPORTPREPROCESS Vship_Exception Vship_ComputeSSIMU2Uint16v2(Vship_SSIMU2Handler handler, double* score, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride, int64_t stride2);
 
 typedef struct{
     int id;
@@ -132,12 +136,16 @@ EXPORTPREPROCESS Vship_Exception Vship_ButteraugliFree(Vship_ButteraugliHandler 
 //output in score
 EXPORTPREPROCESS Vship_Exception Vship_ComputeButteraugliFloat(Vship_ButteraugliHandler handler, Vship_ButteraugliScore* score, const uint8_t *dstp, int64_t dststride, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
 
+EXPORTPREPROCESS Vship_Exception Vship_ComputeButteraugliFloatv2(Vship_ButteraugliHandler handler, Vship_ButteraugliScore* score, const uint8_t *dstp, int64_t dststride, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride, int64_t stride2);
+
 //the frame is not overwritten
 //dstp must either be NULL (in this case, the distortion map will never be retrieved from the gpu)
 //or be allocated of size dststride*height
 //when input is RGB with BT709 transfer function uint16_t frame
 //output in score
 EXPORTPREPROCESS Vship_Exception Vship_ComputeButteraugliUint16(Vship_ButteraugliHandler handler, Vship_ButteraugliScore* score, const uint8_t *dstp, int64_t dststride, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride);
+
+EXPORTPREPROCESS Vship_Exception Vship_ComputeButteraugliUint16v2(Vship_ButteraugliHandler handler, Vship_ButteraugliScore* score, const uint8_t *dstp, int64_t dststride, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride, int64_t stride2);
 
 #ifdef __cplusplus
 } //extern "C"

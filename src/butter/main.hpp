@@ -139,7 +139,7 @@ float* getmultiscalediffmap(float* src1_d[3], float* src2_d[3], float* mem_d, in
 }
 
 template <InputMemType T>
-std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int64_t dststride, const uint8_t *srcp1[3], const uint8_t *srcp2[3], float* pinned, GaussianHandle& gaussianHandle, int64_t stride, int64_t width, int64_t height, int Qnorm, float intensity_multiplier, int64_t maxshared, hipStream_t stream){
+std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int64_t dststride, const uint8_t *srcp1[3], const uint8_t *srcp2[3], float* pinned, GaussianHandle& gaussianHandle, int64_t stride, int64_t stride2, int64_t width, int64_t height, int Qnorm, float intensity_multiplier, int64_t maxshared, hipStream_t stream){
     int64_t wh = width*height;
     const int64_t totalscalesize = wh;
 
@@ -147,7 +147,7 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int64_t dstst
 
     const int totalplane = 31;
     float* mem_d;
-    erralloc = hipMallocAsync(&mem_d, std::max(stride*height+6*sizeof(float)*totalscalesize, sizeof(float)*totalscalesize*(totalplane)), stream); //max just in case stride is ridiculously large
+    erralloc = hipMallocAsync(&mem_d, std::max(std::max(stride, stride2)*height+6*sizeof(float)*totalscalesize, sizeof(float)*totalscalesize*(totalplane)), stream); //max just in case stride is ridiculously large
     if (erralloc != hipSuccess){
         throw VshipError(OutOfVRAM, __FILE__, __LINE__);
     }
@@ -163,12 +163,12 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int64_t dstst
     GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp1[2]), stride * height, stream));
     strideEliminator<T>(src1_d[2], mem_d+6*width*height, stride, width, height, stream);
 
-    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp2[0]), stride * height, stream));
-    strideEliminator<T>(src2_d[0], mem_d+6*width*height, stride, width, height, stream);
-    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp2[1]), stride * height, stream));
-    strideEliminator<T>(src2_d[1], mem_d+6*width*height, stride, width, height, stream);
-    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp2[2]), stride * height, stream));
-    strideEliminator<T>(src2_d[2], mem_d+6*width*height, stride, width, height, stream);
+    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp2[0]), stride2 * height, stream));
+    strideEliminator<T>(src2_d[0], mem_d+6*width*height, stride2, width, height, stream);
+    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp2[1]), stride2 * height, stream));
+    strideEliminator<T>(src2_d[1], mem_d+6*width*height, stride2, width, height, stream);
+    GPU_CHECK(hipMemcpyHtoDAsync(mem_d+6*width*height, (void*)(srcp2[2]), stride2 * height, stream));
+    strideEliminator<T>(src2_d[2], mem_d+6*width*height, stride2, width, height, stream);
 
     linearRGB(src1_d, width, height, stream);
     linearRGB(src2_d, width, height, stream);
@@ -235,8 +235,8 @@ public:
     }
     //if dstp is NULL, distmap won't be retrieved
     template <InputMemType T>
-    std::tuple<float, float, float> run(const uint8_t *dstp, int64_t dststride, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride){
-        return butterprocess<T>(dstp, dststride, srcp1, srcp2, pinned, gaussianhandle, stride, width, height, Qnorm, intensity_multiplier, maxshared, stream);
+    std::tuple<float, float, float> run(const uint8_t *dstp, int64_t dststride, const uint8_t* srcp1[3], const uint8_t* srcp2[3], int64_t stride, int64_t stride2){
+        return butterprocess<T>(dstp, dststride, srcp1, srcp2, pinned, gaussianhandle, stride, stride2, width, height, Qnorm, intensity_multiplier, maxshared, stream);
     }
 };
 
