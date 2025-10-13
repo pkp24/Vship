@@ -143,12 +143,11 @@ std::tuple<float, float, float> butterprocess(const uint8_t *dstp, int64_t dstst
     int64_t wh = width*height;
     const int64_t totalscalesize = wh;
 
-    //big memory allocation, we will try it multiple time if failed to save when too much threads are used
     hipError_t erralloc;
 
     const int totalplane = 31;
     float* mem_d;
-    erralloc = hipMallocAsync(&mem_d, sizeof(float)*totalscalesize*(totalplane), stream); //2 base image and 6 working buffers
+    erralloc = hipMallocAsync(&mem_d, std::max(stride*height+6*sizeof(float)*totalscalesize, sizeof(float)*totalscalesize*(totalplane)), stream); //max just in case stride is ridiculously large
     if (erralloc != hipSuccess){
         throw VshipError(OutOfVRAM, __FILE__, __LINE__);
     }
