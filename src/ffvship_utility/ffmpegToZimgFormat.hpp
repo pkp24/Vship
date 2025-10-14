@@ -174,6 +174,9 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
             out.subsample_w = 0;
             out.subsample_h = 1;
         break;
+        case AV_PIX_FMT_RGB48LE:
+        case AV_PIX_FMT_RGBA64LE:
+        out.depth = 16;
         case AV_PIX_FMT_RGB24:
         case AV_PIX_FMT_RGBA:
         case AV_PIX_FMT_ARGB:
@@ -181,15 +184,10 @@ int ffmpegToZimgFormat(zimg_image_format& out, const FFMS_Frame* in){
         case AV_PIX_FMT_BGRA:
             out.color_family = ZIMG_COLOR_RGB;
             out.matrix_coefficients = ZIMG_MATRIX_RGB;
+            out.transfer_characteristics = ZIMG_TRANSFER_IEC_61966_2_1;
+            out.color_primaries = ZIMG_PRIMARIES_BT709;
+            out.pixel_range = ZIMG_RANGE_FULL;
             out.depth = 8;
-            out.subsample_w = 0;
-            out.subsample_h = 0;
-        break;
-        case AV_PIX_FMT_RGB48LE:
-        case AV_PIX_FMT_RGBA64LE:
-            out.color_family = ZIMG_COLOR_RGB;
-            out.matrix_coefficients = ZIMG_MATRIX_RGB;
-            out.depth = 16;
             out.subsample_w = 0;
             out.subsample_h = 0;
         break;
