@@ -77,7 +77,7 @@ class GpuWorker {
         const int channel_offset_bytes =
             image_stride * image_height;
         const int channel_offset_bytesEncoded =
-            strideEncoded * image_height;
+            strideEncoded * heightEncoded;
         
         //for crop
         int64_t topleftOffset = cropSource.top * image_stride + sizeof(uint16_t)*cropSource.left;
