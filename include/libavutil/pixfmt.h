@@ -21,6 +21,53 @@
 #ifndef AVUTIL_PIXFMT_H
 #define AVUTIL_PIXFMT_H
 
+/**
+ * @file
+ * pixel format definitions
+ */
+
+#include "libavutil/avconfig.h"
+#include "version.h"
+
+#define AVPALETTE_SIZE 1024
+#define AVPALETTE_COUNT 256
+
+/**
+ * Maximum number of planes in any pixel format.
+ * This should be used when a maximum is needed, but code should not
+ * be written to require a maximum for no good reason.
+ */
+#define AV_VIDEO_MAX_PLANES 4
+
+/**
+ * Pixel format.
+ *
+ * @note
+ * AV_PIX_FMT_RGB32 is handled in an endian-specific manner. An RGBA
+ * color is put together as:
+ *  (A << 24) | (R << 16) | (G << 8) | B
+ * This is stored as BGRA on little-endian CPU architectures and ARGB on
+ * big-endian CPUs.
+ *
+ * @note
+ * If the resolution is not a multiple of the chroma subsampling factor
+ * then the chroma plane resolution must be rounded up.
+ *
+ * @par
+ * When the pixel format is palettized RGB32 (AV_PIX_FMT_PAL8), the palettized
+ * image data is stored in AVFrame.data[0]. The palette is transported in
+ * AVFrame.data[1], is 1024 bytes long (256 4-byte entries) and is
+ * formatted the same as in AV_PIX_FMT_RGB32 described above (i.e., it is
+ * also endian-specific). Note also that the individual RGB32 palette
+ * components stored in AVFrame.data[1] should be in the range 0..255.
+ * This is important as many custom PAL8 video codecs that were designed
+ * to run on the IBM VGA graphics adapter use 6-bit palette components.
+ *
+ * @par
+ * For all the 8 bits per pixel formats, an RGB32 palette is in data[1] like
+ * for pal8. This palette is filled in automatically by the function
+ * allocating the picture.
+ */
 enum AVPixelFormat {
     AV_PIX_FMT_NONE = -1,
     AV_PIX_FMT_YUV420P,   ///< planar YUV 4:2:0, 12bpp, (1 Cr & Cb sample per 2x2 Y samples)
