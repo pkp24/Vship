@@ -134,7 +134,7 @@ class GpuWorker {
                 ssimu2worker.init(image_width-cropSource.left-cropSource.right, image_height-cropSource.top-cropSource.bottom);
             } catch (const VshipError& e){
                 std::cerr << e.getErrorMessage() << std::endl;
-                ASSERT_WITH_MESSAGE(false, "Failed to initialize Butteraugli Worker");
+                ASSERT_WITH_MESSAGE(false, "Failed to initialize SSIMULACRA2 Worker");
                 return;
             }
         } else if (selected_metric == MetricType::Butteraugli) {
