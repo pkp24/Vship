@@ -8,6 +8,7 @@
 #include "colorspace.hpp"
 #include "lpyr.hpp"
 #include "csf.hpp"
+#include "temporal.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -143,13 +144,63 @@ __global__ void apply_phase_uncertainty_kernel(
     M_mm[idx].z *= mult;
 }
 
-// Apply masking model: D_u = |T_p - R_p|^p / (1 + M^q), then clamp
+// Apply cross-channel masking with xcm_weights matrix
+// M_out = 10^(xcm_weights @ log10(M_in))
+// This models how masking in one channel affects others
+__launch_bounds__(256)
+__global__ void apply_cross_channel_masking_kernel(
+    const float3* M_pu,  // Phase uncertainty applied masking (3 sustained channels)
+    float3* M_xcm,       // Output: cross-channel masked values
+    const float* xcm_weights,  // 4×4 matrix (16 elements)
+    float mask_q_y, float mask_q_rg, float mask_q_by, float mask_q_trans,
+    int size
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= size) return;
+
+    float3 M = M_pu[idx];
+
+    // Apply mask_q exponent to get M^q for each channel
+    float M_raw[4];
+    M_raw[0] = safe_pow(M.x, mask_q_y);      // Y-sustained
+    M_raw[1] = safe_pow(M.y, mask_q_rg);     // RG
+    M_raw[2] = safe_pow(M.z, mask_q_by);     // BY
+    M_raw[3] = safe_pow(M.x, mask_q_trans);  // Y-transient (use Y for now)
+
+    // Convert to log space (with small epsilon to avoid log(0))
+    float log_M[4];
+    const float epsilon = 1e-8f;
+    for (int i = 0; i < 4; i++) {
+        log_M[i] = log10f(M_raw[i] + epsilon);
+    }
+
+    // Apply cross-channel masking: log_M_out = xcm_weights @ log_M
+    // xcm_weights is row-major 4×4 matrix
+    float log_M_out[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    for (int row = 0; row < 4; row++) {
+        for (int col = 0; col < 4; col++) {
+            log_M_out[row] += xcm_weights[row * 4 + col] * log_M[col];
+        }
+    }
+
+    // Convert back from log space: M_out = 10^log_M_out
+    float M_out[4];
+    for (int i = 0; i < 4; i++) {
+        M_out[i] = powf(10.0f, log_M_out[i]);
+    }
+
+    // Output sustained channels only (Y, RG, BY)
+    // Transient channel pooling will be added later
+    M_xcm[idx] = make_float3(M_out[0], M_out[1], M_out[2]);
+}
+
+// Apply masking model: D_u = |T_p - R_p|^p / (1 + M), then clamp
 __launch_bounds__(256)
 __global__ void apply_masking_kernel(
     const float3* T_p, const float3* R_p,
-    const float3* M_pu,  // Phase uncertainty applied masking
+    const float3* M_masked,  // Cross-channel masked values
     float3* D_out,
-    float mask_p, float mask_q_y, float mask_q_rg, float mask_q_by,
+    float mask_p,
     float d_max,
     int size
 ) {
@@ -158,20 +209,12 @@ __global__ void apply_masking_kernel(
 
     float3 Tp = T_p[idx];
     float3 Rp = R_p[idx];
-    float3 M = M_pu[idx];
-
-    // For simplicity, we're skipping cross-channel masking (mask_pool)
-    // and using the per-pixel masking directly
-    // In Python: M = mask_pool(safe_pow(|M_mm|, q))
-    // Here we approximate: M = |M_mm|^q
-    float M_y = safe_pow(M.x, mask_q_y);
-    float M_rg = safe_pow(M.y, mask_q_rg);
-    float M_by = safe_pow(M.z, mask_q_by);
+    float3 M = M_masked[idx];
 
     // D_u = |T_p - R_p|^p / (1 + M)
-    float D_y = safe_pow(fabsf(Tp.x - Rp.x), mask_p) / (1.0f + M_y);
-    float D_rg = safe_pow(fabsf(Tp.y - Rp.y), mask_p) / (1.0f + M_rg);
-    float D_by = safe_pow(fabsf(Tp.z - Rp.z), mask_p) / (1.0f + M_by);
+    float D_y = safe_pow(fabsf(Tp.x - Rp.x), mask_p) / (1.0f + M.x);
+    float D_rg = safe_pow(fabsf(Tp.y - Rp.y), mask_p) / (1.0f + M.y);
+    float D_by = safe_pow(fabsf(Tp.z - Rp.z), mask_p) / (1.0f + M.z);
 
     // Soft clamp
     D_out[idx] = make_float3(
@@ -235,24 +278,25 @@ __global__ void baseband_difference_kernel(
     );
 }
 
-// Spatial pooling kernel (beta-norm across DKL channels)
-// Computes: sum over pixels of (|D_y|^beta + |D_rg|^beta + |D_by|^beta)
-// The Python code does: lp_norm(D, beta, dim=(-2,-1), normalize=True)
-// normalize=True means: divide by number of pixels
+// Spatial pooling kernel - per-channel version for hierarchical pooling
+// Computes beta-norm separately for each channel: (|D_y|^beta, |D_rg|^beta, |D_by|^beta)
+// The Python code does: lp_norm(D, beta, dim=(-2,-1), normalize=True) per channel
+// This maintains per-channel tracking for later beta_tch pooling
 __launch_bounds__(256)
-__global__ void spatial_pooling_kernel(const float3* input, float* output,
-                                        int width, int height, float beta) {
+__global__ void spatial_pooling_per_channel_kernel(const float3* input, float3* output,
+                                                     int width, int height, float beta) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= width * height) return;
 
     float3 val = input[idx];
 
-    // Compute beta-norm contribution for this pixel across DKL channels
-    // Using Minkowski p-norm: (|x|^p + |y|^p + |z|^p)
-    float sum = safe_pow(fabsf(val.x), beta) + safe_pow(fabsf(val.y), beta) + safe_pow(fabsf(val.z), beta);
-
-    // Store the sum (will reduce across pixels and normalize later)
-    output[idx] = sum;
+    // Compute beta-norm contribution for each channel separately
+    // This allows hierarchical pooling: spatial → band → channel
+    output[idx] = make_float3(
+        safe_pow(fabsf(val.x), beta),  // Y channel
+        safe_pow(fabsf(val.y), beta),  // RG channel
+        safe_pow(fabsf(val.z), beta)   // BY channel
+    );
 }
 
 // Reduction kernel for computing mean
@@ -281,6 +325,39 @@ __global__ void reduce_mean_kernel(const float* input, float* output, int size) 
     }
 }
 
+// Reduction kernel for per-channel mean (float3 version)
+// Used for hierarchical pooling to maintain per-channel scores
+__launch_bounds__(256)
+__global__ void reduce_mean_per_channel_kernel(const float3* input, float3* output, int size) {
+    extern __shared__ float3 sdata_vec[];
+
+    int tid = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // Load data into shared memory
+    if (idx < size) {
+        sdata_vec[tid] = input[idx];
+    } else {
+        sdata_vec[tid] = make_float3(0.0f, 0.0f, 0.0f);
+    }
+    __syncthreads();
+
+    // Reduction in shared memory (component-wise)
+    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            sdata_vec[tid].x += sdata_vec[tid + s].x;
+            sdata_vec[tid].y += sdata_vec[tid + s].y;
+            sdata_vec[tid].z += sdata_vec[tid + s].z;
+        }
+        __syncthreads();
+    }
+
+    // Write result for this block
+    if (tid == 0) {
+        output[blockIdx.x] = sdata_vec[0];
+    }
+}
+
 // Main CVVDP processing class
 class CVVDPProcessor {
 private:
@@ -290,8 +367,15 @@ private:
     CVVDPParameters params;
     LaplacianPyramid lpyr;
     CastleCSF csf;
+    TemporalBuffer temporal;
     hipStream_t stream;
     std::filesystem::path data_root;
+    float frame_rate = 30.0f; // Default, can be updated
+    bool temporal_filtering_enabled = true;
+    bool cross_channel_masking_enabled = true;
+
+    // Cross-channel masking weights (4×4 matrix on GPU)
+    float* xcm_weights_d = nullptr;
 
 public:
     void init(int w, int h, const std::string& display_name, const std::string& data_dir_override = "") {
@@ -316,11 +400,52 @@ public:
         hipStreamCreate(&stream);
         const std::filesystem::path csf_path = data_root / ("csf_lut_" + params.csf + ".json");
         csf.init(csf_path.string(), stream);
+
+        // Initialize temporal filtering
+        if (temporal_filtering_enabled && !params.sigma_tf.empty()) {
+            temporal.init(
+                lpyr.num_bands,
+                lpyr.band_widths,
+                lpyr.band_heights,
+                params.sigma_tf,
+                params.beta_tf,
+                frame_rate,
+                stream
+            );
+        }
+
+        // Initialize cross-channel masking weights
+        if (cross_channel_masking_enabled && !params.xcm_weights.empty()) {
+            if (params.xcm_weights.size() != 16) {
+                std::cerr << "[CVVDP] Warning: xcm_weights should have 16 elements (4×4 matrix), got "
+                          << params.xcm_weights.size() << ". Disabling cross-channel masking." << std::endl;
+                cross_channel_masking_enabled = false;
+            } else {
+                // Allocate GPU memory and copy weights
+                GPU_CHECK(hipMalloc(&xcm_weights_d, 16 * sizeof(float)));
+                GPU_CHECK(hipMemcpyHtoD(xcm_weights_d, params.xcm_weights.data(), 16 * sizeof(float)));
+            }
+        }
     }
 
     void destroy() {
+        if (xcm_weights_d) {
+            hipFree(xcm_weights_d);
+            xcm_weights_d = nullptr;
+        }
+        temporal.destroy();
         csf.destroy();
         hipStreamDestroy(stream);
+    }
+
+    // Allow setting frame rate for temporal filtering
+    void set_frame_rate(float fps) {
+        frame_rate = fps;
+    }
+
+    // Allow disabling temporal filtering (for testing)
+    void set_temporal_filtering(bool enabled) {
+        temporal_filtering_enabled = enabled;
     }
 
     // Process a single frame pair and return JOD score
@@ -332,6 +457,7 @@ public:
             float apply_csf_and_gain = 0.0f;
             float mutual_mask = 0.0f;
             float phase_uncertainty = 0.0f;
+            float cross_channel_mask = 0.0f;
             float masking = 0.0f;
             float baseband = 0.0f;
             float spatial_pool = 0.0f;
@@ -400,7 +526,8 @@ public:
         lpyr.decompose(ref_linear_d, ref_bands, stream);
 
         // Step 4: Apply CSF and masking model for each band
-        std::vector<float> band_scores(lpyr.num_bands);
+        // Store per-channel scores for hierarchical pooling
+        std::vector<float3> band_scores(lpyr.num_bands);
 
         for (int band = 0; band < lpyr.num_bands; band++) {
             int band_size = lpyr.band_widths[band] * lpyr.band_heights[band];
@@ -459,6 +586,17 @@ public:
                     timings.apply_csf_and_gain += elapsed;
                 }
 
+                // Apply temporal filtering if enabled
+                if (temporal_filtering_enabled && temporal.num_bands > 0 && band < temporal.num_bands) {
+                    apply_temporal_filtering(
+                        T_p_d, R_p_d,
+                        temporal.bands[band],
+                        temporal.alpha,
+                        lpyr.band_widths[band], lpyr.band_heights[band],
+                        stream
+                    );
+                }
+
                 float3* M_mm_d;
                 GPU_CHECK(hipMallocAsync(&M_mm_d, band_size * sizeof(float3), stream));
 
@@ -486,15 +624,38 @@ public:
                     timings.phase_uncertainty += elapsed;
                 }
 
+                // Apply cross-channel masking if enabled
                 const float mask_q_y = (params.mask_q.size() > 0) ? params.mask_q[0] : 1.0f;
                 const float mask_q_rg = (params.mask_q.size() > 1) ? params.mask_q[1] : mask_q_y;
                 const float mask_q_by = (params.mask_q.size() > 2) ? params.mask_q[2] : mask_q_rg;
+                const float mask_q_trans = (params.mask_q.size() > 3) ? params.mask_q[3] : mask_q_by;
+
+                float3* M_xcm_d;
+                GPU_CHECK(hipMallocAsync(&M_xcm_d, band_size * sizeof(float3), stream));
+
+                if (cross_channel_masking_enabled && xcm_weights_d) {
+                    if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
+                    apply_cross_channel_masking_kernel<<<blocks, threads, 0, stream>>>(
+                        M_mm_d, M_xcm_d, xcm_weights_d,
+                        mask_q_y, mask_q_rg, mask_q_by, mask_q_trans,
+                        band_size
+                    );
+                    if (collect_debug) {
+                        GPU_CHECK(hipEventRecord(timing_end, stream));
+                        GPU_CHECK(hipEventSynchronize(timing_end));
+                        float elapsed = 0.0f;
+                        GPU_CHECK(hipEventElapsedTime(&elapsed, timing_start, timing_end));
+                        timings.cross_channel_mask += elapsed;
+                    }
+                } else {
+                    // No cross-channel masking - just copy M_mm_d to M_xcm_d
+                    GPU_CHECK(hipMemcpyDtoDAsync(M_xcm_d, M_mm_d, band_size * sizeof(float3), stream));
+                }
 
                 if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
                 apply_masking_kernel<<<blocks, threads, 0, stream>>>(
-                    T_p_d, R_p_d, M_mm_d, D_d,
+                    T_p_d, R_p_d, M_xcm_d, D_d,
                     params.mask_p,
-                    mask_q_y, mask_q_rg, mask_q_by,
                     params.d_max,
                     band_size
                 );
@@ -509,14 +670,16 @@ public:
                 GPU_CHECK(hipFreeAsync(T_p_d, stream));
                 GPU_CHECK(hipFreeAsync(R_p_d, stream));
                 GPU_CHECK(hipFreeAsync(M_mm_d, stream));
+                GPU_CHECK(hipFreeAsync(M_xcm_d, stream));
             }
 
-            // Step 5: Spatial pooling with normalize=True
-            float* pooled_d;
-            GPU_CHECK(hipMallocAsync(&pooled_d, band_size * sizeof(float), stream));
+            // Step 5: Spatial pooling with normalize=True (per-channel)
+            // Pool each channel separately for hierarchical pooling
+            float3* pooled_d;
+            GPU_CHECK(hipMallocAsync(&pooled_d, band_size * sizeof(float3), stream));
 
             if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
-            spatial_pooling_kernel<<<blocks, threads, 0, stream>>>(
+            spatial_pooling_per_channel_kernel<<<blocks, threads, 0, stream>>>(
                 D_d, pooled_d, lpyr.band_widths[band], lpyr.band_heights[band], params.beta
             );
             if (collect_debug) {
@@ -527,12 +690,13 @@ public:
                 timings.spatial_pool += elapsed;
             }
 
-            float* partial_sums_d;
+            // Reduce per-channel sums
+            float3* partial_sums_d;
             int num_blocks = (band_size + 255) / 256;
-            GPU_CHECK(hipMallocAsync(&partial_sums_d, num_blocks * sizeof(float), stream));
+            GPU_CHECK(hipMallocAsync(&partial_sums_d, num_blocks * sizeof(float3), stream));
 
             if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
-            reduce_mean_kernel<<<num_blocks, 256, 256 * sizeof(float), stream>>>(
+            reduce_mean_per_channel_kernel<<<num_blocks, 256, 256 * sizeof(float3), stream>>>(
                 pooled_d, partial_sums_d, band_size
             );
             if (collect_debug) {
@@ -543,7 +707,7 @@ public:
                 timings.reduce += elapsed;
             }
 
-            std::vector<float> partial_sums_h(num_blocks);
+            std::vector<float3> partial_sums_h(num_blocks);
             std::vector<float3> band_values_h;
             if (collect_debug) {
                 band_values_h.resize(band_size);
@@ -551,7 +715,7 @@ public:
                 GPU_CHECK(hipMemcpyDtoHAsync(band_values_h.data(), D_d, band_size * sizeof(float3), stream));
             }
             GPU_CHECK(hipMemcpyDtoHAsync(partial_sums_h.data(), partial_sums_d,
-                                      num_blocks * sizeof(float), stream));
+                                      num_blocks * sizeof(float3), stream));
             if (collect_debug) GPU_CHECK(hipEventRecord(timing_end, stream));
 
             hipStreamSynchronize(stream);
@@ -563,13 +727,25 @@ public:
                 timings.host_copy += elapsed;
             }
 
-            float sum = 0.0f;
+            // Sum per-channel partial sums
+            float3 sum = make_float3(0.0f, 0.0f, 0.0f);
             for (int i = 0; i < num_blocks; i++) {
-                sum += partial_sums_h[i];
+                sum.x += partial_sums_h[i].x;
+                sum.y += partial_sums_h[i].y;
+                sum.z += partial_sums_h[i].z;
             }
 
-            float normalized_sum = sum / std::max(1, band_size);
-            band_scores[band] = powf(normalized_sum, 1.0f / params.beta);
+            // Normalize and take beta-th root per channel
+            float3 normalized_sum = make_float3(
+                sum.x / std::max(1, band_size),
+                sum.y / std::max(1, band_size),
+                sum.z / std::max(1, band_size)
+            );
+            band_scores[band] = make_float3(
+                powf(normalized_sum.x, 1.0f / params.beta),
+                powf(normalized_sum.y, 1.0f / params.beta),
+                powf(normalized_sum.z, 1.0f / params.beta)
+            );
 
             if (collect_debug) {
                 BandDebugInfo info;
@@ -607,17 +783,35 @@ public:
         GPU_CHECK(hipFreeAsync(test_linear_d, stream));
         GPU_CHECK(hipFreeAsync(ref_linear_d, stream));
 
+        // Hierarchical pooling across spatial bands using beta_sch
+        // Python: Q_sc = lp_norm(Q_per_ch * per_ch_w * per_sband_w, beta_sch, dim=spatial_bands)
+        // We already applied per_ch_w in spatial pooling, now apply per_sband_w (baseband_weight)
+        const float beta_sch = (params.beta_sch > 0.0f) ? params.beta_sch : params.beta;
+
         float sum_bands = 0.0f;
         for (int band = 0; band < lpyr.num_bands; band++) {
             float weight = 1.0f;
             if (band < static_cast<int>(params.baseband_weight.size())) {
                 weight = params.baseband_weight[band];
             }
-            sum_bands += weight * powf(band_scores[band], params.beta);
+            sum_bands += weight * powf(band_scores[band], beta_sch);
         }
 
-        float Q_per_ch = powf(sum_bands, 1.0f / params.beta);
-        float Q_jod = params.jod_a * powf(Q_per_ch, params.jod_exp);
+        float Q_per_ch = powf(sum_bands, 1.0f / beta_sch);
+
+        // Convert Q to JOD scale (matches Python: Q_JOD = 10 - jod_a * Q^jod_exp)
+        // Use linearization for small Q values to maintain differentiability
+        const float Q_t = 0.1f;  // Threshold for linearization
+        float Q_jod;
+
+        if (Q_per_ch <= Q_t) {
+            // Linearized version: jod_a_p = jod_a * Q_t^(jod_exp-1)
+            float jod_a_p = params.jod_a * powf(Q_t, params.jod_exp - 1.0f);
+            Q_jod = 10.0f - jod_a_p * Q_per_ch;
+        } else {
+            Q_jod = 10.0f - params.jod_a * powf(Q_per_ch, params.jod_exp);
+        }
+
         Q_jod = fminf(fmaxf(Q_jod, 0.0f), 10.0f);
 
         if (collect_debug) {
@@ -709,6 +903,8 @@ public:
             writer.Double(static_cast<double>(timings.mutual_mask));
             writer.Key("phase_uncertainty");
             writer.Double(static_cast<double>(timings.phase_uncertainty));
+            writer.Key("cross_channel_mask");
+            writer.Double(static_cast<double>(timings.cross_channel_mask));
             writer.Key("masking");
             writer.Double(static_cast<double>(timings.masking));
             writer.Key("baseband");
