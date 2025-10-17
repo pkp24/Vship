@@ -25,7 +25,7 @@ __global__ void downsample_kernel(const float3* input, float3* output,
 
     if (out_x >= out_width || out_y >= out_height) return;
 
-    // 5x5 Gaussian kernel (sigma ≈ 1.0)
+    // 5x5 Gaussian kernel (sigma  1.0)
     const float kernel[5][5] = {
         {0.003765f, 0.015019f, 0.023792f, 0.015019f, 0.003765f},
         {0.015019f, 0.059912f, 0.094907f, 0.059912f, 0.015019f},

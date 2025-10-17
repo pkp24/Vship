@@ -3,7 +3,6 @@
 #include "../util/preprocessor.hpp"
 #include "../util/VshipExceptions.hpp"
 #include "../util/gpuhelper.hpp"
-#include "../util/float3operations.hpp"
 #include "config.hpp"
 #include "colorspace.hpp"
 #include "lpyr.hpp"
@@ -151,7 +150,7 @@ __launch_bounds__(256)
 __global__ void apply_cross_channel_masking_kernel(
     const float3* M_pu,  // Phase uncertainty applied masking (3 sustained channels)
     float3* M_xcm,       // Output: cross-channel masked values
-    const float* xcm_weights,  // 4×4 matrix (16 elements)
+    const float* xcm_weights,  // 4x4 matrix (16 elements)
     float mask_q_y, float mask_q_rg, float mask_q_by, float mask_q_trans,
     int size
 ) {
@@ -175,7 +174,7 @@ __global__ void apply_cross_channel_masking_kernel(
     }
 
     // Apply cross-channel masking: log_M_out = xcm_weights @ log_M
-    // xcm_weights is row-major 4×4 matrix
+    // xcm_weights is row-major 4x4 matrix
     float log_M_out[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     for (int row = 0; row < 4; row++) {
         for (int col = 0; col < 4; col++) {
@@ -198,8 +197,7 @@ __global__ void apply_cross_channel_masking_kernel(
 __launch_bounds__(256)
 __global__ void apply_masking_kernel(
     const float3* T_p, const float3* R_p,
-    const float3* M_masked,  // Cross-channel masked values
-    float3* D_out,
+    const float3* M_xcm, float3* D_d,
     float mask_p,
     float d_max,
     int size
@@ -209,82 +207,34 @@ __global__ void apply_masking_kernel(
 
     float3 Tp = T_p[idx];
     float3 Rp = R_p[idx];
-    float3 M = M_masked[idx];
+    float3 M = M_xcm[idx];
 
-    // D_u = |T_p - R_p|^p / (1 + M)
-    float D_y = safe_pow(fabsf(Tp.x - Rp.x), mask_p) / (1.0f + M.x);
-    float D_rg = safe_pow(fabsf(Tp.y - Rp.y), mask_p) / (1.0f + M.y);
-    float D_by = safe_pow(fabsf(Tp.z - Rp.z), mask_p) / (1.0f + M.z);
+    float3 diff = make_float3(
+        fabsf(Tp.x - Rp.x),
+        fabsf(Tp.y - Rp.y),
+        fabsf(Tp.z - Rp.z)
+    );
 
-    // Soft clamp
-    D_out[idx] = make_float3(
-        clamp_diffs(D_y, d_max),
-        clamp_diffs(D_rg, d_max),
-        clamp_diffs(D_by, d_max)
+    float3 D_u = make_float3(
+        safe_pow(diff.x, mask_p) / (1.0f + M.x),
+        safe_pow(diff.y, mask_p) / (1.0f + M.y),
+        safe_pow(diff.z, mask_p) / (1.0f + M.z)
+    );
+
+    D_d[idx] = make_float3(
+        clamp_diffs(D_u.x, d_max),
+        clamp_diffs(D_u.y, d_max),
+        clamp_diffs(D_u.z, d_max)
     );
 }
 
-// For baseband: D = |T_f - R_f| * S (no masking)
+// Spatial pooling: compute beta-norm per channel
 __launch_bounds__(256)
-__global__ void baseband_difference_kernel(
-    const float3* test_contrast, const float3* ref_contrast,
-    float3* D_out,
+__global__ void spatial_pooling_per_channel_kernel(
+    const float3* input, float3* output,
     int width, int height,
-    float rho_cpd, float log_L_bkg,
-    const float* log_L_bkg_lut, const float* log_rho_lut,
-    const float* logS_c0, const float* logS_c1, const float* logS_c2,
-    int num_L_bkg, int num_rho,
-    float sensitivity_correction
+    float beta
 ) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= width * height) return;
-
-    float3 T = test_contrast[idx];
-    float3 R = ref_contrast[idx];
-
-    // Find position in CSF LUT
-    float log_rho = log10f(rho_cpd);
-
-    float rho_idx = 0.0f;
-    for (int i = 0; i < num_rho - 1; i++) {
-        if (log_rho_lut[i] <= log_rho && log_rho <= log_rho_lut[i + 1]) {
-            rho_idx = i + (log_rho - log_rho_lut[i]) / (log_rho_lut[i + 1] - log_rho_lut[i]);
-            break;
-        }
-    }
-
-    float L_idx = 0.0f;
-    for (int i = 0; i < num_L_bkg - 1; i++) {
-        if (log_L_bkg_lut[i] <= log_L_bkg && log_L_bkg <= log_L_bkg_lut[i + 1]) {
-            L_idx = i + (log_L_bkg - log_L_bkg_lut[i]) / (log_L_bkg_lut[i + 1] - log_L_bkg_lut[i]);
-            break;
-        }
-    }
-
-    // Interpolate sensitivity
-    float logS_y = interp2d(logS_c0, num_rho, num_L_bkg, rho_idx, L_idx);
-    float logS_rg = interp2d(logS_c1, num_rho, num_L_bkg, rho_idx, L_idx);
-    float logS_by = interp2d(logS_c2, num_rho, num_L_bkg, rho_idx, L_idx);
-
-    float S_y = powf(10.0f, logS_y + sensitivity_correction / 20.0f);
-    float S_rg = powf(10.0f, logS_rg + sensitivity_correction / 20.0f);
-    float S_by = powf(10.0f, logS_by + sensitivity_correction / 20.0f);
-
-    // For baseband: D = |T - R| * S
-    D_out[idx] = make_float3(
-        fabsf(T.x - R.x) * S_y,
-        fabsf(T.y - R.y) * S_rg,
-        fabsf(T.z - R.z) * S_by
-    );
-}
-
-// Spatial pooling kernel - per-channel version for hierarchical pooling
-// Computes beta-norm separately for each channel: (|D_y|^beta, |D_rg|^beta, |D_by|^beta)
-// The Python code does: lp_norm(D, beta, dim=(-2,-1), normalize=True) per channel
-// This maintains per-channel tracking for later beta_tch pooling
-__launch_bounds__(256)
-__global__ void spatial_pooling_per_channel_kernel(const float3* input, float3* output,
-                                                     int width, int height, float beta) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= width * height) return;
 
@@ -325,8 +275,7 @@ __global__ void reduce_mean_kernel(const float* input, float* output, int size) 
     }
 }
 
-// Reduction kernel for per-channel mean (float3 version)
-// Used for hierarchical pooling to maintain per-channel scores
+// Reduction kernel for computing mean per channel
 __launch_bounds__(256)
 __global__ void reduce_mean_per_channel_kernel(const float3* input, float3* output, int size) {
     extern __shared__ float3 sdata_vec[];
@@ -1126,6 +1075,8 @@ public:
 };
 
 } // namespace cvvdp
+
+
 
 
 
