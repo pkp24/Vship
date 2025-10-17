@@ -94,7 +94,7 @@ void frame_worker_thread(frame_queue_t &input_queue,
 
         std::tuple<float, float, float> scores;
         try {
-            scores = gpu_worker.compute_metric_score(src_buffer, enc_buffer);
+            scores = gpu_worker.compute_metric_score(src_buffer, enc_buffer, frame_index);
         } catch (const VshipError &e) {
             std::cerr << " error: " << e.getErrorMessage() << std::endl;
             frame_buffer_pool.insert(src_buffer);
@@ -342,7 +342,18 @@ int main(int argc, char **argv) {
 
     for (int i = 0; i < num_gpus; i++){
         //size of encoded version gets deduced by crops but stride needs to be given
-        gpu_workers.emplace_back(cli_args.metric, width, height, strideSource, strideEncoded, cli_args.cropSource, cli_args.cropEncoded, cli_args.Qnorm, cli_args.intensity_target_nits, cli_args.cvvdp_display_name);
+        gpu_workers.emplace_back(cli_args.metric,
+                                 width,
+                                 height,
+                                 strideSource,
+                                 strideEncoded,
+                                 cli_args.cropSource,
+                                 cli_args.cropEncoded,
+                                 cli_args.Qnorm,
+                                 cli_args.intensity_target_nits,
+                                 cli_args.cvvdp_display_name,
+                                 cli_args.cvvdp_data_dir,
+                                 cli_args.debug_cvvdp);
     }
 
     std::vector<std::thread> reader_threads;

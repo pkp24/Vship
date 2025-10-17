@@ -62,10 +62,12 @@ class GpuWorker {
     butter::ButterComputingImplementation butterworker;
     cvvdp::CVVDPComputingImplementation cvvdpworker;
     std::string cvvdp_display;
+    std::string cvvdp_data_dir;
+    bool cvvdp_debug_enabled = false;
 
   public:
-    GpuWorker(MetricType metric, int width, int height, int stride, int strideEncoded, CropRectangle cropSource, CropRectangle cropEncoded, int Qnorm, float intensity_multiplier, const std::string& cvvdp_display_name = "standard_4k")
-        : image_width(width), image_height(height), selected_metric(metric), image_stride(stride), strideEncoded(strideEncoded), cropSource(cropSource), cropEncoded(cropEncoded), cvvdp_display(cvvdp_display_name){
+    GpuWorker(MetricType metric, int width, int height, int stride, int strideEncoded, CropRectangle cropSource, CropRectangle cropEncoded, int Qnorm, float intensity_multiplier, const std::string& cvvdp_display_name = "standard_4k", const std::string& cvvdp_data_dir_override = "", bool enable_cvvdp_debug = false)
+        : image_width(width), image_height(height), selected_metric(metric), image_stride(stride), strideEncoded(strideEncoded), cropSource(cropSource), cropEncoded(cropEncoded), cvvdp_display(cvvdp_display_name), cvvdp_data_dir(cvvdp_data_dir_override), cvvdp_debug_enabled(enable_cvvdp_debug){
         widthEncoded = width - cropSource.left - cropSource.right + cropEncoded.left + cropEncoded.right;
         heightEncoded = height - cropSource.top - cropSource.bottom + cropEncoded.top + cropEncoded.bottom;
         allocate_gpu_memory(Qnorm, intensity_multiplier);
@@ -75,7 +77,7 @@ class GpuWorker {
     }
 
     std::tuple<float, float, float>
-    compute_metric_score(uint8_t *source_frame, uint8_t *encoded_frame) {
+    compute_metric_score(uint8_t *source_frame, uint8_t *encoded_frame, int frame_index = -1) {
         const int channel_offset_bytes =
             image_stride * image_height;
         const int channel_offset_bytesEncoded =
@@ -107,7 +109,7 @@ class GpuWorker {
 
         if (selected_metric == MetricType::CVVDP) {
             return cvvdpworker.run<UINT16>(
-                nullptr, 0, source_channels, encoded_channels, image_stride, strideEncoded);
+                nullptr, 0, source_channels, encoded_channels, image_stride, strideEncoded, frame_index);
         }
 
         ASSERT_WITH_MESSAGE(false, "Unknown metric specified for GpuWorker.");
@@ -154,7 +156,11 @@ class GpuWorker {
             }
         } else if (selected_metric == MetricType::CVVDP) {
             try {
-                cvvdpworker.init(image_width-cropSource.left-cropSource.right, image_height-cropSource.top-cropSource.bottom, cvvdp_display);
+                cvvdpworker.init(image_width-cropSource.left-cropSource.right,
+                                 image_height-cropSource.top-cropSource.bottom,
+                                 cvvdp_display,
+                                 cvvdp_data_dir,
+                                 cvvdp_debug_enabled);
             } catch (const VshipError& e){
                 std::cerr << e.getErrorMessage() << std::endl;
                 ASSERT_WITH_MESSAGE(false, "Failed to initialize CVVDP Worker");
@@ -722,6 +728,8 @@ struct CommandLineOptions {
 
     //for cvvdp
     std::string cvvdp_display_name = "standard_4k";
+    std::string cvvdp_data_dir;
+    bool debug_cvvdp = false;
 
     int gpu_id = 0;
     int gpu_threads = 3;
@@ -813,6 +821,8 @@ CommandLineOptions parse_command_line_arguments(int argc, char **argv) {
     parser.add_flag({"--intensity-target"}, &opts.intensity_target_nits, "Target nits for Butteraugli");
     parser.add_flag({"--qnorm"}, &opts.Qnorm, "Optional Norm to compute (default to 2)");
     parser.add_flag({"--cvvdp-display"}, &opts.cvvdp_display_name, "Display model for CVVDP (e.g., standard_4k, standard_fhd, hdr_phone)");
+    parser.add_flag({"--cvvdp-data-dir"}, &opts.cvvdp_data_dir, "Override CVVDP data directory (expects cvvdp_data JSON assets)");
+    parser.add_flag({"--debug-cvvdp"}, &opts.debug_cvvdp, "Emit per-frame CVVDP telemetry JSON to stdout");
     parser.add_flag({"--threads", "-t"}, &opts.cpu_threads, "Number of Decoder process, recommended is 2");
     parser.add_flag({"--gpu-threads", "-g"}, &opts.gpu_threads, "GPU thread count, recommended is 3");
     parser.add_flag({"--gpu-id"}, &opts.gpu_id, "GPU index");

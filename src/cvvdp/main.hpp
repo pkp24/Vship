@@ -8,10 +8,21 @@
 #include "colorspace.hpp"
 #include "lpyr.hpp"
 #include "csf.hpp"
+#include <algorithm>
+#include <array>
 #include <cmath>
-#include <vector>
+#include <filesystem>
 #include <fstream>
 #include <cstdlib>
+#include <iostream>
+#include <limits>
+#include <mutex>
+#include <string>
+#include <vector>
+#include <utility>
+
+#include "../../../third_party/rapidjson/include/rapidjson/stringbuffer.h"
+#include "../../../third_party/rapidjson/include/rapidjson/writer.h"
 
 namespace cvvdp {
 
@@ -280,61 +291,21 @@ private:
     LaplacianPyramid lpyr;
     CastleCSF csf;
     hipStream_t stream;
+    std::filesystem::path data_root;
 
 public:
-    std::string find_config_dir() {
-        // Search for CVVDP config files in multiple locations
-        std::vector<std::string> search_paths;
-
-        #ifdef _WIN32
-        // Windows: Check multiple locations
-        search_paths.push_back("C:\\Tools\\config\\cvvdp_data\\");
-        search_paths.push_back("C:\\Tools\\lib\\vapoursynth\\cvvdp_data\\");
-
-        // Check relative to current directory
-        search_paths.push_back("config\\cvvdp_data\\");
-        search_paths.push_back("..\\config\\cvvdp_data\\");
-
-        // Check APPDATA VapourSynth plugins
-        const char* appdata = getenv("APPDATA");
-        if (appdata) {
-            std::string vs_path = std::string(appdata) + "\\VapourSynth\\plugins64\\cvvdp_data\\";
-            search_paths.push_back(vs_path);
-        }
-        #else
-        // Linux: Check standard locations
-        search_paths.push_back("/usr/local/share/vship/cvvdp_data/");
-        search_paths.push_back("/usr/share/vship/cvvdp_data/");
-        search_paths.push_back("./config/cvvdp_data/");
-        search_paths.push_back("../config/cvvdp_data/");
-        #endif
-
-        // Test each path by checking for display_models.json
-        for (const auto& path : search_paths) {
-            std::string test_file = path + "display_models.json";
-            std::ifstream test(test_file);
-            if (test.good()) {
-                return path;
-            }
-        }
-
-        // Fallback to default (will fail later if files not found)
-        #ifdef _WIN32
-        return "C:\\Tools\\config\\cvvdp_data\\";
-        #else
-        return "/usr/local/share/vship/cvvdp_data/";
-        #endif
-    }
-
-    void init(int w, int h, const std::string& display_name) {
+    void init(int w, int h, const std::string& display_name, const std::string& data_dir_override = "") {
         width = w;
         height = h;
 
-        // Find configuration directory
-        std::string config_dir = find_config_dir();
+        // Resolve configuration directory
+        data_root = resolve_cvvdp_data_root(data_dir_override);
 
-        display = DisplayModel::load(config_dir + "display_models.json", display_name);
-        params = CVVDPParameters::load(config_dir + "cvvdp_parameters.json");
+        const std::filesystem::path display_model_path = data_root / "display_models.json";
+        const std::filesystem::path params_path = data_root / "cvvdp_parameters.json";
+
+        display = DisplayModel::load(display_model_path, display_name);
+        params = CVVDPParameters::load(params_path);
 
         ppd = display.get_ppd();
 
@@ -343,7 +314,8 @@ public:
 
         // Initialize CSF
         hipStreamCreate(&stream);
-        csf.init(config_dir + "csf_lut_" + params.csf + ".json", stream);
+        const std::filesystem::path csf_path = data_root / ("csf_lut_" + params.csf + ".json");
+        csf.init(csf_path.string(), stream);
     }
 
     void destroy() {
@@ -353,7 +325,50 @@ public:
 
     // Process a single frame pair and return JOD score
     // Input: test and reference frames in planar RGB format (float3 arrays)
-    float process_frame(const float3* test_d, const float3* ref_d) {
+    float process_frame(const float3* test_d, const float3* ref_d, int frame_index = -1, std::string* debug_json_out = nullptr) {
+        const bool collect_debug = (debug_json_out != nullptr);
+
+        struct KernelTimings {
+            float apply_csf_and_gain = 0.0f;
+            float mutual_mask = 0.0f;
+            float phase_uncertainty = 0.0f;
+            float masking = 0.0f;
+            float baseband = 0.0f;
+            float spatial_pool = 0.0f;
+            float reduce = 0.0f;
+            float host_copy = 0.0f;
+        };
+
+        struct ChannelStats {
+            float min = std::numeric_limits<float>::max();
+            float max = std::numeric_limits<float>::lowest();
+            double sum = 0.0;
+        };
+
+        struct BandDebugInfo {
+            int index = 0;
+            bool is_baseband = false;
+            int width = 0;
+            int height = 0;
+            float rho_cpd = 0.0f;
+            float beta_score = 0.0f;
+            int sample_count = 0;
+            std::array<ChannelStats, 3> channels{};
+        };
+
+        KernelTimings timings;
+        std::vector<BandDebugInfo> band_debug_infos;
+        if (collect_debug) {
+            band_debug_infos.reserve(lpyr.num_bands);
+        }
+
+        hipEvent_t timing_start = nullptr;
+        hipEvent_t timing_end = nullptr;
+        if (collect_debug) {
+            hipEventCreateWithFlags(&timing_start, hipEventDefault);
+            hipEventCreateWithFlags(&timing_end, hipEventDefault);
+        }
+
         int frame_size = width * height;
 
         // Allocate working buffers
@@ -366,9 +381,9 @@ public:
         GPU_CHECK(hipMemcpyDtoDAsync(ref_linear_d, ref_d, frame_size * sizeof(float3), stream));
 
         // Step 1: Convert to linear luminance
-        float L_max = display.max_luminance;
-        float L_black = display.get_black_level();
-        float gamma = 2.2f; // TODO: Get from display colorspace
+        const float L_max = display.max_luminance;
+        const float L_black = display.get_black_level();
+        const float gamma = 2.2f; // TODO: derive from display colorspace
 
         rgb_to_linear(test_linear_d, frame_size, L_max, L_black, gamma, stream);
         rgb_to_linear(ref_linear_d, frame_size, L_max, L_black, gamma, stream);
@@ -385,7 +400,6 @@ public:
         lpyr.decompose(ref_linear_d, ref_bands, stream);
 
         // Step 4: Apply CSF and masking model for each band
-        // In Python: Q_per_ch_block[:,:,:,bb] = lp_norm(D, beta, dim=(-2,-1), normalize=True)
         std::vector<float> band_scores(lpyr.num_bands);
 
         for (int band = 0; band < lpyr.num_bands; band++) {
@@ -404,10 +418,10 @@ public:
             float3* D_d;
             GPU_CHECK(hipMallocAsync(&D_d, band_size * sizeof(float3), stream));
 
-            float log_L_bkg = log10f(L_max / 2.0f); // Use average luminance
+            float log_L_bkg = log10f(std::max(L_max / 2.0f, 1e-4f));
 
             if (is_baseband) {
-                // For baseband: D = |T_f - R_f| * S (no masking)
+                if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
                 baseband_difference_kernel<<<blocks, threads, 0, stream>>>(
                     test_contrast, ref_contrast, D_d,
                     lpyr.band_widths[band], lpyr.band_heights[band],
@@ -416,13 +430,19 @@ public:
                     csf.logS_o0_c0_d, csf.logS_o0_c1_d, csf.logS_o0_c2_d,
                     csf.num_L_bkg, csf.num_rho, params.sensitivity_correction
                 );
+                if (collect_debug) {
+                    GPU_CHECK(hipEventRecord(timing_end, stream));
+                    GPU_CHECK(hipEventSynchronize(timing_end));
+                    float elapsed = 0.0f;
+                    GPU_CHECK(hipEventElapsedTime(&elapsed, timing_start, timing_end));
+                    timings.baseband += elapsed;
+                }
             } else {
-                // For other bands: Apply masking model
-                // Step 1: Apply CSF and channel gain -> T_p, R_p
                 float3 *T_p_d, *R_p_d;
                 GPU_CHECK(hipMallocAsync(&T_p_d, band_size * sizeof(float3), stream));
                 GPU_CHECK(hipMallocAsync(&R_p_d, band_size * sizeof(float3), stream));
 
+                if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
                 apply_csf_and_gain_kernel<<<blocks, threads, 0, stream>>>(
                     test_contrast, ref_contrast, T_p_d, R_p_d,
                     lpyr.band_widths[band], lpyr.band_heights[band],
@@ -431,29 +451,60 @@ public:
                     csf.logS_o0_c0_d, csf.logS_o0_c1_d, csf.logS_o0_c2_d,
                     csf.num_L_bkg, csf.num_rho, params.sensitivity_correction
                 );
+                if (collect_debug) {
+                    GPU_CHECK(hipEventRecord(timing_end, stream));
+                    GPU_CHECK(hipEventSynchronize(timing_end));
+                    float elapsed = 0.0f;
+                    GPU_CHECK(hipEventElapsedTime(&elapsed, timing_start, timing_end));
+                    timings.apply_csf_and_gain += elapsed;
+                }
 
-                // Step 2: Compute mutual masking: M_mm = min(|T_p|, |R_p|)
                 float3* M_mm_d;
                 GPU_CHECK(hipMallocAsync(&M_mm_d, band_size * sizeof(float3), stream));
 
+                if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
                 compute_mutual_masking_kernel<<<blocks, threads, 0, stream>>>(
                     T_p_d, R_p_d, M_mm_d, band_size
                 );
+                if (collect_debug) {
+                    GPU_CHECK(hipEventRecord(timing_end, stream));
+                    GPU_CHECK(hipEventSynchronize(timing_end));
+                    float elapsed = 0.0f;
+                    GPU_CHECK(hipEventElapsedTime(&elapsed, timing_start, timing_end));
+                    timings.mutual_mask += elapsed;
+                }
 
-                // Step 3: Apply phase uncertainty: M_pu = M_mm * 10^mask_c
-                // (Gaussian blur omitted for simplicity)
+                if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
                 apply_phase_uncertainty_kernel<<<blocks, threads, 0, stream>>>(
                     M_mm_d, params.mask_c, band_size
                 );
+                if (collect_debug) {
+                    GPU_CHECK(hipEventRecord(timing_end, stream));
+                    GPU_CHECK(hipEventSynchronize(timing_end));
+                    float elapsed = 0.0f;
+                    GPU_CHECK(hipEventElapsedTime(&elapsed, timing_start, timing_end));
+                    timings.phase_uncertainty += elapsed;
+                }
 
-                // Step 4: Apply masking model: D = safe_pow(|T_p - R_p|, p) / (1 + M^q)
+                const float mask_q_y = (params.mask_q.size() > 0) ? params.mask_q[0] : 1.0f;
+                const float mask_q_rg = (params.mask_q.size() > 1) ? params.mask_q[1] : mask_q_y;
+                const float mask_q_by = (params.mask_q.size() > 2) ? params.mask_q[2] : mask_q_rg;
+
+                if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
                 apply_masking_kernel<<<blocks, threads, 0, stream>>>(
                     T_p_d, R_p_d, M_mm_d, D_d,
                     params.mask_p,
-                    params.mask_q[0], params.mask_q[1], params.mask_q[2],
+                    mask_q_y, mask_q_rg, mask_q_by,
                     params.d_max,
                     band_size
                 );
+                if (collect_debug) {
+                    GPU_CHECK(hipEventRecord(timing_end, stream));
+                    GPU_CHECK(hipEventSynchronize(timing_end));
+                    float elapsed = 0.0f;
+                    GPU_CHECK(hipEventElapsedTime(&elapsed, timing_start, timing_end));
+                    timings.masking += elapsed;
+                }
 
                 GPU_CHECK(hipFreeAsync(T_p_d, stream));
                 GPU_CHECK(hipFreeAsync(R_p_d, stream));
@@ -461,53 +512,93 @@ public:
             }
 
             // Step 5: Spatial pooling with normalize=True
-            // Python: lp_norm(D, beta, dim=(-2,-1), normalize=True, keepdim=False)
-            // This computes: (sum(|D|^beta) / N)^(1/beta) where N = num_pixels
             float* pooled_d;
             GPU_CHECK(hipMallocAsync(&pooled_d, band_size * sizeof(float), stream));
 
+            if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
             spatial_pooling_kernel<<<blocks, threads, 0, stream>>>(
                 D_d, pooled_d, lpyr.band_widths[band], lpyr.band_heights[band], params.beta
             );
+            if (collect_debug) {
+                GPU_CHECK(hipEventRecord(timing_end, stream));
+                GPU_CHECK(hipEventSynchronize(timing_end));
+                float elapsed = 0.0f;
+                GPU_CHECK(hipEventElapsedTime(&elapsed, timing_start, timing_end));
+                timings.spatial_pool += elapsed;
+            }
 
-            // Reduce to single value (sum across all pixels)
             float* partial_sums_d;
             int num_blocks = (band_size + 255) / 256;
             GPU_CHECK(hipMallocAsync(&partial_sums_d, num_blocks * sizeof(float), stream));
 
+            if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
             reduce_mean_kernel<<<num_blocks, 256, 256 * sizeof(float), stream>>>(
                 pooled_d, partial_sums_d, band_size
             );
+            if (collect_debug) {
+                GPU_CHECK(hipEventRecord(timing_end, stream));
+                GPU_CHECK(hipEventSynchronize(timing_end));
+                float elapsed = 0.0f;
+                GPU_CHECK(hipEventElapsedTime(&elapsed, timing_start, timing_end));
+                timings.reduce += elapsed;
+            }
 
-            // Final reduction on CPU
             std::vector<float> partial_sums_h(num_blocks);
+            std::vector<float3> band_values_h;
+            if (collect_debug) {
+                band_values_h.resize(band_size);
+                GPU_CHECK(hipEventRecord(timing_start, stream));
+                GPU_CHECK(hipMemcpyDtoHAsync(band_values_h.data(), D_d, band_size * sizeof(float3), stream));
+            }
             GPU_CHECK(hipMemcpyDtoHAsync(partial_sums_h.data(), partial_sums_d,
                                       num_blocks * sizeof(float), stream));
+            if (collect_debug) GPU_CHECK(hipEventRecord(timing_end, stream));
+
             hipStreamSynchronize(stream);
+
+            if (collect_debug) {
+                GPU_CHECK(hipEventSynchronize(timing_end));
+                float elapsed = 0.0f;
+                GPU_CHECK(hipEventElapsedTime(&elapsed, timing_start, timing_end));
+                timings.host_copy += elapsed;
+            }
 
             float sum = 0.0f;
             for (int i = 0; i < num_blocks; i++) {
                 sum += partial_sums_h[i];
             }
 
-            // Normalize by number of pixels and take beta root
-            // This matches Python: lp_norm with normalize=True
-            float normalized_sum = sum / band_size;
+            float normalized_sum = sum / std::max(1, band_size);
             band_scores[band] = powf(normalized_sum, 1.0f / params.beta);
 
-            // DEBUG: Print band info
-            if (band == 0 || band == lpyr.num_bands - 1) {
-                printf("[CVVDP DEBUG] Band %d: rho=%.2f cpd, normalized_sum=%.8f, score=%.8f, is_baseband=%d\n",
-                       band, rho, normalized_sum, band_scores[band], is_baseband);
+            if (collect_debug) {
+                BandDebugInfo info;
+                info.index = band;
+                info.is_baseband = is_baseband;
+                info.width = lpyr.band_widths[band];
+                info.height = lpyr.band_heights[band];
+                info.rho_cpd = rho;
+                info.beta_score = band_scores[band];
+                info.sample_count = band_size;
+
+                for (const float3& value : band_values_h) {
+                    const float channels[3] = {value.x, value.y, value.z};
+                    for (int c = 0; c < 3; ++c) {
+                        ChannelStats& stats = info.channels[c];
+                        stats.min = std::min(stats.min, channels[c]);
+                        stats.max = std::max(stats.max, channels[c]);
+                        stats.sum += channels[c];
+                    }
+                }
+
+                band_debug_infos.push_back(std::move(info));
             }
 
-            // Free buffers
             GPU_CHECK(hipFreeAsync(D_d, stream));
             GPU_CHECK(hipFreeAsync(pooled_d, stream));
             GPU_CHECK(hipFreeAsync(partial_sums_d, stream));
         }
 
-        // Free pyramid bands
         lpyr.free_bands(test_bands, stream);
         lpyr.free_bands(ref_bands, stream);
         delete[] test_bands;
@@ -516,35 +607,123 @@ public:
         GPU_CHECK(hipFreeAsync(test_linear_d, stream));
         GPU_CHECK(hipFreeAsync(ref_linear_d, stream));
 
-        // Step 6: Combine band scores with proper weighting
-        // Use beta pooling across bands
         float sum_bands = 0.0f;
         for (int band = 0; band < lpyr.num_bands; band++) {
-            // Apply baseband weight if available
             float weight = 1.0f;
-            if (band < params.baseband_weight.size()) {
+            if (band < static_cast<int>(params.baseband_weight.size())) {
                 weight = params.baseband_weight[band];
             }
-
-            // Accumulate weighted contributions
             sum_bands += weight * powf(band_scores[band], params.beta);
         }
 
-        // Take the beta root of the pooled value
         float Q_per_ch = powf(sum_bands, 1.0f / params.beta);
-
-        // Step 7: Convert to JOD scale
-        // Q_JOD = jod_a * Q^jod_exp
         float Q_jod = params.jod_a * powf(Q_per_ch, params.jod_exp);
-
-        // DEBUG: Print final conversion
-        printf("[CVVDP DEBUG] Q_per_ch=%.8f, Q_jod(raw)=%.8f, jod_a=%.6f, jod_exp=%.6f\n",
-               Q_per_ch, Q_jod, params.jod_a, params.jod_exp);
-
-        // Clamp to reasonable range (0-10 JOD)
         Q_jod = fminf(fmaxf(Q_jod, 0.0f), 10.0f);
 
-        printf("[CVVDP DEBUG] Q_jod(final)=%.8f\n", Q_jod);
+        if (collect_debug) {
+            GPU_CHECK(hipEventDestroy(timing_start));
+            GPU_CHECK(hipEventDestroy(timing_end));
+        }
+
+        if (collect_debug && debug_json_out) {
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+
+            const std::string data_root_utf8 = data_root.u8string();
+
+            writer.StartObject();
+            writer.Key("metric");
+            writer.String("cvvdp");
+            writer.Key("frame");
+            writer.Int(frame_index);
+            writer.Key("jod");
+            writer.Double(static_cast<double>(Q_jod));
+            writer.Key("width");
+            writer.Int(width);
+            writer.Key("height");
+            writer.Int(height);
+            writer.Key("ppd");
+            writer.Double(static_cast<double>(ppd));
+            writer.Key("display");
+            writer.StartObject();
+            writer.Key("name");
+            writer.String(display.name.c_str());
+            writer.Key("max_luminance");
+            writer.Double(static_cast<double>(display.max_luminance));
+            writer.Key("min_luminance");
+            writer.Double(static_cast<double>(display.min_luminance));
+            writer.Key("contrast");
+            writer.Double(static_cast<double>(display.contrast));
+            writer.EndObject();
+            writer.Key("config_root");
+            writer.String(data_root_utf8.c_str());
+            writer.Key("temporal");
+            writer.StartObject();
+            writer.Key("buffer_fill");
+            writer.Double(0.0); // Temporal filtering not yet implemented
+            writer.Key("filter_len");
+            writer.Int(params.filter_len);
+            writer.EndObject();
+            writer.Key("bands");
+            writer.StartArray();
+            for (const BandDebugInfo& info : band_debug_infos) {
+                writer.StartObject();
+                writer.Key("index");
+                writer.Int(info.index);
+                writer.Key("is_baseband");
+                writer.Bool(info.is_baseband);
+                writer.Key("rho_cpd");
+                writer.Double(static_cast<double>(info.rho_cpd));
+                writer.Key("width");
+                writer.Int(info.width);
+                writer.Key("height");
+                writer.Int(info.height);
+                writer.Key("beta_score");
+                writer.Double(static_cast<double>(info.beta_score));
+                writer.Key("channels");
+                writer.StartObject();
+                const char* channel_names[3] = {"Y", "RG", "BY"};
+                for (int c = 0; c < 3; ++c) {
+                    writer.Key(channel_names[c]);
+                    writer.StartObject();
+                    writer.Key("min");
+                    writer.Double(static_cast<double>(info.channels[c].min));
+                    writer.Key("max");
+                    writer.Double(static_cast<double>(info.channels[c].max));
+                    double mean = (info.sample_count > 0)
+                                      ? info.channels[c].sum / static_cast<double>(info.sample_count)
+                                      : 0.0;
+                    writer.Key("mean");
+                    writer.Double(mean);
+                    writer.EndObject();
+                }
+                writer.EndObject();
+                writer.EndObject();
+            }
+            writer.EndArray();
+            writer.Key("kernels_ms");
+            writer.StartObject();
+            writer.Key("apply_csf_and_gain");
+            writer.Double(static_cast<double>(timings.apply_csf_and_gain));
+            writer.Key("mutual_mask");
+            writer.Double(static_cast<double>(timings.mutual_mask));
+            writer.Key("phase_uncertainty");
+            writer.Double(static_cast<double>(timings.phase_uncertainty));
+            writer.Key("masking");
+            writer.Double(static_cast<double>(timings.masking));
+            writer.Key("baseband");
+            writer.Double(static_cast<double>(timings.baseband));
+            writer.Key("spatial_pool");
+            writer.Double(static_cast<double>(timings.spatial_pool));
+            writer.Key("reduce");
+            writer.Double(static_cast<double>(timings.reduce));
+            writer.Key("host_copy");
+            writer.Double(static_cast<double>(timings.host_copy));
+            writer.EndObject();
+            writer.EndObject();
+
+            *debug_json_out = buffer.GetString();
+        }
 
         return Q_jod;
     }
@@ -572,7 +751,7 @@ inline float cvvdp_compute(CVVDPHandle* handle, const float3* test_d, const floa
     if (!handle) return -1.0f;
 
     try {
-        return handle->processor.process_frame(test_d, ref_d);
+        return handle->processor.process_frame(test_d, ref_d, -1, nullptr);
     } catch (const VshipError& e) {
         return -1.0f;
     }
@@ -620,19 +799,24 @@ private:
     int width, height;
     hipStream_t stream;
     std::string display_name;
+    std::string data_dir_override;
+    bool debug_enabled = false;
 
     // Temporary buffers for converting uint16 planar RGB to float3
-    float3* temp_src_d;
-    float3* temp_dist_d;
+    float3* temp_src_d = nullptr;
+    float3* temp_dist_d = nullptr;
 
 public:
-    void init(int w, int h, const std::string& display = "standard_4k") {
+    void init(int w, int h, const std::string& display = "standard_4k",
+              const std::string& data_dir = "", bool enable_debug = false) {
         width = w;
         height = h;
         display_name = display;
+        data_dir_override = data_dir;
+        debug_enabled = enable_debug;
 
         // Initialize the processor
-        processor.init(width, height, display_name);
+        processor.init(width, height, display_name, data_dir_override);
 
         // Create stream
         hipStreamCreate(&stream);
@@ -665,7 +849,8 @@ public:
         const uint8_t* src_planes[3],
         const uint8_t* dist_planes[3],
         int64_t stride_src,
-        int64_t stride_dist
+        int64_t stride_dist,
+        int frame_index = -1
     ) {
         // Only support UINT16 for now
         static_assert(T == UINT16, "CVVDP currently only supports UINT16 input");
@@ -688,7 +873,18 @@ public:
 
         // Process with CVVDP
         // Note: CVVDP expects test first, then reference (opposite of other metrics)
-        float jod_score = processor.process_frame(temp_dist_d, temp_src_d);
+        std::string telemetry_blob;
+        float jod_score = processor.process_frame(
+            temp_dist_d,
+            temp_src_d,
+            frame_index,
+            debug_enabled ? &telemetry_blob : nullptr);
+
+        if (debug_enabled && !telemetry_blob.empty()) {
+            static std::mutex telemetry_mutex;
+            std::lock_guard<std::mutex> lock(telemetry_mutex);
+            std::cout << telemetry_blob << std::endl;
+        }
 
         // Return JOD score in all three positions (CVVDP only outputs one score)
         return std::make_tuple(jod_score, jod_score, jod_score);
@@ -696,3 +892,11 @@ public:
 };
 
 } // namespace cvvdp
+
+
+
+
+
+
+
+
