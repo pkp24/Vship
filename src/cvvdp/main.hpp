@@ -414,21 +414,53 @@ __global__ void apply_masking_kernel(
     );
 }
 
-// Spatial pooling: simple averaging per channel (beta-norm applied later in hierarchical pooling)
+// Average pooling kernel with specified kernel size (matching Python AvgPool2d)
 __launch_bounds__(256)
-__global__ void spatial_pooling_per_channel_kernel(
+__global__ void average_pooling_kernel(
     const float3* input, float3* output,
-    int width, int height,
-    float beta
+    int input_width, int input_height,
+    int kernel_size,
+    int output_width, int output_height
 ) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= width * height) return;
+    int out_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (out_idx >= output_width * output_height) return;
 
-    float3 val = input[idx];
+    int out_x = out_idx % output_width;
+    int out_y = out_idx / output_width;
 
-    // Simple averaging like Python - no beta-norm for spatial pooling
-    // Beta-norm is only applied later in hierarchical pooling (across bands/channels)
-    output[idx] = val;
+    // Calculate input region for this output pixel
+    int start_x = out_x * kernel_size;
+    int start_y = out_y * kernel_size;
+    int end_x = min(start_x + kernel_size, input_width);
+    int end_y = min(start_y + kernel_size, input_height);
+
+    float3 sum = make_float3(0.0f, 0.f, 0.0f);
+    int count = 0;
+
+    // Sum over the kernel region
+    for (int y = start_y; y < end_y; y++) {
+        for (int x = start_x; x < end_x; x++) {
+            int in_idx = y * input_width + x;
+            if (in_idx < input_width * input_height) {
+                float3 val = input[in_idx];
+                sum.x += val.x;
+                sum.y += val.y;
+                sum.z += val.z;
+                count++;
+            }
+        }
+    }
+
+    // Average the sum
+    if (count > 0) {
+        output[out_idx] = make_float3(
+            sum.x / count,
+            sum.y / count,
+            sum.z / count
+        );
+    } else {
+        output[out_idx] = make_float3(0.0f, 0.0f, 0.0f);
+    }
 }
 
 // Reduction kernel for computing mean
@@ -881,15 +913,27 @@ public:
                 GPU_CHECK(hipFreeAsync(M_xcm_d, stream));
             }
 
-            // Step 5: Spatial pooling with normalize=True (per-channel)
-            // Pool each channel separately for hierarchical pooling
+            // Step 5: Average pooling with kernel size matching Python (feature_size = ceil(pix_per_deg))
+            const int feature_size = static_cast<int>(std::ceil(params.pix_per_deg));
+            const int pooled_width = (lpyr.band_widths[band] + feature_size - 1) / feature_size;  // ceil division
+            const int pooled_height = (lpyr.band_heights[band] + feature_size - 1) / feature_size;  // ceil division
+            const int pooled_size = pooled_width * pooled_height;
+            
             float3* pooled_d;
-            GPU_CHECK(hipMallocAsync(&pooled_d, band_size * sizeof(float3), stream));
+            GPU_CHECK(hipMallocAsync(&pooled_d, pooled_size * sizeof(float3), stream));
 
             if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
-            spatial_pooling_per_channel_kernel<<<blocks, threads, 0, stream>>>(
-                D_d, pooled_d, lpyr.band_widths[band], lpyr.band_heights[band], params.beta
+            
+            // Launch average pooling kernel
+            const int pooled_threads = 256;
+            const int pooled_blocks = (pooled_size + pooled_threads - 1) / pooled_threads;
+            average_pooling_kernel<<<pooled_blocks, pooled_threads, 0, stream>>>(
+                D_d, pooled_d, 
+                lpyr.band_widths[band], lpyr.band_heights[band],
+                feature_size,
+                pooled_width, pooled_height
             );
+            
             if (collect_debug) {
                 GPU_CHECK(hipEventRecord(timing_end, stream));
                 GPU_CHECK(hipEventSynchronize(timing_end));
@@ -898,14 +942,14 @@ public:
                 timings.spatial_pool += elapsed;
             }
 
-            // Reduce per-channel sums
+            // Reduce per-channel sums from pooled data
             float3* partial_sums_d;
-            int num_blocks = (band_size + 255) / 256;
+            int num_blocks = (pooled_size + 255) / 256;
             GPU_CHECK(hipMallocAsync(&partial_sums_d, num_blocks * sizeof(float3), stream));
 
             if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
             reduce_mean_per_channel_kernel<<<num_blocks, 256, 256 * sizeof(float3), stream>>>(
-                pooled_d, partial_sums_d, band_size
+                pooled_d, partial_sums_d, pooled_size
             );
             if (collect_debug) {
                 GPU_CHECK(hipEventRecord(timing_end, stream));
@@ -918,9 +962,9 @@ public:
             std::vector<float3> partial_sums_h(num_blocks);
             std::vector<float3> band_values_h;
             if (collect_debug) {
-                band_values_h.resize(band_size);
+                band_values_h.resize(pooled_size);
                 GPU_CHECK(hipEventRecord(timing_start, stream));
-                GPU_CHECK(hipMemcpyDtoHAsync(band_values_h.data(), D_d, band_size * sizeof(float3), stream));
+                GPU_CHECK(hipMemcpyDtoHAsync(band_values_h.data(), pooled_d, pooled_size * sizeof(float3), stream));
             }
             GPU_CHECK(hipMemcpyDtoHAsync(partial_sums_h.data(), partial_sums_d,
                                       num_blocks * sizeof(float3), stream));
@@ -945,9 +989,9 @@ public:
 
             // Normalize per channel (simple averaging like Python)
             float3 normalized_sum = make_float3(
-                sum.x / std::max(1, band_size),
-                sum.y / std::max(1, band_size),
-                sum.z / std::max(1, band_size)
+                sum.x / std::max(1, pooled_size),
+                sum.y / std::max(1, pooled_size),
+                sum.z / std::max(1, pooled_size)
             );
             // Simple averaging like Python - no beta-th root for spatial pooling
             band_scores[band] = normalized_sum;

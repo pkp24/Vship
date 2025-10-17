@@ -309,6 +309,7 @@ struct CVVDPParameters {
     float beta_sch;
     float csf_sigma;
     float sensitivity_correction;
+    float pix_per_deg;
     std::string masking_model;
     std::string local_adapt;
     std::string contrast;
@@ -350,6 +351,7 @@ struct CVVDPParameters {
         params.beta_sch = get_float(doc, "beta_sch", filepath);
         params.csf_sigma = get_float(doc, "csf_sigma", filepath);
         params.sensitivity_correction = get_float(doc, "sensitivity_correction", filepath);
+        params.pix_per_deg = get_float(doc, "pix_per_deg", filepath, 69.0f, false);
         params.masking_model = get_string(doc, "masking_model", filepath);
         params.local_adapt = get_string(doc, "local_adapt", filepath);
         params.contrast = get_string(doc, "contrast", filepath);
