@@ -414,7 +414,7 @@ __global__ void apply_masking_kernel(
     );
 }
 
-// Spatial pooling: compute beta-norm per channel
+// Spatial pooling: simple averaging per channel (beta-norm applied later in hierarchical pooling)
 __launch_bounds__(256)
 __global__ void spatial_pooling_per_channel_kernel(
     const float3* input, float3* output,
@@ -426,13 +426,9 @@ __global__ void spatial_pooling_per_channel_kernel(
 
     float3 val = input[idx];
 
-    // Compute beta-norm contribution for each channel separately
-    // This allows hierarchical pooling: spatial → band → channel
-    output[idx] = make_float3(
-        safe_pow(fabsf(val.x), beta),  // Y channel
-        safe_pow(fabsf(val.y), beta),  // RG channel
-        safe_pow(fabsf(val.z), beta)   // BY channel
-    );
+    // Simple averaging like Python - no beta-norm for spatial pooling
+    // Beta-norm is only applied later in hierarchical pooling (across bands/channels)
+    output[idx] = val;
 }
 
 // Reduction kernel for computing mean
@@ -947,17 +943,14 @@ public:
                 sum.z += partial_sums_h[i].z;
             }
 
-            // Normalize and take beta-th root per channel
+            // Normalize per channel (simple averaging like Python)
             float3 normalized_sum = make_float3(
                 sum.x / std::max(1, band_size),
                 sum.y / std::max(1, band_size),
                 sum.z / std::max(1, band_size)
             );
-            band_scores[band] = make_float3(
-                powf(normalized_sum.x, 1.0f / params.beta),
-                powf(normalized_sum.y, 1.0f / params.beta),
-                powf(normalized_sum.z, 1.0f / params.beta)
-            );
+            // Simple averaging like Python - no beta-th root for spatial pooling
+            band_scores[band] = normalized_sum;
 
             // DEBUG: Always print per-band scores to stderr
             std::cerr << "DEBUG_BAND[" << band << "]: normalized_sum=("
