@@ -15,38 +15,233 @@
 
 namespace cvvdp {
 
-// Weber contrast encoding kernel
+// Helper: safe_pow - differentiable power function that handles zeros
+__device__ __forceinline__ float safe_pow(float x, float p) {
+    const float epsilon = 0.00001f;
+    return powf(x + epsilon, p) - powf(epsilon, p);
+}
+
+// Helper: clamp_diffs with soft clamping (matches Python "soft" mode)
+__device__ __forceinline__ float clamp_diffs(float D, float d_max) {
+    float max_v = powf(10.0f, d_max);
+    return max_v * D / (max_v + D);
+}
+
+// Apply CSF sensitivity and channel gain (for mult-mutual masking model)
+// This kernel prepares T_p and R_p = contrast * sensitivity * ch_gain
 __launch_bounds__(256)
-__global__ void weber_contrast_kernel(const float3* test, const float3* ref, float3* contrast_out,
-                                       int size, float epsilon = 1e-5f) {
+__global__ void apply_csf_and_gain_kernel(
+    const float3* test_contrast, const float3* ref_contrast,
+    float3* T_p, float3* R_p,
+    int width, int height,
+    float rho_cpd, float log_L_bkg,
+    const float* log_L_bkg_lut, const float* log_rho_lut,
+    const float* logS_c0, const float* logS_c1, const float* logS_c2,
+    int num_L_bkg, int num_rho,
+    float sensitivity_correction
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= width * height) return;
+
+    float3 T = test_contrast[idx];
+    float3 R = ref_contrast[idx];
+
+    // Find position in CSF LUT (same logic as before)
+    float log_rho = log10f(rho_cpd);
+
+    float rho_idx = 0.0f;
+    for (int i = 0; i < num_rho - 1; i++) {
+        if (log_rho_lut[i] <= log_rho && log_rho <= log_rho_lut[i + 1]) {
+            rho_idx = i + (log_rho - log_rho_lut[i]) / (log_rho_lut[i + 1] - log_rho_lut[i]);
+            break;
+        }
+    }
+
+    float L_idx = 0.0f;
+    for (int i = 0; i < num_L_bkg - 1; i++) {
+        if (log_L_bkg_lut[i] <= log_L_bkg && log_L_bkg <= log_L_bkg_lut[i + 1]) {
+            L_idx = i + (log_L_bkg - log_L_bkg_lut[i]) / (log_L_bkg_lut[i + 1] - log_L_bkg_lut[i]);
+            break;
+        }
+    }
+
+    // Interpolate sensitivity for each channel
+    float logS_y = interp2d(logS_c0, num_rho, num_L_bkg, rho_idx, L_idx);
+    float logS_rg = interp2d(logS_c1, num_rho, num_L_bkg, rho_idx, L_idx);
+    float logS_by = interp2d(logS_c2, num_rho, num_L_bkg, rho_idx, L_idx);
+
+    // Convert from log to linear and apply correction
+    float S_y = powf(10.0f, logS_y + sensitivity_correction / 20.0f);
+    float S_rg = powf(10.0f, logS_rg + sensitivity_correction / 20.0f);
+    float S_by = powf(10.0f, logS_by + sensitivity_correction / 20.0f);
+
+    // Channel gains from Python: ch_gain = [1, 1.45, 1, 1.] for [Y, RG, BY, trans-Y]
+    // We only have sustained channels here (no temporal filtering yet)
+    const float ch_gain_y = 1.0f;
+    const float ch_gain_rg = 1.45f;
+    const float ch_gain_by = 1.0f;
+
+    // T_p = T * S * ch_gain, R_p = R * S * ch_gain
+    T_p[idx] = make_float3(
+        T.x * S_y * ch_gain_y,
+        T.y * S_rg * ch_gain_rg,
+        T.z * S_by * ch_gain_by
+    );
+
+    R_p[idx] = make_float3(
+        R.x * S_y * ch_gain_y,
+        R.y * S_rg * ch_gain_rg,
+        R.z * S_by * ch_gain_by
+    );
+}
+
+// Compute mutual masking term: M_mm = min(|T_p|, |R_p|)
+__launch_bounds__(256)
+__global__ void compute_mutual_masking_kernel(
+    const float3* T_p, const float3* R_p,
+    float3* M_mm,
+    int size
+) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= size) return;
 
-    float3 T = test[idx];
-    float3 R = ref[idx];
+    float3 Tp = T_p[idx];
+    float3 Rp = R_p[idx];
 
-    // Weber contrast: (T - R) / (R + epsilon)
-    float3 result;
-    result.x = (T.x - R.x) / fmaxf(R.x, epsilon);
-    result.y = (T.y - R.y) / fmaxf(R.y, epsilon);
-    result.z = (T.z - R.z) / fmaxf(R.z, epsilon);
-
-    contrast_out[idx] = result;
+    M_mm[idx] = make_float3(
+        fminf(fabsf(Tp.x), fabsf(Rp.x)),
+        fminf(fabsf(Tp.y), fabsf(Rp.y)),
+        fminf(fabsf(Tp.z), fabsf(Rp.z))
+    );
 }
 
-// Spatial pooling kernel (p-norm)
+// Apply phase uncertainty: multiply by 10^mask_c
+// (Gaussian blur would go here if image is large enough, but we'll skip for now)
+__launch_bounds__(256)
+__global__ void apply_phase_uncertainty_kernel(
+    float3* M_mm,
+    float mask_c,
+    int size
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= size) return;
+
+    float mult = powf(10.0f, mask_c);
+    M_mm[idx].x *= mult;
+    M_mm[idx].y *= mult;
+    M_mm[idx].z *= mult;
+}
+
+// Apply masking model: D_u = |T_p - R_p|^p / (1 + M^q), then clamp
+__launch_bounds__(256)
+__global__ void apply_masking_kernel(
+    const float3* T_p, const float3* R_p,
+    const float3* M_pu,  // Phase uncertainty applied masking
+    float3* D_out,
+    float mask_p, float mask_q_y, float mask_q_rg, float mask_q_by,
+    float d_max,
+    int size
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= size) return;
+
+    float3 Tp = T_p[idx];
+    float3 Rp = R_p[idx];
+    float3 M = M_pu[idx];
+
+    // For simplicity, we're skipping cross-channel masking (mask_pool)
+    // and using the per-pixel masking directly
+    // In Python: M = mask_pool(safe_pow(|M_mm|, q))
+    // Here we approximate: M = |M_mm|^q
+    float M_y = safe_pow(M.x, mask_q_y);
+    float M_rg = safe_pow(M.y, mask_q_rg);
+    float M_by = safe_pow(M.z, mask_q_by);
+
+    // D_u = |T_p - R_p|^p / (1 + M)
+    float D_y = safe_pow(fabsf(Tp.x - Rp.x), mask_p) / (1.0f + M_y);
+    float D_rg = safe_pow(fabsf(Tp.y - Rp.y), mask_p) / (1.0f + M_rg);
+    float D_by = safe_pow(fabsf(Tp.z - Rp.z), mask_p) / (1.0f + M_by);
+
+    // Soft clamp
+    D_out[idx] = make_float3(
+        clamp_diffs(D_y, d_max),
+        clamp_diffs(D_rg, d_max),
+        clamp_diffs(D_by, d_max)
+    );
+}
+
+// For baseband: D = |T_f - R_f| * S (no masking)
+__launch_bounds__(256)
+__global__ void baseband_difference_kernel(
+    const float3* test_contrast, const float3* ref_contrast,
+    float3* D_out,
+    int width, int height,
+    float rho_cpd, float log_L_bkg,
+    const float* log_L_bkg_lut, const float* log_rho_lut,
+    const float* logS_c0, const float* logS_c1, const float* logS_c2,
+    int num_L_bkg, int num_rho,
+    float sensitivity_correction
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= width * height) return;
+
+    float3 T = test_contrast[idx];
+    float3 R = ref_contrast[idx];
+
+    // Find position in CSF LUT
+    float log_rho = log10f(rho_cpd);
+
+    float rho_idx = 0.0f;
+    for (int i = 0; i < num_rho - 1; i++) {
+        if (log_rho_lut[i] <= log_rho && log_rho <= log_rho_lut[i + 1]) {
+            rho_idx = i + (log_rho - log_rho_lut[i]) / (log_rho_lut[i + 1] - log_rho_lut[i]);
+            break;
+        }
+    }
+
+    float L_idx = 0.0f;
+    for (int i = 0; i < num_L_bkg - 1; i++) {
+        if (log_L_bkg_lut[i] <= log_L_bkg && log_L_bkg <= log_L_bkg_lut[i + 1]) {
+            L_idx = i + (log_L_bkg - log_L_bkg_lut[i]) / (log_L_bkg_lut[i + 1] - log_L_bkg_lut[i]);
+            break;
+        }
+    }
+
+    // Interpolate sensitivity
+    float logS_y = interp2d(logS_c0, num_rho, num_L_bkg, rho_idx, L_idx);
+    float logS_rg = interp2d(logS_c1, num_rho, num_L_bkg, rho_idx, L_idx);
+    float logS_by = interp2d(logS_c2, num_rho, num_L_bkg, rho_idx, L_idx);
+
+    float S_y = powf(10.0f, logS_y + sensitivity_correction / 20.0f);
+    float S_rg = powf(10.0f, logS_rg + sensitivity_correction / 20.0f);
+    float S_by = powf(10.0f, logS_by + sensitivity_correction / 20.0f);
+
+    // For baseband: D = |T - R| * S
+    D_out[idx] = make_float3(
+        fabsf(T.x - R.x) * S_y,
+        fabsf(T.y - R.y) * S_rg,
+        fabsf(T.z - R.z) * S_by
+    );
+}
+
+// Spatial pooling kernel (beta-norm across DKL channels)
+// Computes: sum over pixels of (|D_y|^beta + |D_rg|^beta + |D_by|^beta)
+// The Python code does: lp_norm(D, beta, dim=(-2,-1), normalize=True)
+// normalize=True means: divide by number of pixels
 __launch_bounds__(256)
 __global__ void spatial_pooling_kernel(const float3* input, float* output,
-                                        int width, int height, float p) {
-    // Simple mean pooling across spatial dimensions for now
-    // TODO: Implement proper p-norm spatial pooling
+                                        int width, int height, float beta) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= width * height) return;
 
     float3 val = input[idx];
-    // Combine channels (TODO: apply proper channel weights)
-    float combined = powf(fabsf(val.x), p) + powf(fabsf(val.y), p) + powf(fabsf(val.z), p);
-    output[idx] = combined;
+
+    // Compute beta-norm contribution for this pixel across DKL channels
+    // Using Minkowski p-norm: (|x|^p + |y|^p + |z|^p)
+    float sum = safe_pow(fabsf(val.x), beta) + safe_pow(fabsf(val.y), beta) + safe_pow(fabsf(val.z), beta);
+
+    // Store the sum (will reduce across pixels and normalize later)
+    output[idx] = sum;
 }
 
 // Reduction kernel for computing mean
@@ -189,47 +384,102 @@ public:
         lpyr.decompose(test_linear_d, test_bands, stream);
         lpyr.decompose(ref_linear_d, ref_bands, stream);
 
-        // Step 4: Compute contrast and apply CSF for each band
+        // Step 4: Apply CSF and masking model for each band
+        // In Python: Q_per_ch_block[:,:,:,bb] = lp_norm(D, beta, dim=(-2,-1), normalize=True)
         std::vector<float> band_scores(lpyr.num_bands);
 
         for (int band = 0; band < lpyr.num_bands; band++) {
             int band_size = lpyr.band_widths[band] * lpyr.band_heights[band];
             float rho = lpyr.band_freqs[band]; // Spatial frequency in cpd
+            bool is_baseband = (band == lpyr.num_bands - 1);
 
-            // Allocate contrast buffer
-            float3* contrast_d;
-            GPU_CHECK(hipMallocAsync(&contrast_d, band_size * sizeof(float3), stream));
-
-            // Compute Weber contrast
             int threads = 256;
             int blocks = (band_size + threads - 1) / threads;
-            weber_contrast_kernel<<<blocks, threads, 0, stream>>>(
-                test_bands[band], ref_bands[band], contrast_d, band_size);
 
-            // Apply CSF weighting
-            // TODO: Properly implement CSF application per-channel
-            // apply_csf_kernel<<<blocks, threads, 0, stream>>>(
-            //     contrast_d, lpyr.band_widths[band], lpyr.band_heights[band],
-            //     rho, log10f(L_max / 2.0f), csf.log_L_bkg_d, csf.log_rho_d,
-            //     csf.logS_o0_c0_d, csf.logS_o0_c1_d, csf.logS_o0_c2_d,
-            //     csf.num_L_bkg, csf.num_rho, params.sensitivity_correction);
+            // Pyramid bands already contain contrast (clamped to [-1000, 1000])
+            float3* test_contrast = test_bands[band];
+            float3* ref_contrast = ref_bands[band];
 
-            // Step 5: Spatial pooling (p-norm)
+            // Allocate output buffer for D (perceptually weighted differences)
+            float3* D_d;
+            GPU_CHECK(hipMallocAsync(&D_d, band_size * sizeof(float3), stream));
+
+            float log_L_bkg = log10f(L_max / 2.0f); // Use average luminance
+
+            if (is_baseband) {
+                // For baseband: D = |T_f - R_f| * S (no masking)
+                baseband_difference_kernel<<<blocks, threads, 0, stream>>>(
+                    test_contrast, ref_contrast, D_d,
+                    lpyr.band_widths[band], lpyr.band_heights[band],
+                    rho, log_L_bkg,
+                    csf.log_L_bkg_d, csf.log_rho_d,
+                    csf.logS_o0_c0_d, csf.logS_o0_c1_d, csf.logS_o0_c2_d,
+                    csf.num_L_bkg, csf.num_rho, params.sensitivity_correction
+                );
+            } else {
+                // For other bands: Apply masking model
+                // Step 1: Apply CSF and channel gain -> T_p, R_p
+                float3 *T_p_d, *R_p_d;
+                GPU_CHECK(hipMallocAsync(&T_p_d, band_size * sizeof(float3), stream));
+                GPU_CHECK(hipMallocAsync(&R_p_d, band_size * sizeof(float3), stream));
+
+                apply_csf_and_gain_kernel<<<blocks, threads, 0, stream>>>(
+                    test_contrast, ref_contrast, T_p_d, R_p_d,
+                    lpyr.band_widths[band], lpyr.band_heights[band],
+                    rho, log_L_bkg,
+                    csf.log_L_bkg_d, csf.log_rho_d,
+                    csf.logS_o0_c0_d, csf.logS_o0_c1_d, csf.logS_o0_c2_d,
+                    csf.num_L_bkg, csf.num_rho, params.sensitivity_correction
+                );
+
+                // Step 2: Compute mutual masking: M_mm = min(|T_p|, |R_p|)
+                float3* M_mm_d;
+                GPU_CHECK(hipMallocAsync(&M_mm_d, band_size * sizeof(float3), stream));
+
+                compute_mutual_masking_kernel<<<blocks, threads, 0, stream>>>(
+                    T_p_d, R_p_d, M_mm_d, band_size
+                );
+
+                // Step 3: Apply phase uncertainty: M_pu = M_mm * 10^mask_c
+                // (Gaussian blur omitted for simplicity)
+                apply_phase_uncertainty_kernel<<<blocks, threads, 0, stream>>>(
+                    M_mm_d, params.mask_c, band_size
+                );
+
+                // Step 4: Apply masking model: D = safe_pow(|T_p - R_p|, p) / (1 + M^q)
+                apply_masking_kernel<<<blocks, threads, 0, stream>>>(
+                    T_p_d, R_p_d, M_mm_d, D_d,
+                    params.mask_p,
+                    params.mask_q[0], params.mask_q[1], params.mask_q[2],
+                    params.d_max,
+                    band_size
+                );
+
+                GPU_CHECK(hipFreeAsync(T_p_d, stream));
+                GPU_CHECK(hipFreeAsync(R_p_d, stream));
+                GPU_CHECK(hipFreeAsync(M_mm_d, stream));
+            }
+
+            // Step 5: Spatial pooling with normalize=True
+            // Python: lp_norm(D, beta, dim=(-2,-1), normalize=True, keepdim=False)
+            // This computes: (sum(|D|^beta) / N)^(1/beta) where N = num_pixels
             float* pooled_d;
             GPU_CHECK(hipMallocAsync(&pooled_d, band_size * sizeof(float), stream));
 
             spatial_pooling_kernel<<<blocks, threads, 0, stream>>>(
-                contrast_d, pooled_d, lpyr.band_widths[band], lpyr.band_heights[band], params.beta);
+                D_d, pooled_d, lpyr.band_widths[band], lpyr.band_heights[band], params.beta
+            );
 
-            // Reduce to single value
+            // Reduce to single value (sum across all pixels)
             float* partial_sums_d;
             int num_blocks = (band_size + 255) / 256;
             GPU_CHECK(hipMallocAsync(&partial_sums_d, num_blocks * sizeof(float), stream));
 
             reduce_mean_kernel<<<num_blocks, 256, 256 * sizeof(float), stream>>>(
-                pooled_d, partial_sums_d, band_size);
+                pooled_d, partial_sums_d, band_size
+            );
 
-            // Final reduction on CPU (for simplicity)
+            // Final reduction on CPU
             std::vector<float> partial_sums_h(num_blocks);
             GPU_CHECK(hipMemcpyDtoHAsync(partial_sums_h.data(), partial_sums_d,
                                       num_blocks * sizeof(float), stream));
@@ -239,10 +489,20 @@ public:
             for (int i = 0; i < num_blocks; i++) {
                 sum += partial_sums_h[i];
             }
-            band_scores[band] = powf(sum / band_size, 1.0f / params.beta);
+
+            // Normalize by number of pixels and take beta root
+            // This matches Python: lp_norm with normalize=True
+            float normalized_sum = sum / band_size;
+            band_scores[band] = powf(normalized_sum, 1.0f / params.beta);
+
+            // DEBUG: Print band info
+            if (band == 0 || band == lpyr.num_bands - 1) {
+                printf("[CVVDP DEBUG] Band %d: rho=%.2f cpd, normalized_sum=%.8f, score=%.8f, is_baseband=%d\n",
+                       band, rho, normalized_sum, band_scores[band], is_baseband);
+            }
 
             // Free buffers
-            GPU_CHECK(hipFreeAsync(contrast_d, stream));
+            GPU_CHECK(hipFreeAsync(D_d, stream));
             GPU_CHECK(hipFreeAsync(pooled_d, stream));
             GPU_CHECK(hipFreeAsync(partial_sums_d, stream));
         }
@@ -256,20 +516,35 @@ public:
         GPU_CHECK(hipFreeAsync(test_linear_d, stream));
         GPU_CHECK(hipFreeAsync(ref_linear_d, stream));
 
-        // Step 6: Combine band scores (TODO: apply baseband weights)
-        float Q_per_ch = 0.0f;
+        // Step 6: Combine band scores with proper weighting
+        // Use beta pooling across bands
+        float sum_bands = 0.0f;
         for (int band = 0; band < lpyr.num_bands; band++) {
-            // Simple averaging for now (TODO: apply proper weights and pooling)
-            Q_per_ch += band_scores[band];
+            // Apply baseband weight if available
+            float weight = 1.0f;
+            if (band < params.baseband_weight.size()) {
+                weight = params.baseband_weight[band];
+            }
+
+            // Accumulate weighted contributions
+            sum_bands += weight * powf(band_scores[band], params.beta);
         }
-        Q_per_ch /= lpyr.num_bands;
+
+        // Take the beta root of the pooled value
+        float Q_per_ch = powf(sum_bands, 1.0f / params.beta);
 
         // Step 7: Convert to JOD scale
         // Q_JOD = jod_a * Q^jod_exp
         float Q_jod = params.jod_a * powf(Q_per_ch, params.jod_exp);
 
-        // Clamp to reasonable range
+        // DEBUG: Print final conversion
+        printf("[CVVDP DEBUG] Q_per_ch=%.8f, Q_jod(raw)=%.8f, jod_a=%.6f, jod_exp=%.6f\n",
+               Q_per_ch, Q_jod, params.jod_a, params.jod_exp);
+
+        // Clamp to reasonable range (0-10 JOD)
         Q_jod = fminf(fmaxf(Q_jod, 0.0f), 10.0f);
+
+        printf("[CVVDP DEBUG] Q_jod(final)=%.8f\n", Q_jod);
 
         return Q_jod;
     }

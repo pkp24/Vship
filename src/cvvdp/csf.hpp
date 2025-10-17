@@ -64,27 +64,48 @@ struct CastleCSF {
             log_rho_h[i] = log10f(0.1f) + i * (log10f(100.0f) - log10f(0.1f)) / (num_rho - 1);
         }
 
-        // Simple CSF model (placeholder - actual values from calibration)
+        // CSF model based on typical human contrast sensitivity
+        // These are approximate values - actual CSF should be loaded from JSON
         for (int l = 0; l < num_L_bkg; l++) {
             for (int r = 0; r < num_rho; r++) {
                 int idx = l * num_rho + r;
                 float L = powf(10.0f, log_L_bkg_h[l]);
                 float rho = powf(10.0f, log_rho_h[r]);
 
-                // Simplified CSF (actual model is more complex)
-                // Peak sensitivity around 2-4 cpd, decreases at low/high frequencies
-                // Higher sensitivity at higher luminances
-                float rho_peak = 3.0f;
-                float sens_peak = 100.0f * sqrtf(L / 100.0f); // Luminance adaptation
+                // CSF model parameters
+                // Sensitivity should be "how many JNDs per unit contrast"
+                // Higher values = more sensitive = smaller detectable contrasts
+                float rho_peak = 4.0f; // Peak around 4 cpd
 
-                // Gaussian-like frequency response
-                float freq_response = expf(-powf(log10f(rho / rho_peak), 2.0f) / 0.5f);
-                float sensitivity = sens_peak * freq_response;
+                // Base sensitivity at 100 cd/m^2 and peak frequency
+                // Typical peak CSF is around 100-200 in proper units
+                // But we need MUCH higher values to normalize our large contrast values
+                float L_adapt = fmaxf(L, 0.1f);
+                float base_sensitivity = 50000.0f * powf(L_adapt / 100.0f, 0.3f);
+
+                // Frequency response (band-pass filter shape)
+                float log_ratio = log10f(rho / rho_peak);
+                float freq_response = expf(-powf(log_ratio, 2.0f) / 0.4f);
+
+                // Low frequency cut-off (reduced sensitivity below 0.5 cpd)
+                if (rho < 0.5f) {
+                    freq_response *= rho / 0.5f;
+                }
+
+                // High frequency roll-off (more aggressive above 30 cpd)
+                if (rho > 30.0f) {
+                    freq_response *= expf(-(rho - 30.0f) / 20.0f);
+                }
+
+                float sensitivity = base_sensitivity * freq_response;
+
+                // Clamp to reasonable range
+                sensitivity = fmaxf(1000.0f, fminf(sensitivity, 1000000.0f));
 
                 logS_o0_c0_h[idx] = log10f(sensitivity); // Y sustained
-                logS_o0_c1_h[idx] = log10f(sensitivity * 0.7f); // RG (lower sensitivity)
-                logS_o0_c2_h[idx] = log10f(sensitivity * 0.5f); // BY (even lower)
-                logS_o1_c0_h[idx] = log10f(sensitivity * 0.8f); // Y transient
+                logS_o0_c1_h[idx] = log10f(sensitivity * 0.6f); // RG (chromatic, lower)
+                logS_o0_c2_h[idx] = log10f(sensitivity * 0.4f); // BY (chromatic, even lower)
+                logS_o1_c0_h[idx] = log10f(sensitivity * 0.9f); // Y transient (slightly lower)
             }
         }
 
