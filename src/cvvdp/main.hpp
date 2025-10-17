@@ -342,8 +342,8 @@ public:
 
         ppd = display.get_ppd();
 
-        // Initialize Laplacian pyramid
-        lpyr.init(width, height, ppd);
+        // Initialize Laplacian pyramid (start with 3 sustained channels; transient added later)
+        lpyr.init(width, height, ppd, 3);
 
         // Initialize CSF
         hipStreamCreate(&stream);
@@ -469,11 +469,19 @@ public:
         rgb_to_dkl(ref_linear_d, frame_size, stream);
 
         // Step 3: Build Laplacian pyramid for both images
-        float3** test_bands = new float3*[lpyr.num_bands];
-        float3** ref_bands = new float3*[lpyr.num_bands];
+        float** test_laplacian = new float*[lpyr.num_bands];
+        float** ref_laplacian = new float*[lpyr.num_bands];
+        float** test_gaussian = new float*[lpyr.num_bands];
+        float** ref_gaussian = new float*[lpyr.num_bands];
 
-        lpyr.decompose(test_linear_d, test_bands, stream);
-        lpyr.decompose(ref_linear_d, ref_bands, stream);
+        lpyr.decompose(reinterpret_cast<const float*>(test_linear_d),
+                       test_laplacian,
+                       test_gaussian,
+                       stream);
+        lpyr.decompose(reinterpret_cast<const float*>(ref_linear_d),
+                       ref_laplacian,
+                       ref_gaussian,
+                       stream);
 
         // Step 4: Apply CSF and masking model for each band
         // Store per-channel scores for hierarchical pooling
@@ -503,8 +511,8 @@ public:
             int blocks = (band_size + threads - 1) / threads;
 
             // Pyramid bands already contain contrast (clamped to [-1000, 1000])
-            float3* test_contrast = test_bands[band];
-            float3* ref_contrast = ref_bands[band];
+            float3* test_contrast = reinterpret_cast<float3*>(test_laplacian[band]);
+            float3* ref_contrast = reinterpret_cast<float3*>(ref_laplacian[band]);
 
             // Allocate output buffer for D (perceptually weighted differences)
             float3* D_d;
@@ -741,10 +749,14 @@ public:
             GPU_CHECK(hipFreeAsync(partial_sums_d, stream));
         }
 
-        lpyr.free_bands(test_bands, stream);
-        lpyr.free_bands(ref_bands, stream);
-        delete[] test_bands;
-        delete[] ref_bands;
+        lpyr.free_levels(test_laplacian, stream);
+        lpyr.free_levels(ref_laplacian, stream);
+        lpyr.free_levels(test_gaussian, stream);
+        lpyr.free_levels(ref_gaussian, stream);
+        delete[] test_laplacian;
+        delete[] ref_laplacian;
+        delete[] test_gaussian;
+        delete[] ref_gaussian;
 
         GPU_CHECK(hipFreeAsync(test_linear_d, stream));
         GPU_CHECK(hipFreeAsync(ref_linear_d, stream));
