@@ -502,5 +502,18 @@ int main(int argc, char **argv) {
     } else if (cli_args.metric == MetricType::CVVDP) {
         print_aggergate_metric_statistics(scores, "CVVDP (JOD)");
     }
-    return 0;
+    
+
+    // Manual GPU cleanup before exit to prevent automatic destructor calls
+    // Note: GPU memory cleanup is handled automatically by GpuWorker destructors
+
+    // Manual frame buffer cleanup
+    for (auto* buffer : frame_buffers) {
+        if (buffer != nullptr) {
+            GpuWorker::deallocate_external_buffer(buffer);
+        }
+    }
+
+    // Exit to prevent automatic destructor calls
+    exit(0);
 }
