@@ -478,6 +478,7 @@ public:
             int height = 0;
             float rho_cpd = 0.0f;
             float beta_score = 0.0f;
+            float3 beta_scores = make_float3(0.0f, 0.0f, 0.0f);
             int sample_count = 0;
             std::array<ChannelStats, 3> channels{};
         };
@@ -528,6 +529,21 @@ public:
         // Step 4: Apply CSF and masking model for each band
         // Store per-channel scores for hierarchical pooling
         std::vector<float3> band_scores(lpyr.num_bands);
+
+        const float beta_tch_value =
+            (params.beta_tch > 0.0f) ? params.beta_tch
+                                     : ((params.beta > 0.0f) ? params.beta : 1.0f);
+        const float channel_weights[3] = {1.0f, params.ch_chrom_w, params.ch_chrom_w};
+
+        auto combine_channels = [&](const float3& channel_values) -> float {
+            const float components[3] = {channel_values.x, channel_values.y, channel_values.z};
+            float sum = 0.0f;
+            for (int c = 0; c < 3; ++c) {
+                const float value = fmaxf(components[c], 0.0f);
+                sum += channel_weights[c] * powf(value, beta_tch_value);
+            }
+            return powf(sum, 1.0f / beta_tch_value);
+        };
 
         for (int band = 0; band < lpyr.num_bands; band++) {
             int band_size = lpyr.band_widths[band] * lpyr.band_heights[band];
@@ -754,7 +770,8 @@ public:
                 info.width = lpyr.band_widths[band];
                 info.height = lpyr.band_heights[band];
                 info.rho_cpd = rho;
-                info.beta_score = band_scores[band];
+                info.beta_scores = band_scores[band];
+                info.beta_score = combine_channels(band_scores[band]);
                 info.sample_count = band_size;
 
                 for (const float3& value : band_values_h) {
@@ -788,16 +805,25 @@ public:
         // We already applied per_ch_w in spatial pooling, now apply per_sband_w (baseband_weight)
         const float beta_sch = (params.beta_sch > 0.0f) ? params.beta_sch : params.beta;
 
-        float sum_bands = 0.0f;
+        float3 sum_bands = make_float3(0.0f, 0.0f, 0.0f);
         for (int band = 0; band < lpyr.num_bands; band++) {
             float weight = 1.0f;
             if (band < static_cast<int>(params.baseband_weight.size())) {
                 weight = params.baseband_weight[band];
             }
-            sum_bands += weight * powf(band_scores[band], beta_sch);
+
+            sum_bands.x += weight * powf(fmaxf(band_scores[band].x, 0.0f), beta_sch);
+            sum_bands.y += weight * powf(fmaxf(band_scores[band].y, 0.0f), beta_sch);
+            sum_bands.z += weight * powf(fmaxf(band_scores[band].z, 0.0f), beta_sch);
         }
 
-        float Q_per_ch = powf(sum_bands, 1.0f / beta_sch);
+        float3 Q_spatial_per_channel = make_float3(
+            powf(sum_bands.x, 1.0f / beta_sch),
+            powf(sum_bands.y, 1.0f / beta_sch),
+            powf(sum_bands.z, 1.0f / beta_sch)
+        );
+
+        float Q_per_ch = combine_channels(Q_spatial_per_channel);
 
         // Convert Q to JOD scale (matches Python: Q_JOD = 10 - jod_a * Q^jod_exp)
         // Use linearization for small Q values to maintain differentiability
@@ -874,9 +900,21 @@ public:
                 writer.Int(info.height);
                 writer.Key("beta_score");
                 writer.Double(static_cast<double>(info.beta_score));
-                writer.Key("channels");
+                writer.Key("beta_scores");
                 writer.StartObject();
                 const char* channel_names[3] = {"Y", "RG", "BY"};
+                const float beta_components[3] = {
+                    info.beta_scores.x,
+                    info.beta_scores.y,
+                    info.beta_scores.z
+                };
+                for (int c = 0; c < 3; ++c) {
+                    writer.Key(channel_names[c]);
+                    writer.Double(static_cast<double>(beta_components[c]));
+                }
+                writer.EndObject();
+                writer.Key("channels");
+                writer.StartObject();
                 for (int c = 0; c < 3; ++c) {
                     writer.Key(channel_names[c]);
                     writer.StartObject();
