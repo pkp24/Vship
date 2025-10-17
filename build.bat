@@ -1,6 +1,16 @@
 @echo off
 setlocal enabledelayedexpansion
 
+REM Detect whether we should pause at the end. Useful for interactive runs.
+set "BUILD_SCRIPT_PAUSE=1"
+for %%A in (%*) do (
+    if /I "%%~A"=="--no-pause" set "BUILD_SCRIPT_PAUSE=0"
+)
+if defined BUILD_BAT_NOPAUSE set "BUILD_SCRIPT_PAUSE=0"
+if defined CI set "BUILD_SCRIPT_PAUSE=0"
+if defined GITHUB_ACTIONS set "BUILD_SCRIPT_PAUSE=0"
+if defined BUILD_NO_PAUSE set "BUILD_SCRIPT_PAUSE=0"
+
 REM Build script for vship with CVVDP integration
 REM Uses the compat build scripts for proper dependency management
 
@@ -67,4 +77,6 @@ echo   FFVship.exe source.mp4 encoded.mp4 --metric Butteraugli
 echo   (Note: CVVDP CLI support not yet implemented)
 echo.
 
-pause
+if "%BUILD_SCRIPT_PAUSE%"=="1" (
+    pause
+)
