@@ -198,17 +198,22 @@ template <InputMemType T>
 __device__ inline float convertPointer(const uint8_t* src, int i, int j, int64_t stride);
 
 template <>
-__device__ inline float convertPointer<FLOAT>(const uint8_t* src, int i, int j, int64_t stride){
+__device__ inline float convertPointer<InputMemType::UINT8>(const uint8_t* src, int i, int j, int64_t stride){
+    return ((float)(src[i*stride + j]))/255.0f;
+}
+
+template <>
+__device__ inline float convertPointer<InputMemType::FLOAT>(const uint8_t* src, int i, int j, int64_t stride){
     return ((float*)(src + i*stride))[j];
 }
 
 template <>
-__device__ inline float convertPointer<HALF>(const uint8_t* src, int i, int j, int64_t stride){
+__device__ inline float convertPointer<InputMemType::HALF>(const uint8_t* src, int i, int j, int64_t stride){
     return ((half*)(src + i*stride))[j];
 }
 
 template <>
-__device__ inline float convertPointer<UINT16>(const uint8_t* src, int i, int j, int64_t stride){
+__device__ inline float convertPointer<InputMemType::UINT16>(const uint8_t* src, int i, int j, int64_t stride){
     return ((float)((uint16_t*)(src + i*stride))[j])/((1 << 16)-1);
 }
 

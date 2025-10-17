@@ -2,146 +2,184 @@
 
 #include "../util/preprocessor.hpp"
 #include "config.hpp"
-#include <vector>
 #include <cmath>
+#include <filesystem>
+#include <iostream>
+#include <vector>
 
 namespace cvvdp {
 
-// Contrast Sensitivity Function (castleCSF) implementation
-// Uses lookup tables for efficient GPU computation
-
+// Contrast Sensitivity Function (castleCSF) implementation.
+// Loads calibrated lookup tables from ColorVideoVDP JSON assets and exposes
+// GPU-resident buffers for kernels that interpolate sensitivities.
 struct CastleCSF {
-    // CSF lookup tables (loaded from JSON)
-    float* log_L_bkg_d;  // Background luminance values (log scale)
-    float* log_rho_d;    // Spatial frequency values (log scale)
-    float* logS_o0_c0_d; // Sustained Y channel
-    float* logS_o0_c1_d; // Sustained RG channel
-    float* logS_o0_c2_d; // Sustained BY channel
-    float* logS_o1_c0_d; // Transient Y channel
+    float* log_L_bkg_d = nullptr;   // log10 background luminance samples
+    float* log_rho_d = nullptr;     // log10 spatial frequency samples
+    float* logS_o0_c0_d = nullptr;  // sustained Y
+    float* logS_o0_c1_d = nullptr;  // sustained RG
+    float* logS_o0_c2_d = nullptr;  // sustained BY
+    float* logS_o1_c0_d = nullptr;  // transient Y
 
-    int num_L_bkg;
-    int num_rho;
+    int num_L_bkg = 0;
+    int num_rho = 0;
 
-    hipStream_t stream;
+    hipStream_t stream = nullptr;
+
+    std::vector<float> log_L_bkg_h;
+    std::vector<float> log_rho_h;
 
     void init(const std::string& csf_lut_path, hipStream_t s) {
         stream = s;
 
-        // Load CSF lookup tables from JSON
-        // For now, using placeholder values - need to load from actual CSF LUT files
-        // The actual implementation would parse csf_lut_weber_fixed_size.json
+        const std::filesystem::path filepath(csf_lut_path);
+        rapidjson::Document doc;
+        parse_json_document(filepath, doc);
 
-        // Typical dimensions from the JSON files
-        num_L_bkg = 41; // Number of luminance samples
-        num_rho = 41;   // Number of frequency samples
-
-        // Allocate device memory for LUTs
-        int lut_size = num_L_bkg * num_rho;
-
-        GPU_CHECK(hipMalloc(&log_L_bkg_d, num_L_bkg * sizeof(float)));
-        GPU_CHECK(hipMalloc(&log_rho_d, num_rho * sizeof(float)));
-        GPU_CHECK(hipMalloc(&logS_o0_c0_d, lut_size * sizeof(float)));
-        GPU_CHECK(hipMalloc(&logS_o0_c1_d, lut_size * sizeof(float)));
-        GPU_CHECK(hipMalloc(&logS_o0_c2_d, lut_size * sizeof(float)));
-        GPU_CHECK(hipMalloc(&logS_o1_c0_d, lut_size * sizeof(float)));
-
-        // TODO: Load actual CSF data from JSON files
-        // For now, using simple approximations
-        std::vector<float> log_L_bkg_h(num_L_bkg);
-        std::vector<float> log_rho_h(num_rho);
-        std::vector<float> logS_o0_c0_h(lut_size);
-        std::vector<float> logS_o0_c1_h(lut_size);
-        std::vector<float> logS_o0_c2_h(lut_size);
-        std::vector<float> logS_o1_c0_h(lut_size);
-
-        // Generate sample points (log scale from 0.01 to 10000 cd/m²)
-        for (int i = 0; i < num_L_bkg; i++) {
-            log_L_bkg_h[i] = log10f(0.01f) + i * (log10f(10000.0f) - log10f(0.01f)) / (num_L_bkg - 1);
-        }
-
-        // Spatial frequencies (log scale from 0.1 to 100 cpd)
-        for (int i = 0; i < num_rho; i++) {
-            log_rho_h[i] = log10f(0.1f) + i * (log10f(100.0f) - log10f(0.1f)) / (num_rho - 1);
-        }
-
-        // CSF model based on typical human contrast sensitivity
-        // These are approximate values - actual CSF should be loaded from JSON
-        for (int l = 0; l < num_L_bkg; l++) {
-            for (int r = 0; r < num_rho; r++) {
-                int idx = l * num_rho + r;
-                float L = powf(10.0f, log_L_bkg_h[l]);
-                float rho = powf(10.0f, log_rho_h[r]);
-
-                // CSF model parameters
-                // Sensitivity should be "how many JNDs per unit contrast"
-                // Higher values = more sensitive = smaller detectable contrasts
-                float rho_peak = 4.0f; // Peak around 4 cpd
-
-                // Base sensitivity at 100 cd/m^2 and peak frequency
-                // Typical peak CSF is around 100-200 in proper units
-                // But we need MUCH higher values to normalize our large contrast values
-                float L_adapt = fmaxf(L, 0.1f);
-                float base_sensitivity = 50000.0f * powf(L_adapt / 100.0f, 0.3f);
-
-                // Frequency response (band-pass filter shape)
-                float log_ratio = log10f(rho / rho_peak);
-                float freq_response = expf(-powf(log_ratio, 2.0f) / 0.4f);
-
-                // Low frequency cut-off (reduced sensitivity below 0.5 cpd)
-                if (rho < 0.5f) {
-                    freq_response *= rho / 0.5f;
-                }
-
-                // High frequency roll-off (more aggressive above 30 cpd)
-                if (rho > 30.0f) {
-                    freq_response *= expf(-(rho - 30.0f) / 20.0f);
-                }
-
-                float sensitivity = base_sensitivity * freq_response;
-
-                // Clamp to reasonable range
-                sensitivity = fmaxf(1000.0f, fminf(sensitivity, 1000000.0f));
-
-                logS_o0_c0_h[idx] = log10f(sensitivity); // Y sustained
-                logS_o0_c1_h[idx] = log10f(sensitivity * 0.6f); // RG (chromatic, lower)
-                logS_o0_c2_h[idx] = log10f(sensitivity * 0.4f); // BY (chromatic, even lower)
-                logS_o1_c0_h[idx] = log10f(sensitivity * 0.9f); // Y transient (slightly lower)
+        auto load_scalar_array = [&](const char* key) -> std::vector<float> {
+            std::vector<float> values = get_float_array(doc, key, filepath, true);
+            if (values.empty()) {
+                std::cerr << "[CVVDP] CSF LUT '" << filepath.string()
+                          << "' contains empty array for key '" << key << "'" << std::endl;
+                throw VshipError(ConfigurationError, __FILE__, __LINE__);
             }
+            return values;
+        };
+
+        const std::vector<float> L_bkg = load_scalar_array("L_bkg");
+        const std::vector<float> rho = load_scalar_array("rho");
+
+        num_L_bkg = static_cast<int>(L_bkg.size());
+        num_rho = static_cast<int>(rho.size());
+
+        auto load_plane = [&](const char* key) -> std::vector<float> {
+            const rapidjson::Value& value = require_member(doc, key, filepath);
+            if (!value.IsArray()) {
+                std::cerr << "[CVVDP] CSF LUT '" << filepath.string()
+                          << "' key '" << key << "' must be an array of arrays." << std::endl;
+                throw VshipError(ConfigurationError, __FILE__, __LINE__);
+            }
+            if (value.Size() != static_cast<rapidjson::SizeType>(num_L_bkg)) {
+                std::cerr << "[CVVDP] CSF LUT '" << filepath.string()
+                          << "' key '" << key << "' expected " << num_L_bkg
+                          << " rows but received " << value.Size() << std::endl;
+                throw VshipError(ConfigurationError, __FILE__, __LINE__);
+            }
+
+            std::vector<float> result;
+            result.reserve(static_cast<size_t>(num_L_bkg) * static_cast<size_t>(num_rho));
+
+            for (rapidjson::SizeType row = 0; row < value.Size(); ++row) {
+                const rapidjson::Value& row_array = value[row];
+                if (!row_array.IsArray()) {
+                    std::cerr << "[CVVDP] CSF LUT '" << filepath.string()
+                              << "' key '" << key << "' row " << row
+                              << " must be an array." << std::endl;
+                    throw VshipError(ConfigurationError, __FILE__, __LINE__);
+                }
+                if (row_array.Size() != static_cast<rapidjson::SizeType>(num_rho)) {
+                    std::cerr << "[CVVDP] CSF LUT '" << filepath.string()
+                              << "' key '" << key << "' row " << row
+                              << " expected " << num_rho << " columns but received "
+                              << row_array.Size() << std::endl;
+                    throw VshipError(ConfigurationError, __FILE__, __LINE__);
+                }
+                for (rapidjson::SizeType col = 0; col < row_array.Size(); ++col) {
+                    const rapidjson::Value& cell = row_array[col];
+                    if (!cell.IsNumber()) {
+                        std::cerr << "[CVVDP] Non-numeric CSF value at key '" << key
+                                  << "' (" << row << "," << col << ") in "
+                                  << filepath.string() << std::endl;
+                        throw VshipError(ConfigurationError, __FILE__, __LINE__);
+                    }
+                    result.push_back(static_cast<float>(cell.GetDouble()));
+                }
+            }
+            return result;
+        };
+
+        log_L_bkg_h.resize(num_L_bkg);
+        log_rho_h.resize(num_rho);
+        for (int i = 0; i < num_L_bkg; ++i) {
+            log_L_bkg_h[i] = log10f(std::max(L_bkg[i], 1e-6f));
+        }
+        for (int i = 0; i < num_rho; ++i) {
+            log_rho_h[i] = log10f(std::max(rho[i], 1e-6f));
         }
 
-        // Copy to device
-        GPU_CHECK(hipMemcpyHtoDAsync(log_L_bkg_d, log_L_bkg_h.data(), num_L_bkg * sizeof(float), stream));
-        GPU_CHECK(hipMemcpyHtoDAsync(log_rho_d, log_rho_h.data(), num_rho * sizeof(float), stream));
-        GPU_CHECK(hipMemcpyHtoDAsync(logS_o0_c0_d, logS_o0_c0_h.data(), lut_size * sizeof(float), stream));
-        GPU_CHECK(hipMemcpyHtoDAsync(logS_o0_c1_d, logS_o0_c1_h.data(), lut_size * sizeof(float), stream));
-        GPU_CHECK(hipMemcpyHtoDAsync(logS_o0_c2_d, logS_o0_c2_h.data(), lut_size * sizeof(float), stream));
-        GPU_CHECK(hipMemcpyHtoDAsync(logS_o1_c0_d, logS_o1_c0_h.data(), lut_size * sizeof(float), stream));
+        const size_t axis_L_bytes = static_cast<size_t>(num_L_bkg) * sizeof(float);
+        const size_t axis_rho_bytes = static_cast<size_t>(num_rho) * sizeof(float);
+        const size_t plane_bytes =
+            static_cast<size_t>(num_L_bkg) * static_cast<size_t>(num_rho) * sizeof(float);
+
+        GPU_CHECK(hipMalloc(&log_L_bkg_d, axis_L_bytes));
+        GPU_CHECK(hipMalloc(&log_rho_d, axis_rho_bytes));
+        GPU_CHECK(hipMemcpyHtoDAsync(log_L_bkg_d, log_L_bkg_h.data(), axis_L_bytes, stream));
+        GPU_CHECK(hipMemcpyHtoDAsync(log_rho_d, log_rho_h.data(), axis_rho_bytes, stream));
+
+        auto logS_o0_c0 = load_plane("o0_c1");
+        auto logS_o0_c1 = load_plane("o0_c2");
+        auto logS_o0_c2 = load_plane("o0_c3");
+        auto logS_o1_c0 = load_plane("o5_c1");
+
+        GPU_CHECK(hipMalloc(&logS_o0_c0_d, plane_bytes));
+        GPU_CHECK(hipMalloc(&logS_o0_c1_d, plane_bytes));
+        GPU_CHECK(hipMalloc(&logS_o0_c2_d, plane_bytes));
+        GPU_CHECK(hipMalloc(&logS_o1_c0_d, plane_bytes));
+
+        GPU_CHECK(hipMemcpyHtoDAsync(logS_o0_c0_d, logS_o0_c0.data(), plane_bytes, stream));
+        GPU_CHECK(hipMemcpyHtoDAsync(logS_o0_c1_d, logS_o0_c1.data(), plane_bytes, stream));
+        GPU_CHECK(hipMemcpyHtoDAsync(logS_o0_c2_d, logS_o0_c2.data(), plane_bytes, stream));
+        GPU_CHECK(hipMemcpyHtoDAsync(logS_o1_c0_d, logS_o1_c0.data(), plane_bytes, stream));
+
+        GPU_CHECK(hipStreamSynchronize(stream));
     }
 
     void destroy() {
-        if (log_L_bkg_d) hipFree(log_L_bkg_d);
-        if (log_rho_d) hipFree(log_rho_d);
-        if (logS_o0_c0_d) hipFree(logS_o0_c0_d);
-        if (logS_o0_c1_d) hipFree(logS_o0_c1_d);
-        if (logS_o0_c2_d) hipFree(logS_o0_c2_d);
-        if (logS_o1_c0_d) hipFree(logS_o1_c0_d);
+        if (log_L_bkg_d) {
+            hipFree(log_L_bkg_d);
+            log_L_bkg_d = nullptr;
+        }
+        if (log_rho_d) {
+            hipFree(log_rho_d);
+            log_rho_d = nullptr;
+        }
+        if (logS_o0_c0_d) {
+            hipFree(logS_o0_c0_d);
+            logS_o0_c0_d = nullptr;
+        }
+        if (logS_o0_c1_d) {
+            hipFree(logS_o0_c1_d);
+            logS_o0_c1_d = nullptr;
+        }
+        if (logS_o0_c2_d) {
+            hipFree(logS_o0_c2_d);
+            logS_o0_c2_d = nullptr;
+        }
+        if (logS_o1_c0_d) {
+            hipFree(logS_o1_c0_d);
+            logS_o1_c0_d = nullptr;
+        }
+        num_L_bkg = 0;
+        num_rho = 0;
+        log_L_bkg_h.clear();
+        log_rho_h.clear();
     }
 };
 
 // Bilinear interpolation in 2D lookup table
 __device__ __forceinline__ float interp2d(const float* lut, int width, int height,
-                                           float x, float y) {
+                                          float x, float y) {
     // Clamp coordinates
     x = fmaxf(0.0f, fminf(x, width - 1.0f));
     y = fmaxf(0.0f, fminf(y, height - 1.0f));
 
-    int x0 = (int)floorf(x);
-    int y0 = (int)floorf(y);
+    int x0 = static_cast<int>(floorf(x));
+    int y0 = static_cast<int>(floorf(y));
     int x1 = min(x0 + 1, width - 1);
     int y1 = min(y0 + 1, height - 1);
 
-    float fx = x - x0;
-    float fy = y - y0;
+    float fx = x - static_cast<float>(x0);
+    float fy = y - static_cast<float>(y0);
 
     float v00 = lut[y0 * width + x0];
     float v10 = lut[y0 * width + x1];
@@ -157,11 +195,11 @@ __device__ __forceinline__ float interp2d(const float* lut, int width, int heigh
 // Kernel to apply CSF weighting to pyramid bands
 __launch_bounds__(256)
 __global__ void apply_csf_kernel(float3* band, int width, int height,
-                                  float rho_cpd, float log_L_bkg,
-                                  const float* log_L_bkg_lut, const float* log_rho_lut,
-                                  const float* logS_c0, const float* logS_c1, const float* logS_c2,
-                                  int num_L_bkg, int num_rho,
-                                  float sensitivity_correction) {
+                                 float rho_cpd, float log_L_bkg,
+                                 const float* log_L_bkg_lut, const float* log_rho_lut,
+                                 const float* logS_c0, const float* logS_c1, const float* logS_c2,
+                                 int num_L_bkg, int num_rho,
+                                 float sensitivity_correction) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= width * height) return;
 

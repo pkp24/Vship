@@ -197,7 +197,7 @@ Vship_Exception Vship_ComputeSSIMU2Float(Vship_SSIMU2Handler handler, double* sc
     HandlerManagerSSIMU2.lock.unlock();
     //there is no safety feature to prevent using twice at the same time a single computingimplem
     try{
-        *score = ssimu2computingimplem.run<FLOAT>(srcp1, srcp2, stride, stride);
+        *score = ssimu2computingimplem.run<InputMemType::FLOAT>(srcp1, srcp2, stride, stride);
     } catch (const VshipError& e){
         err = (Vship_Exception)e.type;
     }
@@ -227,7 +227,7 @@ Vship_Exception Vship_ComputeSSIMU2Uint16(Vship_SSIMU2Handler handler, double* s
     HandlerManagerSSIMU2.lock.unlock();
     //there is no safety feature to prevent using twice at the same time a single computingimplem
     try{
-        *score = ssimu2computingimplem.run<UINT16>(srcp1, srcp2, stride, stride);
+        *score = ssimu2computingimplem.run<InputMemType::UINT16>(srcp1, srcp2, stride, stride);
     } catch (const VshipError& e){
         err = (Vship_Exception)e.type;
     }
@@ -302,7 +302,7 @@ Vship_Exception Vship_ComputeButteraugliFloat(Vship_ButteraugliHandler handler, 
     HandlerManagerButteraugli.lock.unlock();
     //there is no safety feature to prevent using twice at the same time a single computingimplem
     try{
-        std::tuple<float, float, float> res = buttercomputingimplem.run<FLOAT>(dstp, dststride, srcp1, srcp2, stride, stride);
+        std::tuple<float, float, float> res = buttercomputingimplem.run<InputMemType::FLOAT>(dstp, dststride, srcp1, srcp2, stride, stride);
         score->norm2 = std::get<0>(res);
         score->norm3 = std::get<1>(res);
         score->norminf = std::get<2>(res);
@@ -338,7 +338,7 @@ Vship_Exception Vship_ComputeButteraugliUint16(Vship_ButteraugliHandler handler,
     HandlerManagerButteraugli.lock.unlock();
     //there is no safety feature to prevent using twice at the same time a single computingimplem
     try{
-        std::tuple<float, float, float> res = buttercomputingimplem.run<UINT16>(dstp, dststride, srcp1, srcp2, stride, stride);
+        std::tuple<float, float, float> res = buttercomputingimplem.run<InputMemType::UINT16>(dstp, dststride, srcp1, srcp2, stride, stride);
         score->norm2 = std::get<0>(res);
         score->norm3 = std::get<1>(res);
         score->norminf = std::get<2>(res);

@@ -46,7 +46,7 @@ static const VSFrame *VS_CC ssimulacra2GetFrame(int n, int activationReason, voi
         const int stream = d->streamSet->pop();
         SSIMU2ComputingImplementation& ssimu2Stream = d->ssimu2Streams[stream];
         try{
-            val = ssimu2Stream.run<FLOAT>(srcp1, srcp2, stride, stride2);
+            val = ssimu2Stream.run<InputMemType::FLOAT>(srcp1, srcp2, stride, stride2);
         } catch (const VshipError& e){
             vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);
             d->streamSet->insert(stream);

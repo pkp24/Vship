@@ -853,7 +853,7 @@ public:
         int frame_index = -1
     ) {
         // Only support UINT16 for now
-        static_assert(T == UINT16, "CVVDP currently only supports UINT16 input");
+        static_assert(T == InputMemType::UINT16, "CVVDP currently only supports UINT16 input");
 
         // Convert planar uint16 RGB to packed float3
         int threads = 256;

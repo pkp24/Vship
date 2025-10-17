@@ -51,6 +51,8 @@
     #define hipEventRecord cudaEventRecord
     #define hipEvent_t cudaEvent_t
     #define hipEventElapsedTime cudaEventElapsedTime
+    #define hipEventDefault cudaEventDefault
+    #define hipEventCreateWithFlags cudaEventCreateWithFlags
     #define hipDeviceSetCacheConfig cudaDeviceSetCacheConfig 
     #define hipFuncCachePreferShared cudaFuncCachePreferShared
     #define hipFuncCachePreferNone cudaFuncCachePreferNone
@@ -89,6 +91,6 @@ if (err_hip != hipSuccess)\
 #define PI  3.14159265359
 #define TAU 6.28318530718
 
-enum InputMemType {UINT16, HALF, FLOAT};
+enum class InputMemType {UINT8, UINT16, HALF, FLOAT};
 
 #endif

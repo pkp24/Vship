@@ -96,19 +96,19 @@ class GpuWorker {
             encoded_frame + 2 * channel_offset_bytesEncoded + topleftOffsetEncoded};
 
         if (selected_metric == MetricType::SSIMULACRA2) {
-            const double score = ssimu2worker.run<UINT16>(
+            const double score = ssimu2worker.run<InputMemType::UINT16>(
                 source_channels, encoded_channels, image_stride, strideEncoded); 
             float s = static_cast<float>(score);
             return {s, s, s};
         }
 
         if (selected_metric == MetricType::Butteraugli) {
-            return butterworker.run<UINT16>(
+            return butterworker.run<InputMemType::UINT16>(
                 nullptr, 0, source_channels, encoded_channels, image_stride, strideEncoded);
         }
 
         if (selected_metric == MetricType::CVVDP) {
-            return cvvdpworker.run<UINT16>(
+            return cvvdpworker.run<InputMemType::UINT16>(
                 nullptr, 0, source_channels, encoded_channels, image_stride, strideEncoded, frame_index);
         }
 

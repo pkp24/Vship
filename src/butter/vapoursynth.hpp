@@ -55,9 +55,9 @@ namespace butter{
             ButterComputingImplementation& butterstream = d->butterStreams[stream];
             try{
                 if (d->diffmap){
-                    val = butterstream.run<FLOAT>(vsapi->getWritePtr(dst, 0), vsapi->getStride(dst, 0), srcp1, srcp2, stride, stride2);
+                    val = butterstream.run<InputMemType::FLOAT>(vsapi->getWritePtr(dst, 0), vsapi->getStride(dst, 0), srcp1, srcp2, stride, stride2);
                 } else {
-                    val = butterstream.run<FLOAT>(NULL, 0, srcp1, srcp2, stride, stride2);
+                    val = butterstream.run<InputMemType::FLOAT>(NULL, 0, srcp1, srcp2, stride, stride2);
                 }
             } catch (const VshipError& e){
                 vsapi->setFilterError(e.getErrorMessage().c_str(), frameCtx);
