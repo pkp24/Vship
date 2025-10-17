@@ -182,7 +182,7 @@ struct LaplacianPyramid {
 
         // First level is the input image
         GPU_CHECK(hipMallocAsync(&gaussian_pyramid[0], width * height * sizeof(float3), stream));
-        GPU_CHECK(hipMemcpyAsync(gaussian_pyramid[0], input, width * height * sizeof(float3), hipMemcpyDeviceToDevice, stream));
+        GPU_CHECK(hipMemcpyDtoDAsync(gaussian_pyramid[0], input, width * height * sizeof(float3), stream));
 
         // Build Gaussian pyramid by successive downsampling
         for (int i = 1; i < num_bands; i++) {
@@ -228,8 +228,8 @@ struct LaplacianPyramid {
         int last_idx = num_bands - 1;
         int last_size = band_widths[last_idx] * band_heights[last_idx];
         GPU_CHECK(hipMallocAsync(&bands[last_idx], last_size * sizeof(float3), stream));
-        GPU_CHECK(hipMemcpyAsync(bands[last_idx], gaussian_pyramid[last_idx],
-                                  last_size * sizeof(float3), hipMemcpyDeviceToDevice, stream));
+        GPU_CHECK(hipMemcpyDtoDAsync(bands[last_idx], gaussian_pyramid[last_idx],
+                                  last_size * sizeof(float3), stream));
 
         // Free Gaussian pyramid
         for (int i = 0; i < num_bands; i++) {

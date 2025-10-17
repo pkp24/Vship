@@ -257,7 +257,7 @@ struct DisplayModel {
         float diagonal_pixels = sqrtf(width * width + height * height);
         float diagonal_meters = diagonal_size_inches * 0.0254f; // inches to meters
         float fov_rad = 2.0f * atanf(diagonal_meters / (2.0f * viewing_distance_meters));
-        float fov_deg = fov_rad * 180.0f / M_PI;
+        float fov_deg = fov_rad * 180.0f / PI;
         return diagonal_pixels / fov_deg;
     }
 
@@ -266,7 +266,7 @@ struct DisplayModel {
         float Lblack = max_luminance / contrast;
         if (E_ambient > 0) {
             float k_refl = 0.01f; // Default reflectance coefficient
-            Lblack += k_refl * E_ambient / M_PI;
+            Lblack += k_refl * E_ambient / PI;
         }
         return Lblack;
     }

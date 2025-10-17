@@ -167,10 +167,8 @@ public:
         GPU_CHECK(hipMallocAsync(&ref_linear_d, frame_size * sizeof(float3), stream));
 
         // Copy input
-        GPU_CHECK(hipMemcpyAsync(test_linear_d, test_d, frame_size * sizeof(float3),
-                                  hipMemcpyDeviceToDevice, stream));
-        GPU_CHECK(hipMemcpyAsync(ref_linear_d, ref_d, frame_size * sizeof(float3),
-                                  hipMemcpyDeviceToDevice, stream));
+        GPU_CHECK(hipMemcpyDtoDAsync(test_linear_d, test_d, frame_size * sizeof(float3), stream));
+        GPU_CHECK(hipMemcpyDtoDAsync(ref_linear_d, ref_d, frame_size * sizeof(float3), stream));
 
         // Step 1: Convert to linear luminance
         float L_max = display.max_luminance;
@@ -233,8 +231,8 @@ public:
 
             // Final reduction on CPU (for simplicity)
             std::vector<float> partial_sums_h(num_blocks);
-            GPU_CHECK(hipMemcpyAsync(partial_sums_h.data(), partial_sums_d,
-                                      num_blocks * sizeof(float), hipMemcpyDeviceToHost, stream));
+            GPU_CHECK(hipMemcpyDtoHAsync(partial_sums_h.data(), partial_sums_d,
+                                      num_blocks * sizeof(float), stream));
             hipStreamSynchronize(stream);
 
             float sum = 0.0f;
@@ -311,5 +309,115 @@ inline void cvvdp_free(CVVDPHandle* handle) {
         delete handle;
     }
 }
+
+// Kernel to convert planar uint16 RGB to packed float3
+__global__ void cvvdp_convert_planar_uint16_to_float3(
+    float3* output,
+    const uint8_t* r_plane,
+    const uint8_t* g_plane,
+    const uint8_t* b_plane,
+    int width, int height, int stride
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= width * height) return;
+
+    int y = idx / width;
+    int x = idx % width;
+    int plane_idx = y * (stride / sizeof(uint16_t)) + x;
+
+    const uint16_t* r_ptr = (const uint16_t*)r_plane;
+    const uint16_t* g_ptr = (const uint16_t*)g_plane;
+    const uint16_t* b_ptr = (const uint16_t*)b_plane;
+
+    float3 rgb;
+    // Convert uint16 (0-65535) to float (0.0-1.0)
+    rgb.x = r_ptr[plane_idx] / 65535.0f;
+    rgb.y = g_ptr[plane_idx] / 65535.0f;
+    rgb.z = b_ptr[plane_idx] / 65535.0f;
+
+    output[idx] = rgb;
+}
+
+// Computing implementation wrapper for FFVship integration
+class CVVDPComputingImplementation {
+private:
+    CVVDPProcessor processor;
+    int width, height;
+    hipStream_t stream;
+    std::string display_name;
+
+    // Temporary buffers for converting uint16 planar RGB to float3
+    float3* temp_src_d;
+    float3* temp_dist_d;
+
+public:
+    void init(int w, int h, const std::string& display = "standard_4k") {
+        width = w;
+        height = h;
+        display_name = display;
+
+        // Initialize the processor
+        processor.init(width, height, display_name);
+
+        // Create stream
+        hipStreamCreate(&stream);
+
+        // Allocate temporary conversion buffers
+        size_t buffer_size = width * height * sizeof(float3);
+        GPU_CHECK(hipMalloc(&temp_src_d, buffer_size));
+        GPU_CHECK(hipMalloc(&temp_dist_d, buffer_size));
+    }
+
+    void destroy() {
+        processor.destroy();
+
+        if (temp_src_d) {
+            hipFree(temp_src_d);
+            temp_src_d = nullptr;
+        }
+        if (temp_dist_d) {
+            hipFree(temp_dist_d);
+            temp_dist_d = nullptr;
+        }
+
+        hipStreamDestroy(stream);
+    }
+
+    template <InputMemType T>
+    std::tuple<float, float, float> run(
+        const uint8_t* distmap,  // Unused for CVVDP (no distortion map output yet)
+        int distmapstride,       // Unused
+        const uint8_t* src_planes[3],
+        const uint8_t* dist_planes[3],
+        int64_t stride_src,
+        int64_t stride_dist
+    ) {
+        // Only support UINT16 for now
+        static_assert(T == UINT16, "CVVDP currently only supports UINT16 input");
+
+        // Convert planar uint16 RGB to packed float3
+        int threads = 256;
+        int blocks = (width * height + threads - 1) / threads;
+
+        cvvdp_convert_planar_uint16_to_float3<<<blocks, threads, 0, stream>>>(
+            temp_src_d, src_planes[0], src_planes[1], src_planes[2],
+            width, height, stride_src
+        );
+
+        cvvdp_convert_planar_uint16_to_float3<<<blocks, threads, 0, stream>>>(
+            temp_dist_d, dist_planes[0], dist_planes[1], dist_planes[2],
+            width, height, stride_dist
+        );
+
+        GPU_CHECK(hipStreamSynchronize(stream));
+
+        // Process with CVVDP
+        // Note: CVVDP expects test first, then reference (opposite of other metrics)
+        float jod_score = processor.process_frame(temp_dist_d, temp_src_d);
+
+        // Return JOD score in all three positions (CVVDP only outputs one score)
+        return std::make_tuple(jod_score, jod_score, jod_score);
+    }
+};
 
 } // namespace cvvdp

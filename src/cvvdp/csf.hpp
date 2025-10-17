@@ -89,12 +89,12 @@ struct CastleCSF {
         }
 
         // Copy to device
-        GPU_CHECK(hipMemcpyAsync(log_L_bkg_d, log_L_bkg_h.data(), num_L_bkg * sizeof(float), hipMemcpyHostToDevice, stream));
-        GPU_CHECK(hipMemcpyAsync(log_rho_d, log_rho_h.data(), num_rho * sizeof(float), hipMemcpyHostToDevice, stream));
-        GPU_CHECK(hipMemcpyAsync(logS_o0_c0_d, logS_o0_c0_h.data(), lut_size * sizeof(float), hipMemcpyHostToDevice, stream));
-        GPU_CHECK(hipMemcpyAsync(logS_o0_c1_d, logS_o0_c1_h.data(), lut_size * sizeof(float), hipMemcpyHostToDevice, stream));
-        GPU_CHECK(hipMemcpyAsync(logS_o0_c2_d, logS_o0_c2_h.data(), lut_size * sizeof(float), hipMemcpyHostToDevice, stream));
-        GPU_CHECK(hipMemcpyAsync(logS_o1_c0_d, logS_o1_c0_h.data(), lut_size * sizeof(float), hipMemcpyHostToDevice, stream));
+        GPU_CHECK(hipMemcpyHtoDAsync(log_L_bkg_d, log_L_bkg_h.data(), num_L_bkg * sizeof(float), stream));
+        GPU_CHECK(hipMemcpyHtoDAsync(log_rho_d, log_rho_h.data(), num_rho * sizeof(float), stream));
+        GPU_CHECK(hipMemcpyHtoDAsync(logS_o0_c0_d, logS_o0_c0_h.data(), lut_size * sizeof(float), stream));
+        GPU_CHECK(hipMemcpyHtoDAsync(logS_o0_c1_d, logS_o0_c1_h.data(), lut_size * sizeof(float), stream));
+        GPU_CHECK(hipMemcpyHtoDAsync(logS_o0_c2_d, logS_o0_c2_h.data(), lut_size * sizeof(float), stream));
+        GPU_CHECK(hipMemcpyHtoDAsync(logS_o1_c0_d, logS_o1_c0_h.data(), lut_size * sizeof(float), stream));
     }
 
     void destroy() {

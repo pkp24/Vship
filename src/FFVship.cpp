@@ -14,6 +14,7 @@
 
 #include "butter/main.hpp"
 #include "ssimu2/main.hpp"
+#include "cvvdp/main.hpp"
 
 #include "ffvship_utility/ProgressBar.hpp"
 #include "ffvship_utility/ffmpegmain.hpp"
@@ -122,7 +123,7 @@ void aggregate_scores_function(score_queue_t& input_score_queue,
         }
 
         const auto &[frame_index, scores_tuple] = *maybe_score;
-        const bool should_store_first_score = (metric == MetricType::SSIMULACRA2);
+        const bool should_store_first_score = (metric == MetricType::SSIMULACRA2 || metric == MetricType::CVVDP);
 
         if (should_store_first_score) {
             aggregated_scores[frame_index] = std::get<0>(scores_tuple);
@@ -341,7 +342,7 @@ int main(int argc, char **argv) {
 
     for (int i = 0; i < num_gpus; i++){
         //size of encoded version gets deduced by crops but stride needs to be given
-        gpu_workers.emplace_back(cli_args.metric, width, height, strideSource, strideEncoded, cli_args.cropSource, cli_args.cropEncoded, cli_args.Qnorm, cli_args.intensity_target_nits);
+        gpu_workers.emplace_back(cli_args.metric, width, height, strideSource, strideEncoded, cli_args.cropSource, cli_args.cropEncoded, cli_args.Qnorm, cli_args.intensity_target_nits, cli_args.cvvdp_display_name);
     }
 
     std::vector<std::thread> reader_threads;
@@ -381,7 +382,7 @@ int main(int argc, char **argv) {
                              std::ref(score_queue), &error);
     }
 
-    const int score_vector_size = (cli_args.metric == MetricType::SSIMULACRA2)
+    const int score_vector_size = (cli_args.metric == MetricType::SSIMULACRA2 || cli_args.metric == MetricType::CVVDP)
                                       ? num_frames
                                       : num_frames * 3;
     std::vector<float> scores(score_vector_size);
@@ -440,6 +441,7 @@ int main(int argc, char **argv) {
                 jsonfile << scores[3 * i + 2];
                 break;
             case MetricType::SSIMULACRA2:
+            case MetricType::CVVDP:
                 jsonfile << scores[i];
                 break;
             case MetricType::Unknown:
@@ -457,9 +459,15 @@ int main(int argc, char **argv) {
     if (cli_args.live_index_score_output) return 0;
 
     // console output
-    std::cout << (cli_args.metric == MetricType::Butteraugli ? "Butteraugli"
-                                                             : "SSIMU2")
-              << " Result between " << cli_args.source_file << " and "
+    std::string metric_name;
+    if (cli_args.metric == MetricType::Butteraugli) {
+        metric_name = "Butteraugli";
+    } else if (cli_args.metric == MetricType::CVVDP) {
+        metric_name = "CVVDP";
+    } else {
+        metric_name = "SSIMU2";
+    }
+    std::cout << metric_name << " Result between " << cli_args.source_file << " and "
               << cli_args.encoded_file << std::endl;
     std::cout << "Computed " << num_frames << " frames at " << fps << " fps\n"
               << std::endl;
@@ -480,6 +488,8 @@ int main(int argc, char **argv) {
 
     } else if (cli_args.metric == MetricType::SSIMULACRA2) {
         print_aggergate_metric_statistics(scores, "SSIMULACRA2");
+    } else if (cli_args.metric == MetricType::CVVDP) {
+        print_aggergate_metric_statistics(scores, "CVVDP (JOD)");
     }
     return 0;
 }

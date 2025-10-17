@@ -23,7 +23,7 @@ if (!(condition)) {\
 }
 #endif
 
-enum class MetricType { SSIMULACRA2, Butteraugli, Unknown };
+enum class MetricType { SSIMULACRA2, Butteraugli, CVVDP, Unknown };
 
 struct CropRectangle{
     int top = 0;
@@ -60,10 +60,12 @@ class GpuWorker {
 
     ssimu2::SSIMU2ComputingImplementation ssimu2worker;
     butter::ButterComputingImplementation butterworker;
+    cvvdp::CVVDPComputingImplementation cvvdpworker;
+    std::string cvvdp_display;
 
   public:
-    GpuWorker(MetricType metric, int width, int height, int stride, int strideEncoded, CropRectangle cropSource, CropRectangle cropEncoded, int Qnorm, float intensity_multiplier)
-        : image_width(width), image_height(height), selected_metric(metric), image_stride(stride), strideEncoded(strideEncoded), cropSource(cropSource), cropEncoded(cropEncoded){
+    GpuWorker(MetricType metric, int width, int height, int stride, int strideEncoded, CropRectangle cropSource, CropRectangle cropEncoded, int Qnorm, float intensity_multiplier, const std::string& cvvdp_display_name = "standard_4k")
+        : image_width(width), image_height(height), selected_metric(metric), image_stride(stride), strideEncoded(strideEncoded), cropSource(cropSource), cropEncoded(cropEncoded), cvvdp_display(cvvdp_display_name){
         widthEncoded = width - cropSource.left - cropSource.right + cropEncoded.left + cropEncoded.right;
         heightEncoded = height - cropSource.top - cropSource.bottom + cropEncoded.top + cropEncoded.bottom;
         allocate_gpu_memory(Qnorm, intensity_multiplier);
@@ -100,6 +102,11 @@ class GpuWorker {
 
         if (selected_metric == MetricType::Butteraugli) {
             return butterworker.run<UINT16>(
+                nullptr, 0, source_channels, encoded_channels, image_stride, strideEncoded);
+        }
+
+        if (selected_metric == MetricType::CVVDP) {
+            return cvvdpworker.run<UINT16>(
                 nullptr, 0, source_channels, encoded_channels, image_stride, strideEncoded);
         }
 
@@ -145,6 +152,14 @@ class GpuWorker {
                 ASSERT_WITH_MESSAGE(false, "Failed to initialize Butteraugli Worker");
                 return;
             }
+        } else if (selected_metric == MetricType::CVVDP) {
+            try {
+                cvvdpworker.init(image_width-cropSource.left-cropSource.right, image_height-cropSource.top-cropSource.bottom, cvvdp_display);
+            } catch (const VshipError& e){
+                std::cerr << e.getErrorMessage() << std::endl;
+                ASSERT_WITH_MESSAGE(false, "Failed to initialize CVVDP Worker");
+                return;
+            }
         } else {
             ASSERT_WITH_MESSAGE(false,
                                 "Unknown metric during memory allocation.");
@@ -156,6 +171,8 @@ class GpuWorker {
             ssimu2worker.destroy();
         } else if (selected_metric == MetricType::Butteraugli) {
             butterworker.destroy();
+        } else if (selected_metric == MetricType::CVVDP) {
+            cvvdpworker.destroy();
         }
     }
 };
@@ -703,6 +720,9 @@ struct CommandLineOptions {
     int Qnorm = 2;
     int intensity_target_nits = 203;
 
+    //for cvvdp
+    std::string cvvdp_display_name = "standard_4k";
+
     int gpu_id = 0;
     int gpu_threads = 3;
     int cpu_threads = 1;
@@ -747,6 +767,7 @@ MetricType parse_metric_name(const std::string &name) {
     }
     if (lowered == "ssimulacra2" || lowered == "ssimu2") return MetricType::SSIMULACRA2;
     if (lowered == "butteraugli" || lowered == "butter") return MetricType::Butteraugli;
+    if (lowered == "cvvdp") return MetricType::CVVDP;
     return MetricType::Unknown;
 }
 
@@ -766,7 +787,7 @@ CommandLineOptions parse_command_line_arguments(int argc, char **argv) {
 
     parser.add_flag({"--source", "-s"}, &opts.source_file, "Reference video to compare to", true);
     parser.add_flag({"--encoded", "-e"}, &opts.encoded_file, "Distorted encode of the source", true);
-    parser.add_flag({"--metric", "-m"}, &metric_name, "Which metric to use [SSIMULACRA2, Butteraugli]");
+    parser.add_flag({"--metric", "-m"}, &metric_name, "Which metric to use [SSIMULACRA2, Butteraugli, CVVDP]");
     parser.add_flag({"--json"}, &opts.json_output_file, "Outputs metric results to a json file");
     parser.add_flag({"--live-score-output"}, &opts.live_index_score_output, "replace stdout output with index-score lines");
     parser.add_flag({"--source-index"}, &opts.source_index, "FFMS2 index file for source video");
@@ -791,6 +812,7 @@ CommandLineOptions parse_command_line_arguments(int argc, char **argv) {
 
     parser.add_flag({"--intensity-target"}, &opts.intensity_target_nits, "Target nits for Butteraugli");
     parser.add_flag({"--qnorm"}, &opts.Qnorm, "Optional Norm to compute (default to 2)");
+    parser.add_flag({"--cvvdp-display"}, &opts.cvvdp_display_name, "Display model for CVVDP (e.g., standard_4k, standard_fhd, hdr_phone)");
     parser.add_flag({"--threads", "-t"}, &opts.cpu_threads, "Number of Decoder process, recommended is 2");
     parser.add_flag({"--gpu-threads", "-g"}, &opts.gpu_threads, "GPU thread count, recommended is 3");
     parser.add_flag({"--gpu-id"}, &opts.gpu_id, "GPU index");
@@ -832,7 +854,7 @@ CommandLineOptions parse_command_line_arguments(int argc, char **argv) {
     if (!metric_name.empty()) {
         opts.metric = parse_metric_name(metric_name);
         if (opts.metric == MetricType::Unknown){
-            std::cerr << "Unknown metric type. Expected 'SSIMULACRA2' or 'Butteraugli'." << std::endl;
+            std::cerr << "Unknown metric type. Expected 'SSIMULACRA2', 'Butteraugli', or 'CVVDP'." << std::endl;
             opts.NoAssertExit = true;
         }
     }

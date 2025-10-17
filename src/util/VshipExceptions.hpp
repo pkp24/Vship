@@ -15,11 +15,11 @@ enum VSHIPEXCEPTTYPE{
     //vship internal issues
     OutOfVRAM,
     OutOfRAM,
-    
+
     //input issues
     DifferingInputType,
     NonRGBSInput, //should never happen since .resize should give RGBS always
-    
+
     //Device related
     DeviceCountError,
     NoDeviceDetected,
@@ -29,6 +29,10 @@ enum VSHIPEXCEPTTYPE{
     //API related
     BadHandler,
     BadPointer,
+
+    //File and configuration errors
+    FileNotFound,
+    ConfigurationError,
 
     //should not be used
     BadErrorType,
@@ -68,6 +72,12 @@ std::string errorMessage(VSHIPEXCEPTTYPE type){
 
         case BadPointer:
         return "BadPointer: The pointer passed as an argument was not valid and returned an error. (Advice) If this happened while trying to free, was it allocated using the same method and not modified?";
+
+        case FileNotFound:
+        return "FileNotFound: The requested file could not be found. (Advice) Check the file path and ensure config files are in the correct location";
+
+        case ConfigurationError:
+        return "ConfigurationError: Error loading or parsing configuration file. (Advice) Verify the JSON format and required fields";
 
         case BadErrorType:
         return "BadErrorType: There was an unknown error";
