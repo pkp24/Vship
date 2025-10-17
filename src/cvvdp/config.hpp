@@ -375,6 +375,17 @@ struct CVVDPParameters {
 };
 
 struct DisplayModel {
+    struct ColorSpaceParams {
+        std::string name;
+        std::string eotf;
+        float gamma = 2.2f;
+        float rgb2xyz[9] = {
+            1.0f, 0.0f, 0.0f,
+            0.0f, 1.0f, 0.0f,
+            0.0f, 0.0f, 1.0f
+        };
+    };
+
     std::string name;
     std::string colorspace;
     int width = 0;
@@ -386,6 +397,7 @@ struct DisplayModel {
     float contrast = 0.0f;
     float E_ambient = 0.0f;
     float fov_diagonal = 0.0f;
+    ColorSpaceParams color_space;
 
     float get_ppd() const {
         const float diagonal_pixels = std::sqrt(static_cast<float>(width * width + height * height));
@@ -463,6 +475,75 @@ struct DisplayModel {
         return model;
     }
 };
+
+inline DisplayModel::ColorSpaceParams load_color_space_parameters(const std::filesystem::path& filepath,
+                                                                  const std::string& color_space_name) {
+    rapidjson::Document doc;
+    parse_json_document(filepath, doc);
+
+    if (!doc.IsObject() || !doc.HasMember(color_space_name.c_str())) {
+        std::cerr << "[CVVDP] Color space '" << color_space_name
+                  << "' not found in " << filepath.string() << std::endl;
+        throw VshipError(ConfigurationError, __FILE__, __LINE__);
+    }
+
+    const rapidjson::Value& entry = doc[color_space_name.c_str()];
+    if (!entry.IsObject()) {
+        std::cerr << "[CVVDP] Color space entry '" << color_space_name
+                  << "' is not an object in " << filepath.string() << std::endl;
+        throw VshipError(ConfigurationError, __FILE__, __LINE__);
+    }
+
+    DisplayModel::ColorSpaceParams params;
+    params.name = color_space_name;
+    params.eotf = get_string(entry, "EOTF", filepath, "sRGB", false);
+
+    // Parse gamma if the EOTF is specified as a numeric string
+    if (!params.eotf.empty()) {
+        try {
+            float gamma_value = std::stof(params.eotf);
+            params.gamma = gamma_value;
+            params.eotf = "gamma";
+        } catch (const std::invalid_argument&) {
+            // Not a numeric value; keep the symbolic EOTF
+        } catch (const std::out_of_range&) {
+            // Ignore and keep default
+        }
+    } else {
+        params.eotf = "sRGB";
+    }
+
+    if (params.eotf == "sRGB") {
+        params.gamma = 2.2f;
+    } else if (params.eotf == "linear") {
+        params.gamma = 1.0f;
+    }
+
+    auto rgb2x = get_float_array(entry, "RGB2X", filepath, false);
+    auto rgb2y = get_float_array(entry, "RGB2Y", filepath, false);
+    auto rgb2z = get_float_array(entry, "RGB2Z", filepath, false);
+
+    if (rgb2x.size() == 3 && rgb2y.size() == 3 && rgb2z.size() == 3) {
+        params.rgb2xyz[0] = rgb2x[0];
+        params.rgb2xyz[1] = rgb2x[1];
+        params.rgb2xyz[2] = rgb2x[2];
+        params.rgb2xyz[3] = rgb2y[0];
+        params.rgb2xyz[4] = rgb2y[1];
+        params.rgb2xyz[5] = rgb2y[2];
+        params.rgb2xyz[6] = rgb2z[0];
+        params.rgb2xyz[7] = rgb2z[1];
+        params.rgb2xyz[8] = rgb2z[2];
+    } else {
+        // Leave default identity if data is missing
+        if (!(rgb2x.empty() && rgb2y.empty() && rgb2z.empty())) {
+            std::cerr << "[CVVDP] Incomplete RGB->XYZ matrix for color space '"
+                      << color_space_name << "' in " << filepath.string()
+                      << ". Falling back to identity." << std::endl;
+        }
+    }
+
+    return params;
+}
 
 } // namespace cvvdp
 

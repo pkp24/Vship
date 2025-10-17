@@ -325,6 +325,9 @@ private:
 
     // Cross-channel masking weights (4×4 matrix on GPU)
     float* xcm_weights_d = nullptr;
+    float* rgb2xyz_d = nullptr;
+    colorspace::EotfType eotf_type = colorspace::EotfType::SRGB;
+    float eotf_gamma = 2.2f;
 
 public:
     void init(int w, int h, const std::string& display_name, const std::string& data_dir_override = "") {
@@ -338,7 +341,34 @@ public:
         const std::filesystem::path params_path = data_root / "cvvdp_parameters.json";
 
         display = DisplayModel::load(display_model_path, display_name);
+        display.color_space = load_color_space_parameters(data_root / "color_spaces.json", display.colorspace);
         params = CVVDPParameters::load(params_path);
+
+        const std::string eotf_name = display.color_space.eotf;
+        if (eotf_name == "sRGB") {
+            eotf_type = colorspace::EotfType::SRGB;
+            eotf_gamma = display.color_space.gamma;
+        } else if (eotf_name == "linear") {
+            eotf_type = colorspace::EotfType::LINEAR;
+            eotf_gamma = 1.0f;
+        } else if (eotf_name == "PQ") {
+            eotf_type = colorspace::EotfType::PQ;
+            eotf_gamma = 1.0f;
+        } else if (eotf_name == "HLG") {
+            eotf_type = colorspace::EotfType::HLG;
+            eotf_gamma = (display.color_space.gamma > 0.0f) ? display.color_space.gamma : 1.2f;
+        } else if (eotf_name == "gamma") {
+            eotf_type = colorspace::EotfType::GAMMA;
+            eotf_gamma = display.color_space.gamma;
+        } else {
+            eotf_type = colorspace::EotfType::SRGB;
+            eotf_gamma = 2.2f;
+        }
+
+        if (!rgb2xyz_d) {
+            GPU_CHECK(hipMalloc(&rgb2xyz_d, 9 * sizeof(float)));
+        }
+        GPU_CHECK(hipMemcpyHtoD(rgb2xyz_d, display.color_space.rgb2xyz, 9 * sizeof(float)));
 
         ppd = display.get_ppd();
 
@@ -381,6 +411,10 @@ public:
         if (xcm_weights_d) {
             hipFree(xcm_weights_d);
             xcm_weights_d = nullptr;
+        }
+        if (rgb2xyz_d) {
+            hipFree(rgb2xyz_d);
+            rgb2xyz_d = nullptr;
         }
         temporal.destroy();
         csf.destroy();
@@ -459,14 +493,13 @@ public:
         // Step 1: Convert to linear luminance
         const float L_max = display.max_luminance;
         const float L_black = display.get_black_level();
-        const float gamma = 2.2f; // TODO: derive from display colorspace
 
-        rgb_to_linear(test_linear_d, frame_size, L_max, L_black, gamma, stream);
-        rgb_to_linear(ref_linear_d, frame_size, L_max, L_black, gamma, stream);
+        rgb_to_linear(test_linear_d, frame_size, eotf_type, eotf_gamma, L_max, L_black, stream);
+        rgb_to_linear(ref_linear_d, frame_size, eotf_type, eotf_gamma, L_max, L_black, stream);
 
         // Step 2: Convert to DKL opponent color space
-        rgb_to_dkl(test_linear_d, frame_size, stream);
-        rgb_to_dkl(ref_linear_d, frame_size, stream);
+        rgb_to_dkl(test_linear_d, frame_size, rgb2xyz_d, stream);
+        rgb_to_dkl(ref_linear_d, frame_size, rgb2xyz_d, stream);
 
         // Step 3: Build Laplacian pyramid for both images
         float** test_laplacian = new float*[lpyr.num_bands];

@@ -8,6 +8,14 @@ namespace cvvdp {
 
 // Color space conversion matrices and functions for CVVDP
 
+enum class EotfType : int {
+    SRGB = 0,
+    LINEAR = 1,
+    PQ = 2,
+    HLG = 3,
+    GAMMA = 4
+};
+
 // sRGB to Linear RGB conversion (EOTF)
 __device__ __forceinline__ float srgb_to_linear(float v) {
     if (v <= 0.04045f) {
@@ -15,15 +23,6 @@ __device__ __forceinline__ float srgb_to_linear(float v) {
     } else {
         return powf((v + 0.055f) / 1.055f, 2.4f);
     }
-}
-
-// BT.709 RGB to XYZ (D65 white point)
-__device__ __forceinline__ float3 rgb_to_xyz(float3 rgb) {
-    float3 xyz;
-    xyz.x = 0.4124564f * rgb.x + 0.3575761f * rgb.y + 0.1804375f * rgb.z;
-    xyz.y = 0.2126729f * rgb.x + 0.7151522f * rgb.y + 0.0721750f * rgb.z;
-    xyz.z = 0.0193339f * rgb.x + 0.1191920f * rgb.y + 0.9503041f * rgb.z;
-    return xyz;
 }
 
 // XYZ to LMS (cone space using Hunt-Pointer-Estevez transformation)
@@ -59,13 +58,6 @@ __device__ __forceinline__ float3 lms_to_dkl_d65(float3 lms) {
     dkl.z = s_norm - (l_norm + m_norm);
 
     return dkl;
-}
-
-// Combined RGB to DKL transformation
-__device__ __forceinline__ float3 rgb_to_dkl_d65(float3 rgb) {
-    float3 xyz = rgb_to_xyz(rgb);
-    float3 lms = xyz_to_lms2006(xyz);
-    return lms_to_dkl_d65(lms);
 }
 
 // Log transformation for contrast encoding
@@ -119,40 +111,66 @@ __device__ __forceinline__ float hlg_eotf(float v, float L_max = 1000.0f) {
 
 // Kernel to convert RGB to linear luminance values
 __launch_bounds__(256)
-__global__ void rgb_to_linear_kernel(float3* data, int64_t size, float L_max, float L_black, float gamma) {
+__global__ void rgb_to_linear_kernel(float3* data,
+                                     int64_t size,
+                                     int eotf_type,
+                                     float gamma,
+                                     float L_max,
+                                     float L_black) {
     int64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= size) return;
 
     float3 rgb = data[idx];
 
-    // Apply EOTF (sRGB to linear for each channel)
-    rgb.x = srgb_to_linear(rgb.x);
-    rgb.y = srgb_to_linear(rgb.y);
-    rgb.z = srgb_to_linear(rgb.z);
+    for (int c = 0; c < 3; ++c) {
+        float v = (&rgb.x)[c];
+        v = fmaxf(v, 0.0f);
 
-    // Apply display model if needed
-    if (gamma != 1.0f) {
-        rgb.x = apply_gog_eotf(rgb.x, gamma, L_max, L_black);
-        rgb.y = apply_gog_eotf(rgb.y, gamma, L_max, L_black);
-        rgb.z = apply_gog_eotf(rgb.z, gamma, L_max, L_black);
-    } else {
-        // Linear scaling
-        rgb.x = L_black + (L_max - L_black) * rgb.x;
-        rgb.y = L_black + (L_max - L_black) * rgb.y;
-        rgb.z = L_black + (L_max - L_black) * rgb.z;
+        switch (static_cast<EotfType>(eotf_type)) {
+            case EotfType::SRGB:
+                v = srgb_to_linear(v);
+                v = L_black + (L_max - L_black) * v;
+                break;
+            case EotfType::LINEAR:
+                v = L_black + (L_max - L_black) * v;
+                break;
+            case EotfType::PQ:
+                v = pq_eotf(v);
+                v = fmaxf(v, L_black);
+                break;
+            case EotfType::HLG:
+                v = hlg_eotf(v, L_max);
+                v = fmaxf(v, L_black);
+                break;
+            case EotfType::GAMMA:
+            default:
+                v = powf(v, gamma);
+                v = L_black + (L_max - L_black) * v;
+                break;
+        }
+
+        (&rgb.x)[c] = v;
     }
 
     data[idx] = rgb;
 }
 
-// Kernel to convert RGB to DKL color space
+// Kernel to convert RGB to DKL color space using a runtime RGB->XYZ matrix
 __launch_bounds__(256)
-__global__ void rgb_to_dkl_kernel(float3* data, int64_t size) {
+__global__ void rgb_to_dkl_kernel(float3* data,
+                                  int64_t size,
+                                  const float* rgb2xyz) {
     int64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= size) return;
 
     float3 rgb = data[idx];
-    data[idx] = rgb_to_dkl_d65(rgb);
+    float3 xyz;
+    xyz.x = rgb2xyz[0] * rgb.x + rgb2xyz[1] * rgb.y + rgb2xyz[2] * rgb.z;
+    xyz.y = rgb2xyz[3] * rgb.x + rgb2xyz[4] * rgb.y + rgb2xyz[5] * rgb.z;
+    xyz.z = rgb2xyz[6] * rgb.x + rgb2xyz[7] * rgb.y + rgb2xyz[8] * rgb.z;
+
+    float3 lms = xyz_to_lms2006(xyz);
+    data[idx] = lms_to_dkl_d65(lms);
 }
 
 // Kernel to apply log transformation to LMS values
@@ -166,16 +184,26 @@ __global__ void apply_log_transform_kernel(float3* data, int64_t size) {
 }
 
 // Host functions to launch kernels
-inline void rgb_to_linear(float3* data, int64_t size, float L_max, float L_black, float gamma, hipStream_t stream) {
+inline void rgb_to_linear(float3* data,
+                          int64_t size,
+                          EotfType eotf,
+                          float gamma,
+                          float L_max,
+                          float L_black,
+                          hipStream_t stream) {
     int threads = 256;
     int blocks = (size + threads - 1) / threads;
-    rgb_to_linear_kernel<<<blocks, threads, 0, stream>>>(data, size, L_max, L_black, gamma);
+    rgb_to_linear_kernel<<<blocks, threads, 0, stream>>>(
+        data, size, static_cast<int>(eotf), gamma, L_max, L_black);
 }
 
-inline void rgb_to_dkl(float3* data, int64_t size, hipStream_t stream) {
+inline void rgb_to_dkl(float3* data,
+                       int64_t size,
+                       const float* rgb2xyz_d,
+                       hipStream_t stream) {
     int threads = 256;
     int blocks = (size + threads - 1) / threads;
-    rgb_to_dkl_kernel<<<blocks, threads, 0, stream>>>(data, size);
+    rgb_to_dkl_kernel<<<blocks, threads, 0, stream>>>(data, size, rgb2xyz_d);
 }
 
 inline void apply_log_transform(float3* data, int64_t size, hipStream_t stream) {
