@@ -440,7 +440,7 @@ struct DisplayModel {
 
         DisplayModel model;
         model.name = get_string(entry, "name", filepath, display_name, false);
-        model.colorspace = get_string(entry, "colorspace", filepath, "BT.709-sRGB", false);
+        model.colorspace = get_string(entry, "colorspace", filepath, "BT.709", false);
 
         const std::vector<int> resolution = get_int_array(entry, "resolution", filepath, false);
         if (resolution.size() >= 2) {

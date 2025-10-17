@@ -38,24 +38,127 @@ __device__ __forceinline__ float clamp_diffs(float D, float d_max) {
     return max_v * D / (max_v + D);
 }
 
-// Apply CSF sensitivity and channel gain (for mult-mutual masking model)
-// This kernel prepares T_p and R_p = contrast * sensitivity * ch_gain
+// Extract log10(luminance) from Gaussian pyramid Y-channel for local adaptation
+// This provides per-pixel background luminance for Weber contrast encoding
 __launch_bounds__(256)
-__global__ void apply_csf_and_gain_kernel(
+__global__ void extract_log_luminance_kernel(
+    const float3* test_gauss,
+    const float3* ref_gauss,
+    float* log_L_bkg_test,
+    float* log_L_bkg_ref,
+    int pixels
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= pixels) return;
+
+    const float min_bkg = 0.01f; // Minimum background to avoid log(0)
+
+    // Extract Y-channel (luminance) from DKL representation
+    // In DKL space, the first channel (x) is achromatic luminance
+    float L_test = fmaxf(test_gauss[idx].x, min_bkg);
+    float L_ref = fmaxf(ref_gauss[idx].x, min_bkg);
+
+    log_L_bkg_test[idx] = log10f(L_test);
+    log_L_bkg_ref[idx] = log10f(L_ref);
+}
+
+// Baseband difference kernel - for lowest frequency residual
+// Applies CSF but without masking or high-pass filtering
+__launch_bounds__(256)
+__global__ void baseband_difference_kernel(
     const float3* test_contrast, const float3* ref_contrast,
-    float3* T_p, float3* R_p,
+    const float* log_L_bkg_test, const float* log_L_bkg_ref,
+    float3* D_out,
     int width, int height,
-    float rho_cpd, float log_L_bkg,
+    float rho_cpd,
     const float* log_L_bkg_lut, const float* log_rho_lut,
     const float* logS_c0, const float* logS_c1, const float* logS_c2,
     int num_L_bkg, int num_rho,
     float sensitivity_correction
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= width * height) return;
+    int pixels = width * height;
+    if (idx >= pixels) return;
 
     float3 T = test_contrast[idx];
     float3 R = ref_contrast[idx];
+
+    // Use per-pixel background luminance if available
+    float log_L_bkg = (log_L_bkg_test && log_L_bkg_ref)
+        ? 0.5f * (log_L_bkg_test[idx] + log_L_bkg_ref[idx])
+        : log_L_bkg_ref ? log_L_bkg_ref[idx]
+                        : log_L_bkg_test ? log_L_bkg_test[idx]
+                                         : 0.0f;
+
+    float log_rho = log10f(rho_cpd);
+
+    // Find LUT indices (same as apply_csf_and_gain_kernel)
+    float rho_idx = 0.0f;
+    for (int i = 0; i < num_rho - 1; i++) {
+        if (log_rho_lut[i] <= log_rho && log_rho <= log_rho_lut[i + 1]) {
+            rho_idx = i + (log_rho - log_rho_lut[i]) / (log_rho_lut[i + 1] - log_rho_lut[i]);
+            break;
+        }
+    }
+
+    float L_idx = 0.0f;
+    for (int i = 0; i < num_L_bkg - 1; i++) {
+        if (log_L_bkg_lut[i] <= log_L_bkg && log_L_bkg <= log_L_bkg_lut[i + 1]) {
+            L_idx = i + (log_L_bkg - log_L_bkg_lut[i]) / (log_L_bkg_lut[i + 1] - log_L_bkg_lut[i]);
+            break;
+        }
+    }
+
+    // Interpolate CSF sensitivity
+    float logS_y = interp2d(logS_c0, num_rho, num_L_bkg, rho_idx, L_idx);
+    float logS_rg = interp2d(logS_c1, num_rho, num_L_bkg, rho_idx, L_idx);
+    float logS_by = interp2d(logS_c2, num_rho, num_L_bkg, rho_idx, L_idx);
+
+    float S_y = powf(10.0f, logS_y + sensitivity_correction / 20.0f);
+    float S_rg = powf(10.0f, logS_rg + sensitivity_correction / 20.0f);
+    float S_by = powf(10.0f, logS_by + sensitivity_correction / 20.0f);
+
+    // Channel gains
+    const float ch_gain_y = 1.0f;
+    const float ch_gain_rg = 1.45f;
+    const float ch_gain_by = 1.0f;
+
+    // For baseband, compute weighted difference directly
+    // D = |T - R| * S * ch_gain
+    float3 diff = make_float3(
+        fabsf(T.x - R.x) * S_y * ch_gain_y,
+        fabsf(T.y - R.y) * S_rg * ch_gain_rg,
+        fabsf(T.z - R.z) * S_by * ch_gain_by
+    );
+
+    D_out[idx] = diff;
+}
+
+// Apply CSF sensitivity and channel gain (for mult-mutual masking model)
+// This kernel prepares T_p and R_p = contrast * sensitivity * ch_gain
+__launch_bounds__(256)
+__global__ void apply_csf_and_gain_kernel(
+    const float3* test_contrast, const float3* ref_contrast,
+    const float* log_L_bkg_test, const float* log_L_bkg_ref,
+    float3* T_p, float3* R_p,
+    int pixels,
+    float rho_cpd,
+    const float* log_L_bkg_lut, const float* log_rho_lut,
+    const float* logS_c0, const float* logS_c1, const float* logS_c2,
+    int num_L_bkg, int num_rho,
+    float sensitivity_correction
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= pixels) return;
+
+    float3 T = test_contrast[idx];
+    float3 R = ref_contrast[idx];
+
+    float log_L_bkg = (log_L_bkg_test && log_L_bkg_ref)
+        ? 0.5f * (log_L_bkg_test[idx] + log_L_bkg_ref[idx])
+        : log_L_bkg_ref ? log_L_bkg_ref[idx]
+                        : log_L_bkg_test ? log_L_bkg_test[idx]
+                                         : 0.0f;
 
     // Find position in CSF LUT (same logic as before)
     float log_rho = log10f(rho_cpd);
@@ -144,8 +247,6 @@ __global__ void apply_phase_uncertainty_kernel(
 }
 
 // Apply cross-channel masking with xcm_weights matrix
-// M_out = 10^(xcm_weights @ log10(M_in))
-// This models how masking in one channel affects others
 __launch_bounds__(256)
 __global__ void apply_cross_channel_masking_kernel(
     const float3* M_pu,  // Phase uncertainty applied masking (3 sustained channels)
@@ -191,6 +292,91 @@ __global__ void apply_cross_channel_masking_kernel(
     // Output sustained channels only (Y, RG, BY)
     // Transient channel pooling will be added later
     M_xcm[idx] = make_float3(M_out[0], M_out[1], M_out[2]);
+}
+
+enum class ContrastMode : int {
+    WEBER_G1_REF = 0,
+    WEBER_G1 = 1,
+    WEBER_G0_REF = 2
+};
+
+inline ContrastMode parse_contrast_mode(const std::string& value) {
+    if (value == "weber_g1_ref") return ContrastMode::WEBER_G1_REF;
+    if (value == "weber_g1") return ContrastMode::WEBER_G1;
+    if (value == "weber_g0_ref") return ContrastMode::WEBER_G0_REF;
+    throw VshipError(ConfigurationError, __FILE__, __LINE__);
+}
+
+__launch_bounds__(256)
+__global__ void compute_weber_contrast_kernel(
+    const float* lap_test,
+    const float* lap_ref,
+    const float* gauss_test_curr,
+    const float* gauss_ref_curr,
+    const float* gauss_test_exp,
+    const float* gauss_ref_exp,
+    float* contrast_test_out,
+    float* contrast_ref_out,
+    float* log_bkg_test_out,
+    float* log_bkg_ref_out,
+    int pixels,
+    int contrast_mode,
+    int is_baseband
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= pixels) return;
+
+    const float min_bkg = 0.01f;
+    const float max_contrast = 1000.0f;
+
+    const float* test_exp_ptr = gauss_test_exp ? gauss_test_exp : gauss_test_curr;
+    const float* ref_exp_ptr = gauss_ref_exp ? gauss_ref_exp : gauss_ref_curr;
+
+    float test_y_curr = gauss_test_curr[idx * 3 + 0];
+    float ref_y_curr = gauss_ref_curr[idx * 3 + 0];
+    float test_y_exp = test_exp_ptr[idx * 3 + 0];
+    float ref_y_exp = ref_exp_ptr[idx * 3 + 0];
+
+    float background_test = min_bkg;
+    float background_ref = min_bkg;
+
+    switch (static_cast<ContrastMode>(contrast_mode)) {
+        case ContrastMode::WEBER_G1_REF:
+            background_ref = fmaxf(is_baseband ? ref_y_curr : ref_y_exp, min_bkg);
+            background_test = background_ref;
+            break;
+        case ContrastMode::WEBER_G1:
+            background_test = fmaxf(is_baseband ? test_y_curr : test_y_exp, min_bkg);
+            background_ref = fmaxf(is_baseband ? ref_y_curr : ref_y_exp, min_bkg);
+            break;
+        case ContrastMode::WEBER_G0_REF:
+        default:
+            background_ref = fmaxf(ref_y_curr, min_bkg);
+            background_test = background_ref;
+            break;
+    }
+
+    float* out_test = contrast_test_out + idx * 3;
+    float* out_ref = contrast_ref_out + idx * 3;
+
+    float ty = lap_test[idx * 3 + 0] / background_test;
+    float trg = lap_test[idx * 3 + 1] / background_test;
+    float tby = lap_test[idx * 3 + 2] / background_test;
+
+    float ry = lap_ref[idx * 3 + 0] / background_ref;
+    float rrg = lap_ref[idx * 3 + 1] / background_ref;
+    float rby = lap_ref[idx * 3 + 2] / background_ref;
+
+    out_test[0] = fminf(ty, max_contrast);
+    out_test[1] = fminf(trg, max_contrast);
+    out_test[2] = fminf(tby, max_contrast);
+
+    out_ref[0] = fminf(ry, max_contrast);
+    out_ref[1] = fminf(rrg, max_contrast);
+    out_ref[2] = fminf(rby, max_contrast);
+
+    log_bkg_test_out[idx] = log10f(background_test);
+    log_bkg_ref_out[idx] = log10f(background_ref);
 }
 
 // Apply masking model: D_u = |T_p - R_p|^p / (1 + M), then clamp
@@ -326,7 +512,7 @@ private:
     // Cross-channel masking weights (4×4 matrix on GPU)
     float* xcm_weights_d = nullptr;
     float* rgb2xyz_d = nullptr;
-    colorspace::EotfType eotf_type = colorspace::EotfType::SRGB;
+    EotfType eotf_type = EotfType::SRGB;
     float eotf_gamma = 2.2f;
 
 public:
@@ -346,22 +532,22 @@ public:
 
         const std::string eotf_name = display.color_space.eotf;
         if (eotf_name == "sRGB") {
-            eotf_type = colorspace::EotfType::SRGB;
+            eotf_type = EotfType::SRGB;
             eotf_gamma = display.color_space.gamma;
         } else if (eotf_name == "linear") {
-            eotf_type = colorspace::EotfType::LINEAR;
+            eotf_type = EotfType::LINEAR;
             eotf_gamma = 1.0f;
         } else if (eotf_name == "PQ") {
-            eotf_type = colorspace::EotfType::PQ;
+            eotf_type = EotfType::PQ;
             eotf_gamma = 1.0f;
         } else if (eotf_name == "HLG") {
-            eotf_type = colorspace::EotfType::HLG;
+            eotf_type = EotfType::HLG;
             eotf_gamma = (display.color_space.gamma > 0.0f) ? display.color_space.gamma : 1.2f;
         } else if (eotf_name == "gamma") {
-            eotf_type = colorspace::EotfType::GAMMA;
+            eotf_type = EotfType::GAMMA;
             eotf_gamma = display.color_space.gamma;
         } else {
-            eotf_type = colorspace::EotfType::SRGB;
+            eotf_type = EotfType::SRGB;
             eotf_gamma = 2.2f;
         }
 
@@ -480,6 +666,7 @@ public:
         }
 
         int frame_size = width * height;
+        const int contrast_mode = static_cast<int>(parse_contrast_mode(params.contrast));
 
         // Allocate working buffers
         float3 *test_linear_d, *ref_linear_d;
@@ -551,14 +738,31 @@ public:
             float3* D_d;
             GPU_CHECK(hipMallocAsync(&D_d, band_size * sizeof(float3), stream));
 
-            float log_L_bkg = log10f(std::max(L_max / 2.0f, 1e-4f));
+            // Extract per-pixel background luminance from Gaussian pyramid Y-channel
+            // This provides local adaptation for Weber contrast
+            float* log_L_bkg_test_d = nullptr;
+            float* log_L_bkg_ref_d = nullptr;
+
+            GPU_CHECK(hipMallocAsync(&log_L_bkg_test_d, band_size * sizeof(float), stream));
+            GPU_CHECK(hipMallocAsync(&log_L_bkg_ref_d, band_size * sizeof(float), stream));
+
+            // Launch kernel to extract Y-channel and compute log10(max(Y, min_bkg))
+            extract_log_luminance_kernel<<<blocks, threads, 0, stream>>>(
+                reinterpret_cast<float3*>(test_gaussian[band]),
+                reinterpret_cast<float3*>(ref_gaussian[band]),
+                log_L_bkg_test_d,
+                log_L_bkg_ref_d,
+                band_size
+            );
 
             if (is_baseband) {
                 if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
                 baseband_difference_kernel<<<blocks, threads, 0, stream>>>(
-                    test_contrast, ref_contrast, D_d,
+                    test_contrast, ref_contrast,
+                    log_L_bkg_test_d, log_L_bkg_ref_d,
+                    D_d,
                     lpyr.band_widths[band], lpyr.band_heights[band],
-                    rho, log_L_bkg,
+                    rho,
                     csf.log_L_bkg_d, csf.log_rho_d,
                     csf.logS_o0_c0_d, csf.logS_o0_c1_d, csf.logS_o0_c2_d,
                     csf.num_L_bkg, csf.num_rho, params.sensitivity_correction
@@ -577,9 +781,11 @@ public:
 
                 if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
                 apply_csf_and_gain_kernel<<<blocks, threads, 0, stream>>>(
-                    test_contrast, ref_contrast, T_p_d, R_p_d,
-                    lpyr.band_widths[band], lpyr.band_heights[band],
-                    rho, log_L_bkg,
+                    test_contrast, ref_contrast,
+                    log_L_bkg_test_d, log_L_bkg_ref_d,
+                    T_p_d, R_p_d,
+                    band_size,
+                    rho,
                     csf.log_L_bkg_d, csf.log_rho_d,
                     csf.logS_o0_c0_d, csf.logS_o0_c1_d, csf.logS_o0_c2_d,
                     csf.num_L_bkg, csf.num_rho, params.sensitivity_correction
@@ -753,6 +959,13 @@ public:
                 powf(normalized_sum.z, 1.0f / params.beta)
             );
 
+            // DEBUG: Always print per-band scores to stderr
+            std::cerr << "DEBUG_BAND[" << band << "]: normalized_sum=("
+                      << normalized_sum.x << ", " << normalized_sum.y << ", " << normalized_sum.z << ") "
+                      << "beta=" << params.beta << " "
+                      << "band_score=(" << band_scores[band].x << ", "
+                      << band_scores[band].y << ", " << band_scores[band].z << ")" << std::endl;
+
             if (collect_debug) {
                 BandDebugInfo info;
                 info.index = band;
@@ -780,6 +993,8 @@ public:
             GPU_CHECK(hipFreeAsync(D_d, stream));
             GPU_CHECK(hipFreeAsync(pooled_d, stream));
             GPU_CHECK(hipFreeAsync(partial_sums_d, stream));
+            GPU_CHECK(hipFreeAsync(log_L_bkg_test_d, stream));
+            GPU_CHECK(hipFreeAsync(log_L_bkg_ref_d, stream));
         }
 
         lpyr.free_levels(test_laplacian, stream);
@@ -819,6 +1034,14 @@ public:
 
         float Q_per_ch = combine_channels(Q_spatial_per_channel);
 
+        // DEBUG: Print aggregated scores
+        std::cerr << "DEBUG_AGG: sum_bands=(" << sum_bands.x << ", " << sum_bands.y << ", " << sum_bands.z << ")" << std::endl;
+        std::cerr << "DEBUG_AGG: beta_sch=" << beta_sch << " num_bands=" << lpyr.num_bands << std::endl;
+        std::cerr << "DEBUG_AGG: Q_spatial_per_channel=(" << Q_spatial_per_channel.x << ", "
+                  << Q_spatial_per_channel.y << ", " << Q_spatial_per_channel.z << ")" << std::endl;
+        std::cerr << "DEBUG_AGG: beta_tch=" << beta_tch_value << " ch_chrom_w=" << params.ch_chrom_w << std::endl;
+        std::cerr << "DEBUG_AGG: Q_per_ch=" << Q_per_ch << std::endl;
+
         // Convert Q to JOD scale (matches Python: Q_JOD = 10 - jod_a * Q^jod_exp)
         // Use linearization for small Q values to maintain differentiability
         const float Q_t = 0.1f;  // Threshold for linearization
@@ -833,6 +1056,12 @@ public:
         }
 
         Q_jod = fminf(fmaxf(Q_jod, 0.0f), 10.0f);
+
+        // DEBUG: Print final JOD calculation
+        std::cerr << "DEBUG_JOD: jod_a=" << params.jod_a << " jod_exp=" << params.jod_exp << std::endl;
+        std::cerr << "DEBUG_JOD: Q_per_ch=" << Q_per_ch << " Q_t=" << Q_t << std::endl;
+        std::cerr << "DEBUG_JOD: using_linearization=" << (Q_per_ch <= Q_t ? "true" : "false") << std::endl;
+        std::cerr << "DEBUG_JOD: Q_jod (final)=" << Q_jod << std::endl;
 
         if (collect_debug) {
             GPU_CHECK(hipEventDestroy(timing_start));
