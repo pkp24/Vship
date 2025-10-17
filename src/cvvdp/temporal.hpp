@@ -21,6 +21,7 @@ struct TemporalBuffer {
         int width = 0;
         int height = 0;
         bool initialized = false;
+        int frames_processed = 0;
 
         void allocate(int w, int h, hipStream_t stream) {
             width = w;
@@ -35,6 +36,7 @@ struct TemporalBuffer {
             }
             GPU_CHECK(hipStreamSynchronize(stream));
             initialized = true;
+            frames_processed = 0;
         }
 
         void free() {
@@ -109,8 +111,8 @@ struct TemporalBuffer {
 // Outputs: T_filtered[4], R_filtered[4] for the 4 temporal channels
 __launch_bounds__(256)
 __global__ void apply_temporal_filter_kernel(
-    const float3* T_p,           // Input: CSF-weighted test signal (Y, RG, BY)
-    const float3* R_p,           // Input: CSF-weighted reference signal (Y, RG, BY)
+    float4* T_p,                 // In/out: CSF-weighted test signal (Y, RG, BY, Trans)
+    float4* R_p,                 // In/out: CSF-weighted reference signal
     float* T_prev_0,             // Previous filtered state: Y-sustained
     float* T_prev_1,             // Previous filtered state: RG
     float* T_prev_2,             // Previous filtered state: BY
@@ -125,8 +127,8 @@ __global__ void apply_temporal_filter_kernel(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= size) return;
 
-    float3 T = T_p[idx];
-    float3 R = R_p[idx];
+    float4 T = T_p[idx];
+    float4 R = R_p[idx];
 
     // Channel 0: Y-sustained (low-pass filtered Y)
     float T_y_sustained = alpha_0 * T.x + (1.0f - alpha_0) * T_prev_0[idx];
@@ -155,28 +157,15 @@ __global__ void apply_temporal_filter_kernel(
     R_y_transient = alpha_3 * R_y_transient + (1.0f - alpha_3) * R_prev_3[idx];
     T_prev_3[idx] = T_y_transient;
     R_prev_3[idx] = R_y_transient;
-}
 
-// Kernel: Combine temporal channels back to float3 for masking
-// Takes sustained channels (Y, RG, BY) and outputs as float3
-__launch_bounds__(256)
-__global__ void combine_sustained_channels_kernel(
-    const float* T_y, const float* T_rg, const float* T_by,
-    const float* R_y, const float* R_rg, const float* R_by,
-    float3* T_out, float3* R_out,
-    int size
-) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= size) return;
-
-    T_out[idx] = make_float3(T_y[idx], T_rg[idx], T_by[idx]);
-    R_out[idx] = make_float3(R_y[idx], R_rg[idx], R_by[idx]);
+    T_p[idx] = make_float4(T_y_sustained, T_rg, T_by, T_y_transient);
+    R_p[idx] = make_float4(R_y_sustained, R_rg, R_by, R_y_transient);
 }
 
 // Helper function: Apply temporal filtering to a band
 // This integrates into the existing CVVDP pipeline
 inline void apply_temporal_filtering(
-    float3* T_p_d, float3* R_p_d,
+    float4* T_p_d, float4* R_p_d,
     TemporalBuffer::BandBuffer& buffer,
     const float* alpha,
     int width, int height,
@@ -193,24 +182,22 @@ inline void apply_temporal_filtering(
 
     // Apply IIR filtering
     // This updates the buffer state and outputs filtered sustained channels
+    const bool first_frame = (buffer.frames_processed == 0);
+
     apply_temporal_filter_kernel<<<blocks, threads, 0, stream>>>(
         T_p_d, R_p_d,
         buffer.test_buffers[0], buffer.test_buffers[1],
         buffer.test_buffers[2], buffer.test_buffers[3],
         buffer.ref_buffers[0], buffer.ref_buffers[1],
         buffer.ref_buffers[2], buffer.ref_buffers[3],
-        alpha[0], alpha[1], alpha[2], alpha[3],
+        first_frame ? 1.0f : alpha[0],
+        first_frame ? 1.0f : alpha[1],
+        first_frame ? 1.0f : alpha[2],
+        first_frame ? 1.0f : alpha[3],
         size
     );
 
-    // Update T_p and R_p with sustained channels (channels 0-2)
-    // The transient channel (3) is handled separately if needed
-    combine_sustained_channels_kernel<<<blocks, threads, 0, stream>>>(
-        buffer.test_buffers[0], buffer.test_buffers[1], buffer.test_buffers[2],
-        buffer.ref_buffers[0], buffer.ref_buffers[1], buffer.ref_buffers[2],
-        T_p_d, R_p_d,
-        size
-    );
+    buffer.frames_processed += 1;
 }
 
 } // namespace cvvdp

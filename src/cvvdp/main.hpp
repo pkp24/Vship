@@ -26,6 +26,8 @@
 
 namespace cvvdp {
 
+constexpr int kMaxChannels = 4;
+
 // Helper: safe_pow - differentiable power function that handles zeros
 __device__ __forceinline__ float safe_pow(float x, float p) {
     const float epsilon = 0.00001f;
@@ -66,22 +68,32 @@ __global__ void extract_log_luminance_kernel(
 // Applies CSF but without masking or high-pass filtering
 __launch_bounds__(256)
 __global__ void baseband_difference_kernel(
-    const float3* test_contrast, const float3* ref_contrast,
+    const float* test_contrast, const float* ref_contrast,
     const float* log_L_bkg_test, const float* log_L_bkg_ref,
-    float3* D_out,
+    float4* D_out,
     int width, int height,
     float rho_cpd,
     const float* log_L_bkg_lut, const float* log_rho_lut,
-    const float* logS_c0, const float* logS_c1, const float* logS_c2,
+    const float* logS_c0, const float* logS_c1, const float* logS_c2, const float* logS_transient,
     int num_L_bkg, int num_rho,
+    int channel_count,
     float sensitivity_correction
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int pixels = width * height;
     if (idx >= pixels) return;
 
-    float3 T = test_contrast[idx];
-    float3 R = ref_contrast[idx];
+    const int base = idx * 3;
+    float3 T = make_float3(
+        test_contrast[base + 0],
+        test_contrast[base + 1],
+        test_contrast[base + 2]
+    );
+    float3 R = make_float3(
+        ref_contrast[base + 0],
+        ref_contrast[base + 1],
+        ref_contrast[base + 2]
+    );
 
     // Use per-pixel background luminance if available
     float log_L_bkg = (log_L_bkg_test && log_L_bkg_ref)
@@ -113,23 +125,24 @@ __global__ void baseband_difference_kernel(
     float logS_y = interp2d(logS_c0, num_rho, num_L_bkg, rho_idx, L_idx);
     float logS_rg = interp2d(logS_c1, num_rho, num_L_bkg, rho_idx, L_idx);
     float logS_by = interp2d(logS_c2, num_rho, num_L_bkg, rho_idx, L_idx);
+    float logS_trans = interp2d(logS_transient, num_rho, num_L_bkg, rho_idx, L_idx);
 
     float S_y = powf(10.0f, logS_y + sensitivity_correction / 20.0f);
     float S_rg = powf(10.0f, logS_rg + sensitivity_correction / 20.0f);
     float S_by = powf(10.0f, logS_by + sensitivity_correction / 20.0f);
+    float S_trans = powf(10.0f, logS_trans + sensitivity_correction / 20.0f);
 
     // Channel gains
     const float ch_gain_y = 1.0f;
     const float ch_gain_rg = 1.45f;
     const float ch_gain_by = 1.0f;
+    const float ch_gain_trans = 1.0f;
 
-    // For baseband, compute weighted difference directly
-    // D = |T - R| * S * ch_gain
-    float3 diff = make_float3(
-        fabsf(T.x - R.x) * S_y * ch_gain_y,
-        fabsf(T.y - R.y) * S_rg * ch_gain_rg,
-        fabsf(T.z - R.z) * S_by * ch_gain_by
-    );
+    float4 diff = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+    if (channel_count > 0) diff.x = fabsf(T.x - R.x) * S_y * ch_gain_y;
+    if (channel_count > 1) diff.y = fabsf(T.y - R.y) * S_rg * ch_gain_rg;
+    if (channel_count > 2) diff.z = fabsf(T.z - R.z) * S_by * ch_gain_by;
+    if (channel_count > 3) diff.w = fabsf(T.x - R.x) * S_trans * ch_gain_trans;
 
     D_out[idx] = diff;
 }
@@ -138,21 +151,32 @@ __global__ void baseband_difference_kernel(
 // This kernel prepares T_p and R_p = contrast * sensitivity * ch_gain
 __launch_bounds__(256)
 __global__ void apply_csf_and_gain_kernel(
-    const float3* test_contrast, const float3* ref_contrast,
+    const float* test_contrast, const float* ref_contrast,
     const float* log_L_bkg_test, const float* log_L_bkg_ref,
-    float3* T_p, float3* R_p,
+    float4* T_p, float4* R_p,
     int pixels,
     float rho_cpd,
     const float* log_L_bkg_lut, const float* log_rho_lut,
     const float* logS_c0, const float* logS_c1, const float* logS_c2,
+    const float* logS_transient,
     int num_L_bkg, int num_rho,
+    int channel_count,
     float sensitivity_correction
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= pixels) return;
 
-    float3 T = test_contrast[idx];
-    float3 R = ref_contrast[idx];
+    const int base = idx * 3;
+    float3 T = make_float3(
+        test_contrast[base + 0],
+        test_contrast[base + 1],
+        test_contrast[base + 2]
+    );
+    float3 R = make_float3(
+        ref_contrast[base + 0],
+        ref_contrast[base + 1],
+        ref_contrast[base + 2]
+    );
 
     float log_L_bkg = (log_L_bkg_test && log_L_bkg_ref)
         ? 0.5f * (log_L_bkg_test[idx] + log_L_bkg_ref[idx])
@@ -183,57 +207,69 @@ __global__ void apply_csf_and_gain_kernel(
     float logS_y = interp2d(logS_c0, num_rho, num_L_bkg, rho_idx, L_idx);
     float logS_rg = interp2d(logS_c1, num_rho, num_L_bkg, rho_idx, L_idx);
     float logS_by = interp2d(logS_c2, num_rho, num_L_bkg, rho_idx, L_idx);
+    float logS_trans = interp2d(logS_transient, num_rho, num_L_bkg, rho_idx, L_idx);
 
     // Convert from log to linear and apply correction
     float S_y = powf(10.0f, logS_y + sensitivity_correction / 20.0f);
     float S_rg = powf(10.0f, logS_rg + sensitivity_correction / 20.0f);
     float S_by = powf(10.0f, logS_by + sensitivity_correction / 20.0f);
+    float S_trans = powf(10.0f, logS_trans + sensitivity_correction / 20.0f);
 
     // Channel gains from Python: ch_gain = [1, 1.45, 1, 1.] for [Y, RG, BY, trans-Y]
-    // We only have sustained channels here (no temporal filtering yet)
     const float ch_gain_y = 1.0f;
     const float ch_gain_rg = 1.45f;
     const float ch_gain_by = 1.0f;
+    const float ch_gain_trans = 1.0f;
 
-    // T_p = T * S * ch_gain, R_p = R * S * ch_gain
-    T_p[idx] = make_float3(
-        T.x * S_y * ch_gain_y,
-        T.y * S_rg * ch_gain_rg,
-        T.z * S_by * ch_gain_by
-    );
+    float4 Tp = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+    float4 Rp = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+    if (channel_count > 0) {
+        Tp.x = T.x * S_y * ch_gain_y;
+        Rp.x = R.x * S_y * ch_gain_y;
+    }
+    if (channel_count > 1) {
+        Tp.y = T.y * S_rg * ch_gain_rg;
+        Rp.y = R.y * S_rg * ch_gain_rg;
+    }
+    if (channel_count > 2) {
+        Tp.z = T.z * S_by * ch_gain_by;
+        Rp.z = R.z * S_by * ch_gain_by;
+    }
+    if (channel_count > 3) {
+        Tp.w = T.x * S_trans * ch_gain_trans;
+        Rp.w = R.x * S_trans * ch_gain_trans;
+    }
 
-    R_p[idx] = make_float3(
-        R.x * S_y * ch_gain_y,
-        R.y * S_rg * ch_gain_rg,
-        R.z * S_by * ch_gain_by
-    );
+    T_p[idx] = Tp;
+    R_p[idx] = Rp;
 }
 
 // Compute mutual masking term: M_mm = min(|T_p|, |R_p|)
 __launch_bounds__(256)
 __global__ void compute_mutual_masking_kernel(
-    const float3* T_p, const float3* R_p,
-    float3* M_mm,
+    const float4* T_p, const float4* R_p,
+    float4* M_mm,
     int size
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= size) return;
 
-    float3 Tp = T_p[idx];
-    float3 Rp = R_p[idx];
+    float4 Tp = T_p[idx];
+    float4 Rp = R_p[idx];
 
-    M_mm[idx] = make_float3(
+    M_mm[idx] = make_float4(
         fminf(fabsf(Tp.x), fabsf(Rp.x)),
         fminf(fabsf(Tp.y), fabsf(Rp.y)),
-        fminf(fabsf(Tp.z), fabsf(Rp.z))
+        fminf(fabsf(Tp.z), fabsf(Rp.z)),
+        fminf(fabsf(Tp.w), fabsf(Rp.w))
     );
 }
 
 // Gaussian blur kernels used in phase-uncertainty masking
 __launch_bounds__(256)
 __global__ void gaussian_blur_horizontal_kernel(
-    const float3* input,
-    float3* output,
+    const float4* input,
+    float4* output,
     int width,
     int height,
     const float* kernel,
@@ -245,22 +281,23 @@ __global__ void gaussian_blur_horizontal_kernel(
     int y = idx / width;
     int x = idx % width;
 
-    float3 accum = make_float3(0.0f, 0.0f, 0.0f);
+    float4 accum = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
     for (int k = -radius; k <= radius; ++k) {
         int sample_x = min(max(x + k, 0), width - 1);
         float weight = kernel[k + radius];
-        float3 sample = input[y * width + sample_x];
+        float4 sample = input[y * width + sample_x];
         accum.x += sample.x * weight;
         accum.y += sample.y * weight;
         accum.z += sample.z * weight;
+        accum.w += sample.w * weight;
     }
     output[idx] = accum;
 }
 
 __launch_bounds__(256)
 __global__ void gaussian_blur_vertical_kernel(
-    const float3* input,
-    float3* output,
+    const float4* input,
+    float4* output,
     int width,
     int height,
     const float* kernel,
@@ -272,14 +309,15 @@ __global__ void gaussian_blur_vertical_kernel(
     int y = idx / width;
     int x = idx % width;
 
-    float3 accum = make_float3(0.0f, 0.0f, 0.0f);
+    float4 accum = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
     for (int k = -radius; k <= radius; ++k) {
         int sample_y = min(max(y + k, 0), height - 1);
         float weight = kernel[k + radius];
-        float3 sample = input[sample_y * width + x];
+        float4 sample = input[sample_y * width + x];
         accum.x += sample.x * weight;
         accum.y += sample.y * weight;
         accum.z += sample.z * weight;
+        accum.w += sample.w * weight;
     }
     output[idx] = accum;
 }
@@ -287,7 +325,7 @@ __global__ void gaussian_blur_vertical_kernel(
 // Apply phase uncertainty: optional blur + multiplicative bias
 __launch_bounds__(256)
 __global__ void apply_phase_uncertainty_kernel(
-    float3* M_mm,
+    float4* M_mm,
     float multiplier,
     int size
 ) {
@@ -297,13 +335,14 @@ __global__ void apply_phase_uncertainty_kernel(
     M_mm[idx].x *= multiplier;
     M_mm[idx].y *= multiplier;
     M_mm[idx].z *= multiplier;
+    M_mm[idx].w *= multiplier;
 }
 
 // Apply cross-channel masking with xcm_weights matrix (already exponentiated)
 __launch_bounds__(256)
 __global__ void apply_cross_channel_masking_kernel(
-    const float3* M_pu,
-    float3* M_xcm,
+    const float4* M_pu,
+    float4* M_xcm,
     const float* xcm_weights,
     int channel_count,
     int size
@@ -311,8 +350,13 @@ __global__ void apply_cross_channel_masking_kernel(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= size) return;
 
-    float in_values[3] = {M_pu[idx].x, M_pu[idx].y, M_pu[idx].z};
-    float out_values[3] = {0.0f, 0.0f, 0.0f};
+    float in_values[kMaxChannels] = {
+        M_pu[idx].x,
+        M_pu[idx].y,
+        M_pu[idx].z,
+        M_pu[idx].w
+    };
+    float out_values[kMaxChannels] = {0.0f, 0.0f, 0.0f, 0.0f};
 
     for (int dest = 0; dest < channel_count; ++dest) {
         float sum = 0.0f;
@@ -323,8 +367,30 @@ __global__ void apply_cross_channel_masking_kernel(
         out_values[dest] = sum;
     }
 
-    M_xcm[idx] = make_float3(out_values[0], out_values[1], out_values[2]);
+    M_xcm[idx] = make_float4(out_values[0], out_values[1], out_values[2], out_values[3]);
 }
+
+// Element-wise safe power of absolute values: dst = safe_pow(|src|, q[channel])
+__launch_bounds__(256)
+__global__ void apply_channel_power_kernel(
+    const float4* input,
+    float4* output,
+    float4 mask_q,
+    int channel_count,
+    int size
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= size) return;
+
+    const float4 value = input[idx];
+    float4 result = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+    if (channel_count > 0) result.x = safe_pow(fabsf(value.x), mask_q.x);
+    if (channel_count > 1) result.y = safe_pow(fabsf(value.y), mask_q.y);
+    if (channel_count > 2) result.z = safe_pow(fabsf(value.z), mask_q.z);
+    if (channel_count > 3) result.w = safe_pow(fabsf(value.w), mask_q.w);
+    output[idx] = result;
+}
+
 
 enum class ContrastMode : int {
     WEBER_G1_REF = 0,
@@ -420,12 +486,10 @@ enum class ClampMode : int {
 // Apply masking model: D_u = |T_p - R_p|^p / (1 + M^q), then clamp
 __launch_bounds__(256)
 __global__ void apply_masking_kernel(
-    const float3* T_p, const float3* R_p,
-    const float3* M_xcm, float3* D_d,
+    const float4* T_p, const float4* R_p,
+    const float4* M_xcm, float4* D_d,
     float mask_p,
-    float mask_q_y,
-    float mask_q_rg,
-    float mask_q_by,
+    int channel_count,
     int clamp_mode,
     float d_max,
     int size
@@ -433,49 +497,41 @@ __global__ void apply_masking_kernel(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= size) return;
 
-    float3 Tp = T_p[idx];
-    float3 Rp = R_p[idx];
-    float3 M = M_xcm[idx];
+    const float4 Tp = T_p[idx];
+    const float4 Rp = R_p[idx];
+    const float4 M = M_xcm[idx];
 
-    float3 diff = make_float3(
+    float values[kMaxChannels] = {0.0f, 0.0f, 0.0f, 0.0f};
+    const float components[kMaxChannels] = {
         fabsf(Tp.x - Rp.x),
         fabsf(Tp.y - Rp.y),
-        fabsf(Tp.z - Rp.z)
-    );
+        fabsf(Tp.z - Rp.z),
+        fabsf(Tp.w - Rp.w)
+    };
 
-    float denom_x = 1.0f + safe_pow(fmaxf(M.x, 0.0f), mask_q_y);
-    float denom_rg = 1.0f + safe_pow(fmaxf(M.y, 0.0f), mask_q_rg);
-    float denom_by = 1.0f + safe_pow(fmaxf(M.z, 0.0f), mask_q_by);
-
-    float3 D_u = make_float3(
-        safe_pow(diff.x, mask_p) / denom_x,
-        safe_pow(diff.y, mask_p) / denom_rg,
-        safe_pow(diff.z, mask_p) / denom_by
-    );
+    for (int c = 0; c < channel_count; ++c) {
+        const float denom = 1.0f + fmaxf(((&M.x)[c]), 0.0f);
+        values[c] = safe_pow(components[c], mask_p) / denom;
+    }
 
     ClampMode mode = static_cast<ClampMode>(clamp_mode);
     float max_v = powf(10.0f, d_max);
 
-    float3 result;
-    switch (mode) {
-        case ClampMode::HARD:
-            result = make_float3(
-                fminf(D_u.x, max_v),
-                fminf(D_u.y, max_v),
-                fminf(D_u.z, max_v)
-            );
-            break;
-        case ClampMode::NONE:
-            result = D_u;
-            break;
-        case ClampMode::SOFT:
-        default:
-            result = make_float3(
-                max_v * D_u.x / (max_v + D_u.x),
-                max_v * D_u.y / (max_v + D_u.y),
-                max_v * D_u.z / (max_v + D_u.z)
-            );
-            break;
+    float4 result = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+    for (int c = 0; c < channel_count; ++c) {
+        float value = values[c];
+        switch (mode) {
+            case ClampMode::HARD:
+                value = fminf(value, max_v);
+                break;
+            case ClampMode::NONE:
+                break;
+            case ClampMode::SOFT:
+            default:
+                value = max_v * value / (max_v + value);
+                break;
+        }
+        (&result.x)[c] = value;
     }
 
     D_d[idx] = result;
@@ -484,43 +540,40 @@ __global__ void apply_masking_kernel(
 // Reduction kernel for accumulating |input|^beta per channel
 __launch_bounds__(256)
 __global__ void reduce_lp_sum_per_channel_kernel(
-    const float3* input,
-    float3* output,
+    const float4* input,
+    float4* output,
     float beta,
+    int channel_count,
     int size
 ) {
-    extern __shared__ float3 sdata_vec[];
+    extern __shared__ float4 sdata_vec[];
 
     int tid = threadIdx.x;
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-    // Load data into shared memory
     if (idx < size) {
-        float3 value = input[idx];
-        float abs_x = fabsf(value.x);
-        float abs_y = fabsf(value.y);
-        float abs_z = fabsf(value.z);
-        sdata_vec[tid] = make_float3(
-            safe_pow(abs_x, beta),
-            safe_pow(abs_y, beta),
-            safe_pow(abs_z, beta)
-        );
+        float4 value = input[idx];
+        float4 accum = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+        if (channel_count > 0) accum.x = powf(fabsf(value.x), beta);
+        if (channel_count > 1) accum.y = powf(fabsf(value.y), beta);
+        if (channel_count > 2) accum.z = powf(fabsf(value.z), beta);
+        if (channel_count > 3) accum.w = powf(fabsf(value.w), beta);
+        sdata_vec[tid] = accum;
     } else {
-        sdata_vec[tid] = make_float3(0.0f, 0.0f, 0.0f);
+        sdata_vec[tid] = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
     }
     __syncthreads();
 
-    // Reduction in shared memory (component-wise)
     for (int s = blockDim.x / 2; s > 0; s >>= 1) {
         if (tid < s) {
             sdata_vec[tid].x += sdata_vec[tid + s].x;
             sdata_vec[tid].y += sdata_vec[tid + s].y;
             sdata_vec[tid].z += sdata_vec[tid + s].z;
+            sdata_vec[tid].w += sdata_vec[tid + s].w;
         }
         __syncthreads();
     }
 
-    // Write result for this block
     if (tid == 0) {
         output[blockIdx.x] = sdata_vec[0];
     }
@@ -738,10 +791,6 @@ public:
             hipEventCreateWithFlags(&timing_end, hipEventDefault);
         }
 
-        const float mask_q_y = (params.mask_q.size() > 0) ? params.mask_q[0] : 1.0f;
-        const float mask_q_rg = (params.mask_q.size() > 1) ? params.mask_q[1] : mask_q_y;
-        const float mask_q_by = (params.mask_q.size() > 2) ? params.mask_q[2] : mask_q_rg;
-
         ClampMode clamp_mode = ClampMode::SOFT;
         if (params.dclamp_type == "hard") {
             clamp_mode = ClampMode::HARD;
@@ -749,7 +798,6 @@ public:
             clamp_mode = ClampMode::NONE;
         }
         const int clamp_mode_value = static_cast<int>(clamp_mode);
-        const int channel_count = 3; // Sustained channels processed in this path
 
         int frame_size = width * height;
         const int contrast_mode = static_cast<int>(parse_contrast_mode(params.contrast));
@@ -791,21 +839,30 @@ public:
 
         // Step 4: Apply CSF and masking model for each band
         // Store per-channel scores for hierarchical pooling
-        std::vector<float3> band_scores(lpyr.num_bands);
+        std::vector<float4> band_scores(lpyr.num_bands, float4{0.0f, 0.0f, 0.0f, 0.0f});
+        std::vector<int> band_channel_counts(lpyr.num_bands, 3);
 
         const float beta_tch_value =
             (params.beta_tch > 0.0f) ? params.beta_tch
                                      : ((params.beta > 0.0f) ? params.beta : 1.0f);
-        const float channel_weights[3] = {1.0f, params.ch_chrom_w, params.ch_chrom_w};
 
-        auto combine_channels = [&](const float3& channel_values) -> float {
-            const float components[3] = {channel_values.x, channel_values.y, channel_values.z};
+        float channel_weights[kMaxChannels] = {1.0f, params.ch_chrom_w, params.ch_chrom_w, params.ch_trans_w};
+
+        float4 mask_q_vec{1.0f, 1.0f, 1.0f, 1.0f};
+        if (!params.mask_q.empty()) {
+            mask_q_vec.x = params.mask_q.size() > 0 ? params.mask_q[0] : 1.0f;
+            mask_q_vec.y = params.mask_q.size() > 1 ? params.mask_q[1] : mask_q_vec.x;
+            mask_q_vec.z = params.mask_q.size() > 2 ? params.mask_q[2] : mask_q_vec.y;
+            mask_q_vec.w = params.mask_q.size() > 3 ? params.mask_q[3] : mask_q_vec.x;
+        }
+
+        auto combine_channels = [&](const float4& channel_values, int active_channels) -> float {
             float sum = 0.0f;
-            for (int c = 0; c < 3; ++c) {
-                const float value = fmaxf(components[c], 0.0f);
+            for (int c = 0; c < active_channels; ++c) {
+                const float value = fmaxf(((&channel_values.x)[c]), 0.0f);
                 sum += channel_weights[c] * powf(value, beta_tch_value);
             }
-            return powf(sum, 1.0f / beta_tch_value);
+            return (sum > 0.0f) ? powf(sum, 1.0f / beta_tch_value) : 0.0f;
         };
 
         for (int band = 0; band < lpyr.num_bands; band++) {
@@ -817,12 +874,12 @@ public:
             int blocks = (band_size + threads - 1) / threads;
 
             // Pyramid bands already contain contrast (clamped to [-1000, 1000])
-            float3* test_contrast = reinterpret_cast<float3*>(test_laplacian[band]);
-            float3* ref_contrast = reinterpret_cast<float3*>(ref_laplacian[band]);
+            float* test_contrast = reinterpret_cast<float*>(test_laplacian[band]);
+            float* ref_contrast = reinterpret_cast<float*>(ref_laplacian[band]);
 
             // Allocate output buffer for D (perceptually weighted differences)
-            float3* D_d;
-            GPU_CHECK(hipMallocAsync(&D_d, band_size * sizeof(float3), stream));
+            float4* D_d;
+            GPU_CHECK(hipMallocAsync(&D_d, band_size * sizeof(float4), stream));
 
             // Extract per-pixel background luminance from Gaussian pyramid Y-channel
             // This provides local adaptation for Weber contrast
@@ -841,7 +898,14 @@ public:
                 band_size
             );
 
+            TemporalBuffer::BandBuffer* temporal_band =
+                (temporal_filtering_enabled && band < temporal.num_bands)
+                    ? &temporal.bands[band]
+                    : nullptr;
+            int band_channel_count = 3;
+
             if (is_baseband) {
+                band_channel_count = (temporal_band && temporal_band->frames_processed > 1) ? 4 : 3;
                 if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
                 baseband_difference_kernel<<<blocks, threads, 0, stream>>>(
                     test_contrast, ref_contrast,
@@ -850,8 +914,8 @@ public:
                     lpyr.band_widths[band], lpyr.band_heights[band],
                     rho,
                     csf.log_L_bkg_d, csf.log_rho_d,
-                    csf.logS_o0_c0_d, csf.logS_o0_c1_d, csf.logS_o0_c2_d,
-                    csf.num_L_bkg, csf.num_rho, params.sensitivity_correction
+                    csf.logS_o0_c0_d, csf.logS_o0_c1_d, csf.logS_o0_c2_d, csf.logS_o1_c0_d,
+                    csf.num_L_bkg, csf.num_rho, band_channel_count, params.sensitivity_correction
                 );
                 if (collect_debug) {
                     GPU_CHECK(hipEventRecord(timing_end, stream));
@@ -861,9 +925,12 @@ public:
                     timings.baseband += elapsed;
                 }
             } else {
-                float3 *T_p_d, *R_p_d;
-                GPU_CHECK(hipMallocAsync(&T_p_d, band_size * sizeof(float3), stream));
-                GPU_CHECK(hipMallocAsync(&R_p_d, band_size * sizeof(float3), stream));
+                float4 *T_p_d, *R_p_d;
+                GPU_CHECK(hipMallocAsync(&T_p_d, band_size * sizeof(float4), stream));
+                GPU_CHECK(hipMallocAsync(&R_p_d, band_size * sizeof(float4), stream));
+
+                const int initial_channel_count =
+                    (temporal_band && temporal_band->frames_processed > 0) ? 4 : 3;
 
                 if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
                 apply_csf_and_gain_kernel<<<blocks, threads, 0, stream>>>(
@@ -873,8 +940,8 @@ public:
                     band_size,
                     rho,
                     csf.log_L_bkg_d, csf.log_rho_d,
-                    csf.logS_o0_c0_d, csf.logS_o0_c1_d, csf.logS_o0_c2_d,
-                    csf.num_L_bkg, csf.num_rho, params.sensitivity_correction
+                    csf.logS_o0_c0_d, csf.logS_o0_c1_d, csf.logS_o0_c2_d, csf.logS_o1_c0_d,
+                    csf.num_L_bkg, csf.num_rho, initial_channel_count, params.sensitivity_correction
                 );
                 if (collect_debug) {
                     GPU_CHECK(hipEventRecord(timing_end, stream));
@@ -885,18 +952,20 @@ public:
                 }
 
                 // Apply temporal filtering if enabled
-                if (temporal_filtering_enabled && temporal.num_bands > 0 && band < temporal.num_bands) {
+                if (temporal_band) {
                     apply_temporal_filtering(
                         T_p_d, R_p_d,
-                        temporal.bands[band],
+                        *temporal_band,
                         temporal.alpha,
                         lpyr.band_widths[band], lpyr.band_heights[band],
                         stream
                     );
                 }
 
-                float3* M_mm_d;
-                GPU_CHECK(hipMallocAsync(&M_mm_d, band_size * sizeof(float3), stream));
+                band_channel_count = (temporal_band && temporal_band->frames_processed > 1) ? 4 : 3;
+
+                float4* M_mm_d;
+                GPU_CHECK(hipMallocAsync(&M_mm_d, band_size * sizeof(float4), stream));
 
                 if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
                 compute_mutual_masking_kernel<<<blocks, threads, 0, stream>>>(
@@ -917,8 +986,8 @@ public:
 
                 if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
                 if (do_phase_blur) {
-                    float3* blur_tmp_d;
-                    GPU_CHECK(hipMallocAsync(&blur_tmp_d, band_size * sizeof(float3), stream));
+                    float4* blur_tmp_d;
+                    GPU_CHECK(hipMallocAsync(&blur_tmp_d, band_size * sizeof(float4), stream));
                     gaussian_blur_horizontal_kernel<<<blocks, threads, 0, stream>>>(
                         M_mm_d, blur_tmp_d,
                         lpyr.band_widths[band], lpyr.band_heights[band],
@@ -942,14 +1011,23 @@ public:
                     timings.phase_uncertainty += elapsed;
                 }
 
-                float3* M_xcm_d;
-                GPU_CHECK(hipMallocAsync(&M_xcm_d, band_size * sizeof(float3), stream));
+                float4* M_pow_d;
+                GPU_CHECK(hipMallocAsync(&M_pow_d, band_size * sizeof(float4), stream));
+                apply_channel_power_kernel<<<blocks, threads, 0, stream>>>(
+                    M_mm_d, M_pow_d,
+                    mask_q_vec,
+                    band_channel_count,
+                    band_size
+                );
+
+                float4* M_xcm_d;
+                GPU_CHECK(hipMallocAsync(&M_xcm_d, band_size * sizeof(float4), stream));
 
                 if (cross_channel_masking_enabled && xcm_weights_d) {
                     if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
                     apply_cross_channel_masking_kernel<<<blocks, threads, 0, stream>>>(
-                        M_mm_d, M_xcm_d, xcm_weights_d,
-                        channel_count,
+                        M_pow_d, M_xcm_d, xcm_weights_d,
+                        band_channel_count,
                         band_size
                     );
                     if (collect_debug) {
@@ -960,19 +1038,40 @@ public:
                         timings.cross_channel_mask += elapsed;
                     }
                 } else {
-                    // No cross-channel masking - just copy M_mm_d to M_xcm_d
-                    GPU_CHECK(hipMemcpyDtoDAsync(M_xcm_d, M_mm_d, band_size * sizeof(float3), stream));
+                    GPU_CHECK(hipMemcpyDtoDAsync(M_xcm_d, M_pow_d, band_size * sizeof(float4), stream));
                 }
 
                 if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
                 apply_masking_kernel<<<blocks, threads, 0, stream>>>(
                     T_p_d, R_p_d, M_xcm_d, D_d,
                     params.mask_p,
-                    mask_q_y, mask_q_rg, mask_q_by,
+                    band_channel_count,
                     clamp_mode_value,
                     params.d_max,
                     band_size
                 );
+                if (!collect_debug) {
+                    static bool first_masking_dump = true;
+                    if (first_masking_dump && band == 0) {
+                        hipStreamSynchronize(stream);
+                        float4 debug_T{};
+                        float4 debug_R{};
+                        float4 debug_M{};
+                        float4 debug_D{};
+                        hipMemcpyDtoH(&debug_T, T_p_d, sizeof(float4));
+                        hipMemcpyDtoH(&debug_R, R_p_d, sizeof(float4));
+                        hipMemcpyDtoH(&debug_M, M_xcm_d, sizeof(float4));
+                        hipMemcpyDtoH(&debug_D, D_d, sizeof(float4));
+                        std::cout << "[CVVDP][DEBUG] band=" << band
+                                  << " channel_count=" << band_channel_count
+                                  << " T_p[0]=" << debug_T.x << "," << debug_T.y << "," << debug_T.z << "," << debug_T.w
+                                  << " R_p[0]=" << debug_R.x << "," << debug_R.y << "," << debug_R.z << "," << debug_R.w
+                                  << " M_xcm[0]=" << debug_M.x << "," << debug_M.y << "," << debug_M.z << "," << debug_M.w
+                                  << " D[0]=" << debug_D.x << "," << debug_D.y << "," << debug_D.z << "," << debug_D.w
+                                  << std::endl;
+                        first_masking_dump = false;
+                    }
+                }
                 if (collect_debug) {
                     GPU_CHECK(hipEventRecord(timing_end, stream));
                     GPU_CHECK(hipEventSynchronize(timing_end));
@@ -984,16 +1083,17 @@ public:
                 GPU_CHECK(hipFreeAsync(T_p_d, stream));
                 GPU_CHECK(hipFreeAsync(R_p_d, stream));
                 GPU_CHECK(hipFreeAsync(M_mm_d, stream));
+                GPU_CHECK(hipFreeAsync(M_pow_d, stream));
                 GPU_CHECK(hipFreeAsync(M_xcm_d, stream));
             }
 
-            float3* partial_sums_d;
+            float4* partial_sums_d;
             int num_blocks = (band_size + 255) / 256;
-            GPU_CHECK(hipMallocAsync(&partial_sums_d, num_blocks * sizeof(float3), stream));
+            GPU_CHECK(hipMallocAsync(&partial_sums_d, num_blocks * sizeof(float4), stream));
 
             if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
-            reduce_lp_sum_per_channel_kernel<<<num_blocks, 256, 256 * sizeof(float3), stream>>>(
-                D_d, partial_sums_d, params.beta, band_size
+            reduce_lp_sum_per_channel_kernel<<<num_blocks, 256, 256 * sizeof(float4), stream>>>(
+                D_d, partial_sums_d, params.beta, band_channel_count, band_size
             );
             if (collect_debug) {
                 GPU_CHECK(hipEventRecord(timing_end, stream));
@@ -1003,15 +1103,15 @@ public:
                 timings.reduce += elapsed;
             }
 
-            std::vector<float3> partial_sums_h(num_blocks);
-            std::vector<float3> band_values_h;
+            std::vector<float4> partial_sums_h(num_blocks);
+            std::vector<float4> band_values_h;
             if (collect_debug) {
                 band_values_h.resize(band_size);
                 GPU_CHECK(hipEventRecord(timing_start, stream));
-                GPU_CHECK(hipMemcpyDtoHAsync(band_values_h.data(), D_d, band_size * sizeof(float3), stream));
+                GPU_CHECK(hipMemcpyDtoHAsync(band_values_h.data(), D_d, band_size * sizeof(float4), stream));
             }
             GPU_CHECK(hipMemcpyDtoHAsync(partial_sums_h.data(), partial_sums_d,
-                                      num_blocks * sizeof(float3), stream));
+                                      num_blocks * sizeof(float4), stream));
             if (collect_debug) GPU_CHECK(hipEventRecord(timing_end, stream));
 
             hipStreamSynchronize(stream);
@@ -1023,28 +1123,28 @@ public:
                 timings.host_copy += elapsed;
             }
 
-            double sum_x = 0.0;
-            double sum_y = 0.0;
-            double sum_z = 0.0;
-            for (const float3& value : partial_sums_h) {
-                sum_x += static_cast<double>(value.x);
-                sum_y += static_cast<double>(value.y);
-                sum_z += static_cast<double>(value.z);
+            double channel_sums[kMaxChannels] = {0.0, 0.0, 0.0, 0.0};
+            for (const float4& value : partial_sums_h) {
+                channel_sums[0] += static_cast<double>(value.x);
+                channel_sums[1] += static_cast<double>(value.y);
+                channel_sums[2] += static_cast<double>(value.z);
+                channel_sums[3] += static_cast<double>(value.w);
             }
 
             const int sample_count = std::max(1, band_size);
             const float beta_value = (params.beta > 0.0f) ? params.beta : 1.0f;
             const float inv_beta = 1.0f / beta_value;
 
-            float3 band_lp = make_float3(
-                powf(fmaxf(static_cast<float>(sum_x) / static_cast<float>(sample_count), 0.0f), inv_beta),
-                powf(fmaxf(static_cast<float>(sum_y) / static_cast<float>(sample_count), 0.0f), inv_beta),
-                powf(fmaxf(static_cast<float>(sum_z) / static_cast<float>(sample_count), 0.0f), inv_beta)
-            );
+            float4 band_lp = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+            for (int c = 0; c < band_channel_count; ++c) {
+                const float avg = fmaxf(static_cast<float>(channel_sums[c]) / static_cast<float>(sample_count), 0.0f);
+                (&band_lp.x)[c] = powf(avg, inv_beta);
+            }
             band_scores[band] = band_lp;
+            band_channel_counts[band] = band_channel_count;
 
             std::cerr << "DEBUG_BAND[" << band << "]: lp_norm=("
-                      << band_lp.x << ", " << band_lp.y << ", " << band_lp.z << ") "
+                      << band_lp.x << ", " << band_lp.y << ", " << band_lp.z << ", " << band_lp.w << ") "
                       << "beta=" << beta_value << std::endl;
 
             if (collect_debug) {
@@ -1054,12 +1154,12 @@ public:
                 info.width = lpyr.band_widths[band];
                 info.height = lpyr.band_heights[band];
                 info.rho_cpd = rho;
-                info.beta_scores = band_scores[band];
-                info.beta_score = combine_channels(band_scores[band]);
+                info.beta_scores = make_float3(band_scores[band].x, band_scores[band].y, band_scores[band].z);
+                info.beta_score = combine_channels(band_scores[band], band_channel_count);
                 info.sample_count = band_size;
 
-                for (const float3& value : band_values_h) {
-                    const float channels[3] = {value.x, value.y, value.z};
+                for (const float4& value : band_values_h) {
+                    const float channels[kMaxChannels] = {value.x, value.y, value.z, value.w};
                     for (int c = 0; c < 3; ++c) {
                         ChannelStats& stats = info.channels[c];
                         stats.min = std::min(stats.min, channels[c]);
@@ -1094,54 +1194,59 @@ public:
                                    ? params.beta_sch
                                    : ((params.beta > 0.0f) ? params.beta : 1.0f);
 
-        float baseband_weights[3] = {1.0f, 1.0f, 1.0f};
+        float baseband_weights[kMaxChannels] = {1.0f, 1.0f, 1.0f, 1.0f};
         if (!params.baseband_weight.empty()) {
-            if (params.baseband_weight.size() > 0) baseband_weights[0] = params.baseband_weight[0];
-            if (params.baseband_weight.size() > 1) baseband_weights[1] = params.baseband_weight[1];
-            if (params.baseband_weight.size() > 2) baseband_weights[2] = params.baseband_weight[2];
+            for (int c = 0; c < static_cast<int>(params.baseband_weight.size()) && c < kMaxChannels; ++c) {
+                baseband_weights[c] = params.baseband_weight[c];
+            }
         }
 
-        float3 sum_bands = make_float3(0.0f, 0.0f, 0.0f);
+        float channel_band_sums[kMaxChannels] = {0.0f, 0.0f, 0.0f, 0.0f};
+        int active_channel_count = 3;
         for (int band = 0; band < lpyr.num_bands; ++band) {
             const bool is_baseband_band = (band == lpyr.num_bands - 1);
-            const float band_components[3] = {
-                fmaxf(band_scores[band].x, 0.0f),
-                fmaxf(band_scores[band].y, 0.0f),
-                fmaxf(band_scores[band].z, 0.0f)
-            };
-            sum_bands.x += powf(band_components[0] * channel_weights[0] *
-                                    (is_baseband_band ? baseband_weights[0] : 1.0f),
-                                beta_sch);
-            sum_bands.y += powf(band_components[1] * channel_weights[1] *
-                                    (is_baseband_band ? baseband_weights[1] : 1.0f),
-                                beta_sch);
-            sum_bands.z += powf(band_components[2] * channel_weights[2] *
-                                    (is_baseband_band ? baseband_weights[2] : 1.0f),
-                                beta_sch);
+            const int band_channel_count = band_channel_counts[band];
+            active_channel_count = std::max(active_channel_count, band_channel_count);
+            for (int c = 0; c < band_channel_count; ++c) {
+                const float component = fmaxf(((&band_scores[band].x)[c]), 0.0f);
+                const float weight = channel_weights[c] * (is_baseband_band ? baseband_weights[c] : 1.0f);
+                channel_band_sums[c] += powf(component * weight, beta_sch);
+            }
         }
 
-        float3 Q_spatial_per_channel = make_float3(
-            (sum_bands.x > 0.0f) ? powf(sum_bands.x, 1.0f / beta_sch) : 0.0f,
-            (sum_bands.y > 0.0f) ? powf(sum_bands.y, 1.0f / beta_sch) : 0.0f,
-            (sum_bands.z > 0.0f) ? powf(sum_bands.z, 1.0f / beta_sch) : 0.0f
-        );
+        float channel_q_s[kMaxChannels] = {0.0f, 0.0f, 0.0f, 0.0f};
+        for (int c = 0; c < active_channel_count; ++c) {
+            const float sum = channel_band_sums[c];
+            channel_q_s[c] = (sum > 0.0f) ? powf(sum, 1.0f / beta_sch) : 0.0f;
+        }
 
         float sum_channels = 0.0f;
-        sum_channels += powf(fmaxf(Q_spatial_per_channel.x, 0.0f), beta_tch_value);
-        sum_channels += powf(fmaxf(Q_spatial_per_channel.y, 0.0f), beta_tch_value);
-        sum_channels += powf(fmaxf(Q_spatial_per_channel.z, 0.0f), beta_tch_value);
+        for (int c = 0; c < active_channel_count; ++c) {
+            sum_channels += powf(fmaxf(channel_q_s[c], 0.0f), beta_tch_value);
+        }
         float Q_tc = (sum_channels > 0.0f)
                          ? powf(sum_channels, 1.0f / beta_tch_value)
                          : 0.0f;
 
-        // Integration correction for images (single-frame usage)
-        const float Q_per_ch = Q_tc * params.image_int;
+        bool image_mode = true;
+        if (temporal_filtering_enabled && temporal.num_bands > 0) {
+            image_mode = true;
+            for (const auto& band : temporal.bands) {
+                if (band.frames_processed > 1) {
+                    image_mode = false;
+                    break;
+                }
+            }
+        }
+
+        const float image_int_factor = image_mode ? params.image_int : 1.0f;
+        const float Q_per_ch = Q_tc * image_int_factor;
 
         // DEBUG: Print aggregated scores
-        std::cerr << "DEBUG_AGG: sum_bands=(" << sum_bands.x << ", " << sum_bands.y << ", " << sum_bands.z << ")" << std::endl;
+        std::cerr << "DEBUG_AGG: sum_bands=(" << channel_band_sums[0] << ", " << channel_band_sums[1] << ", " << channel_band_sums[2] << ")" << std::endl;
         std::cerr << "DEBUG_AGG: beta_sch=" << beta_sch << " num_bands=" << lpyr.num_bands << std::endl;
-        std::cerr << "DEBUG_AGG: Q_spatial_per_channel=(" << Q_spatial_per_channel.x << ", "
-                  << Q_spatial_per_channel.y << ", " << Q_spatial_per_channel.z << ")" << std::endl;
+        std::cerr << "DEBUG_AGG: Q_spatial_per_channel=(" << channel_q_s[0] << ", "
+                  << channel_q_s[1] << ", " << channel_q_s[2] << ")" << std::endl;
         std::cerr << "DEBUG_AGG: beta_tch=" << beta_tch_value << " ch_chrom_w=" << params.ch_chrom_w << std::endl;
         std::cerr << "DEBUG_AGG: Q_per_ch=" << Q_per_ch << std::endl;
 
