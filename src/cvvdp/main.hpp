@@ -874,30 +874,75 @@ public:
             int threads = 256;
             int blocks = (band_size + threads - 1) / threads;
 
-            // Pyramid bands already contain contrast (clamped to [-1000, 1000])
-            float* test_contrast = reinterpret_cast<float*>(test_laplacian[band]);
-            float* ref_contrast = reinterpret_cast<float*>(ref_laplacian[band]);
-
-            // Allocate output buffer for D (perceptually weighted differences)
             float4* D_d;
             GPU_CHECK(hipMallocAsync(&D_d, band_size * sizeof(float4), stream));
 
-            // Extract per-pixel background luminance from Gaussian pyramid Y-channel
-            // This provides local adaptation for Weber contrast
             float* log_L_bkg_test_d = nullptr;
             float* log_L_bkg_ref_d = nullptr;
-
             GPU_CHECK(hipMallocAsync(&log_L_bkg_test_d, band_size * sizeof(float), stream));
             GPU_CHECK(hipMallocAsync(&log_L_bkg_ref_d, band_size * sizeof(float), stream));
 
-            // Launch kernel to extract Y-channel and compute log10(max(Y, min_bkg))
-            extract_log_luminance_kernel<<<blocks, threads, 0, stream>>>(
-                reinterpret_cast<float3*>(test_gaussian[band]),
-                reinterpret_cast<float3*>(ref_gaussian[band]),
+            float* contrast_test_d = nullptr;
+            float* contrast_ref_d = nullptr;
+            GPU_CHECK(hipMallocAsync(&contrast_test_d, static_cast<size_t>(band_size) * 3u * sizeof(float), stream));
+            GPU_CHECK(hipMallocAsync(&contrast_ref_d, static_cast<size_t>(band_size) * 3u * sizeof(float), stream));
+
+            float* gauss_test_expanded = nullptr;
+            float* gauss_ref_expanded = nullptr;
+            if (!is_baseband && (band + 1) < lpyr.num_bands) {
+                const int next_w = lpyr.band_widths[band + 1];
+                const int next_h = lpyr.band_heights[band + 1];
+                const size_t expand_bytes = static_cast<size_t>(band_size) * 3u * sizeof(float);
+                GPU_CHECK(hipMallocAsync(&gauss_test_expanded, expand_bytes, stream));
+                GPU_CHECK(hipMallocAsync(&gauss_ref_expanded, expand_bytes, stream));
+
+                dim3 block_dim(16, 16);
+                dim3 grid_dim((lpyr.band_widths[band] + block_dim.x - 1) / block_dim.x,
+                              (lpyr.band_heights[band] + block_dim.y - 1) / block_dim.y);
+
+                upsample_kernel<<<grid_dim, block_dim, 0, stream>>>(
+                    reinterpret_cast<float*>(test_gaussian[band + 1]),
+                    gauss_test_expanded,
+                    next_w,
+                    next_h,
+                    lpyr.band_widths[band],
+                    lpyr.band_heights[band],
+                    3);
+                upsample_kernel<<<grid_dim, block_dim, 0, stream>>>(
+                    reinterpret_cast<float*>(ref_gaussian[band + 1]),
+                    gauss_ref_expanded,
+                    next_w,
+                    next_h,
+                    lpyr.band_widths[band],
+                    lpyr.band_heights[band],
+                    3);
+            }
+
+            compute_weber_contrast_kernel<<<blocks, threads, 0, stream>>>(
+                reinterpret_cast<float*>(test_laplacian[band]),
+                reinterpret_cast<float*>(ref_laplacian[band]),
+                reinterpret_cast<float*>(test_gaussian[band]),
+                reinterpret_cast<float*>(ref_gaussian[band]),
+                gauss_test_expanded,
+                gauss_ref_expanded,
+                contrast_test_d,
+                contrast_ref_d,
                 log_L_bkg_test_d,
                 log_L_bkg_ref_d,
-                band_size
+                band_size,
+                contrast_mode,
+                is_baseband ? 1 : 0
             );
+
+            if (gauss_test_expanded) {
+                GPU_CHECK(hipFreeAsync(gauss_test_expanded, stream));
+            }
+            if (gauss_ref_expanded) {
+                GPU_CHECK(hipFreeAsync(gauss_ref_expanded, stream));
+            }
+
+            float* test_contrast = contrast_test_d;
+            float* ref_contrast = contrast_ref_d;
 
             TemporalBuffer::BandBuffer* temporal_band =
                 (temporal_filtering_enabled && band < temporal.num_bands)
@@ -961,6 +1006,99 @@ public:
                 }
 
                 band_channel_count = (temporal_band && temporal_band->frames_processed > 1) ? 4 : 3;
+
+                std::vector<float4> T_p_host;
+                std::vector<float4> R_p_host;
+                std::vector<float> test_contrast_host;
+                std::vector<float> ref_contrast_host;
+                std::vector<float4> M_mm_host;
+                std::vector<float4> M_pow_host;
+                std::vector<float4> M_xcm_host;
+                if (collect_debug) {
+                    test_contrast_host.resize(static_cast<size_t>(band_size) * 3u);
+                    ref_contrast_host.resize(static_cast<size_t>(band_size) * 3u);
+                    GPU_CHECK(hipMemcpyDtoHAsync(test_contrast_host.data(), test_contrast, band_size * 3 * sizeof(float), stream));
+                    GPU_CHECK(hipMemcpyDtoHAsync(ref_contrast_host.data(), ref_contrast, band_size * 3 * sizeof(float), stream));
+                    T_p_host.resize(band_size);
+                    R_p_host.resize(band_size);
+                    GPU_CHECK(hipMemcpyDtoHAsync(T_p_host.data(), T_p_d, band_size * sizeof(float4), stream));
+                    GPU_CHECK(hipMemcpyDtoHAsync(R_p_host.data(), R_p_d, band_size * sizeof(float4), stream));
+
+                    std::vector<float> lap_test_host(static_cast<size_t>(band_size) * 3u);
+                    std::vector<float> lap_ref_host(static_cast<size_t>(band_size) * 3u);
+                    GPU_CHECK(hipMemcpyDtoHAsync(lap_test_host.data(), test_laplacian[band], lap_test_host.size() * sizeof(float), stream));
+                    GPU_CHECK(hipMemcpyDtoHAsync(lap_ref_host.data(), ref_laplacian[band], lap_ref_host.size() * sizeof(float), stream));
+
+                    GPU_CHECK(hipStreamSynchronize(stream));
+
+                    std::array<double, kMaxChannels> diff_sum{};
+                    std::array<double, kMaxChannels> diff_max{};
+                    std::array<double, kMaxChannels> tp_abs_sum{};
+                    std::array<double, kMaxChannels> rp_abs_sum{};
+                    std::array<double, kMaxChannels> contrast_abs_sum{};
+                    std::array<double, kMaxChannels> lap_diff_sum{};
+                    for (int i = 0; i < band_size; ++i) {
+                        const float4 Tp = T_p_host[i];
+                        const float4 Rp = R_p_host[i];
+                        const float comps_tp[kMaxChannels] = {Tp.x, Tp.y, Tp.z, Tp.w};
+                        const float comps_rp[kMaxChannels] = {Rp.x, Rp.y, Rp.z, Rp.w};
+                        const float comps_test[kMaxChannels] = {
+                            test_contrast_host[i * 3 + 0],
+                            test_contrast_host[i * 3 + 1],
+                            test_contrast_host[i * 3 + 2],
+                            test_contrast_host[i * 3 + 0]  // transient uses luminance
+                        };
+                        const float comps_ref[kMaxChannels] = {
+                            ref_contrast_host[i * 3 + 0],
+                            ref_contrast_host[i * 3 + 1],
+                            ref_contrast_host[i * 3 + 2],
+                            ref_contrast_host[i * 3 + 0]
+                        };
+                        for (int c = 0; c < band_channel_count; ++c) {
+                            const float diff = fabsf(comps_tp[c] - comps_rp[c]);
+                            diff_sum[c] += diff;
+                            diff_max[c] = std::max(diff_max[c], static_cast<double>(diff));
+                            tp_abs_sum[c] += fabs(static_cast<double>(comps_tp[c]));
+                            rp_abs_sum[c] += fabs(static_cast<double>(comps_rp[c]));
+                            const float contrast_diff = fabsf(comps_test[c] - comps_ref[c]);
+                            contrast_abs_sum[c] += contrast_diff;
+                            const int idx3 = i * 3 + std::min(c, 2);
+                            const float lap_diff = fabsf(lap_test_host[idx3] - lap_ref_host[idx3]);
+                            lap_diff_sum[c] += lap_diff;
+                        }
+                    }
+                    std::cerr << "DEBUG_TP[" << band << "]: abs_diff_mean=(";
+                    for (int c = 0; c < band_channel_count; ++c) {
+                        if (c > 0) std::cerr << ", ";
+                        std::cerr << diff_sum[c] / static_cast<double>(band_size);
+                    }
+                    std::cerr << ") abs_diff_max=(";
+                    for (int c = 0; c < band_channel_count; ++c) {
+                        if (c > 0) std::cerr << ", ";
+                        std::cerr << diff_max[c];
+                    }
+                    std::cerr << ") Tp_abs_mean=(";
+                    for (int c = 0; c < band_channel_count; ++c) {
+                        if (c > 0) std::cerr << ", ";
+                        std::cerr << tp_abs_sum[c] / static_cast<double>(band_size);
+                    }
+                    std::cerr << ") Rp_abs_mean=(";
+                    for (int c = 0; c < band_channel_count; ++c) {
+                        if (c > 0) std::cerr << ", ";
+                        std::cerr << rp_abs_sum[c] / static_cast<double>(band_size);
+                    }
+                    std::cerr << ") contrast_abs_mean=(";
+                    for (int c = 0; c < band_channel_count; ++c) {
+                        if (c > 0) std::cerr << ", ";
+                        std::cerr << contrast_abs_sum[c] / static_cast<double>(band_size);
+                    }
+                    std::cerr << ") lap_abs_diff_mean=(";
+                    for (int c = 0; c < band_channel_count; ++c) {
+                        if (c > 0) std::cerr << ", ";
+                        std::cerr << lap_diff_sum[c] / static_cast<double>(band_size);
+                    }
+                    std::cerr << ")" << std::endl;
+                }
 
                 float4* M_mm_d;
                 GPU_CHECK(hipMallocAsync(&M_mm_d, band_size * sizeof(float4), stream));
@@ -1037,6 +1175,94 @@ public:
                     }
                 } else {
                     GPU_CHECK(hipMemcpyDtoDAsync(M_xcm_d, M_pow_d, band_size * sizeof(float4), stream));
+                }
+
+                if (collect_debug) {
+                    M_mm_host.resize(band_size);
+                    M_pow_host.resize(band_size);
+                    M_xcm_host.resize(band_size);
+                    GPU_CHECK(hipMemcpyDtoHAsync(M_mm_host.data(), M_mm_d, band_size * sizeof(float4), stream));
+                    GPU_CHECK(hipMemcpyDtoHAsync(M_pow_host.data(), M_pow_d, band_size * sizeof(float4), stream));
+                    GPU_CHECK(hipMemcpyDtoHAsync(M_xcm_host.data(), M_xcm_d, band_size * sizeof(float4), stream));
+                    GPU_CHECK(hipStreamSynchronize(stream));
+
+                    auto compute_stats = [&](const std::vector<float4>& values,
+                                             std::array<double, kMaxChannels>& mean_out,
+                                             std::array<double, kMaxChannels>& min_out,
+                                             std::array<double, kMaxChannels>& max_out) {
+                        for (int c = 0; c < kMaxChannels; ++c) {
+                            mean_out[c] = 0.0;
+                            min_out[c] = std::numeric_limits<double>::infinity();
+                            max_out[c] = -std::numeric_limits<double>::infinity();
+                        }
+                        const double inv_size = (band_size > 0) ? 1.0 / static_cast<double>(band_size) : 0.0;
+                        for (const float4& v : values) {
+                            const float comps[kMaxChannels] = {v.x, v.y, v.z, v.w};
+                            for (int c = 0; c < band_channel_count; ++c) {
+                                const double val = static_cast<double>(comps[c]);
+                                mean_out[c] += val * inv_size;
+                                min_out[c] = std::min(min_out[c], val);
+                                max_out[c] = std::max(max_out[c], val);
+                            }
+                        }
+                        for (int c = band_channel_count; c < kMaxChannels; ++c) {
+                            mean_out[c] = 0.0;
+                            min_out[c] = 0.0;
+                            max_out[c] = 0.0;
+                        }
+                    };
+
+                    std::array<double, kMaxChannels> mm_mean{}, mm_min{}, mm_max{};
+                    std::array<double, kMaxChannels> mp_mean{}, mp_min{}, mp_max{};
+                    std::array<double, kMaxChannels> mx_mean{}, mx_min{}, mx_max{};
+                    compute_stats(M_mm_host, mm_mean, mm_min, mm_max);
+                    compute_stats(M_pow_host, mp_mean, mp_min, mp_max);
+                    compute_stats(M_xcm_host, mx_mean, mx_min, mx_max);
+
+                    std::array<double, kMaxChannels> denom_mean{};
+                    for (int c = 0; c < band_channel_count; ++c) {
+                        denom_mean[c] = 1.0 + std::max(mx_mean[c], 0.0);
+                    }
+
+                    std::cerr << "DEBUG_MASK[" << band << "]: ";
+                    std::cerr << "M_mm_mean=(";
+                    for (int c = 0; c < band_channel_count; ++c) {
+                        if (c > 0) std::cerr << ", ";
+                        std::cerr << mm_mean[c];
+                    }
+                    std::cerr << ") M_pow_mean=(";
+                    for (int c = 0; c < band_channel_count; ++c) {
+                        if (c > 0) std::cerr << ", ";
+                        std::cerr << mp_mean[c];
+                    }
+                    std::cerr << ") M_xcm_mean=(";
+                    for (int c = 0; c < band_channel_count; ++c) {
+                        if (c > 0) std::cerr << ", ";
+                        std::cerr << mx_mean[c];
+                    }
+                    std::cerr << ") denom_mean=(";
+                    for (int c = 0; c < band_channel_count; ++c) {
+                        if (c > 0) std::cerr << ", ";
+                        std::cerr << denom_mean[c];
+                    }
+                    std::cerr << ")" << std::endl;
+
+                    std::cerr << "  M_mm_minmax=(";
+                    for (int c = 0; c < band_channel_count; ++c) {
+                        if (c > 0) std::cerr << ", ";
+                        std::cerr << mm_min[c] << "/" << mm_max[c];
+                    }
+                    std::cerr << ") M_pow_minmax=(";
+                    for (int c = 0; c < band_channel_count; ++c) {
+                        if (c > 0) std::cerr << ", ";
+                        std::cerr << mp_min[c] << "/" << mp_max[c];
+                    }
+                    std::cerr << ") M_xcm_minmax=(";
+                    for (int c = 0; c < band_channel_count; ++c) {
+                        if (c > 0) std::cerr << ", ";
+                        std::cerr << mx_min[c] << "/" << mx_max[c];
+                    }
+                    std::cerr << ")" << std::endl;
                 }
 
                 if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
@@ -1166,9 +1392,11 @@ public:
             }
 
             GPU_CHECK(hipFreeAsync(D_d, stream));
-            GPU_CHECK(hipFreeAsync(partial_sums_d, stream));
-            GPU_CHECK(hipFreeAsync(log_L_bkg_test_d, stream));
-            GPU_CHECK(hipFreeAsync(log_L_bkg_ref_d, stream));
+                GPU_CHECK(hipFreeAsync(partial_sums_d, stream));
+                GPU_CHECK(hipFreeAsync(log_L_bkg_test_d, stream));
+                GPU_CHECK(hipFreeAsync(log_L_bkg_ref_d, stream));
+                GPU_CHECK(hipFreeAsync(contrast_test_d, stream));
+                GPU_CHECK(hipFreeAsync(contrast_ref_d, stream));
         }
 
         lpyr.free_levels(test_laplacian, stream);

@@ -28,14 +28,14 @@ __device__ __forceinline__ float srgb_to_linear(float v) {
 // XYZ to LMS (cone space using Hunt-Pointer-Estevez transformation)
 __device__ __forceinline__ float3 xyz_to_lms2006(float3 xyz) {
     float3 lms;
-    lms.x =  0.4002f * xyz.x + 0.7075f * xyz.y - 0.0807f * xyz.z;  // L
-    lms.y = -0.2280f * xyz.x + 1.1500f * xyz.y + 0.0612f * xyz.z;  // M
-    lms.z =  0.0000f * xyz.x + 0.0000f * xyz.y + 0.9184f * xyz.z;  // S
+    lms.x =  0.187596268556126f * xyz.x + 0.585168649077728f * xyz.y - 0.026384263306304f * xyz.z;  // L
+    lms.y = -0.133397430663221f * xyz.x + 0.405505777260049f * xyz.y + 0.034502127690364f * xyz.z;  // M
+    lms.z =  0.000244379021663f * xyz.x - 0.000542995890619f * xyz.y + 0.019406849066323f * xyz.z;  // S
     return lms;
 }
 
-// Log-LMS to DKL opponent color space (Derrington-Krauskopf-Lennie) with D65 white point
-__device__ __forceinline__ float3 log_lms_to_dkl_d65(float3 log_lms) {
+// LMS to DKL opponent color space (Derrington-Krauskopf-Lennie) with D65 white point
+__device__ __forceinline__ float3 lms2006_to_dkl_d65(float3 lms) {
     const float M00 = 1.0f;
     const float M01 = 1.0f;
     const float M02 = 0.0f;
@@ -49,9 +49,9 @@ __device__ __forceinline__ float3 log_lms_to_dkl_d65(float3 log_lms) {
     const float M22 = 50.9775696f;
 
     float3 dkl;
-    dkl.x = M00 * log_lms.x + M01 * log_lms.y + M02 * log_lms.z;
-    dkl.y = M10 * log_lms.x + M11 * log_lms.y + M12 * log_lms.z;
-    dkl.z = M20 * log_lms.x + M21 * log_lms.y + M22 * log_lms.z;
+    dkl.x = M00 * lms.x + M01 * lms.y + M02 * lms.z;
+    dkl.y = M10 * lms.x + M11 * lms.y + M12 * lms.z;
+    dkl.z = M20 * lms.x + M21 * lms.y + M22 * lms.z;
     return dkl;
 }
 
@@ -165,13 +165,7 @@ __global__ void rgb_to_dkl_kernel(float3* data,
     xyz.z = rgb2xyz[6] * rgb.x + rgb2xyz[7] * rgb.y + rgb2xyz[8] * rgb.z;
 
     float3 lms = xyz_to_lms2006(xyz);
-    const float epsilon = 1e-5f;
-    float3 log_lms;
-    log_lms.x = log10f(fmaxf(lms.x, epsilon));
-    log_lms.y = log10f(fmaxf(lms.y, epsilon));
-    log_lms.z = log10f(fmaxf(lms.z, epsilon));
-
-    data[idx] = log_lms_to_dkl_d65(log_lms);
+    data[idx] = lms2006_to_dkl_d65(lms);
 }
 
 // Kernel to apply log transformation to LMS values
