@@ -929,9 +929,6 @@ public:
                 GPU_CHECK(hipMallocAsync(&T_p_d, band_size * sizeof(float4), stream));
                 GPU_CHECK(hipMallocAsync(&R_p_d, band_size * sizeof(float4), stream));
 
-                const int initial_channel_count =
-                    (temporal_band && temporal_band->frames_processed > 0) ? 4 : 3;
-
                 if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
                 apply_csf_and_gain_kernel<<<blocks, threads, 0, stream>>>(
                     test_contrast, ref_contrast,
@@ -941,7 +938,7 @@ public:
                     rho,
                     csf.log_L_bkg_d, csf.log_rho_d,
                     csf.logS_o0_c0_d, csf.logS_o0_c1_d, csf.logS_o0_c2_d, csf.logS_o1_c0_d,
-                    csf.num_L_bkg, csf.num_rho, initial_channel_count, params.sensitivity_correction
+                    csf.num_L_bkg, csf.num_rho, temporal_band ? 4 : 3, params.sensitivity_correction
                 );
                 if (collect_debug) {
                     GPU_CHECK(hipEventRecord(timing_end, stream));
@@ -956,7 +953,7 @@ public:
                     apply_temporal_filtering(
                         T_p_d, R_p_d,
                         *temporal_band,
-                        temporal.alpha,
+                        temporal,
                         lpyr.band_widths[band], lpyr.band_heights[band],
                         stream
                     );
@@ -1050,28 +1047,6 @@ public:
                     params.d_max,
                     band_size
                 );
-                if (!collect_debug) {
-                    static bool first_masking_dump = true;
-                    if (first_masking_dump && band == 0) {
-                        hipStreamSynchronize(stream);
-                        float4 debug_T{};
-                        float4 debug_R{};
-                        float4 debug_M{};
-                        float4 debug_D{};
-                        hipMemcpyDtoH(&debug_T, T_p_d, sizeof(float4));
-                        hipMemcpyDtoH(&debug_R, R_p_d, sizeof(float4));
-                        hipMemcpyDtoH(&debug_M, M_xcm_d, sizeof(float4));
-                        hipMemcpyDtoH(&debug_D, D_d, sizeof(float4));
-                        std::cout << "[CVVDP][DEBUG] band=" << band
-                                  << " channel_count=" << band_channel_count
-                                  << " T_p[0]=" << debug_T.x << "," << debug_T.y << "," << debug_T.z << "," << debug_T.w
-                                  << " R_p[0]=" << debug_R.x << "," << debug_R.y << "," << debug_R.z << "," << debug_R.w
-                                  << " M_xcm[0]=" << debug_M.x << "," << debug_M.y << "," << debug_M.z << "," << debug_M.w
-                                  << " D[0]=" << debug_D.x << "," << debug_D.y << "," << debug_D.z << "," << debug_D.w
-                                  << std::endl;
-                        first_masking_dump = false;
-                    }
-                }
                 if (collect_debug) {
                     GPU_CHECK(hipEventRecord(timing_end, stream));
                     GPU_CHECK(hipEventSynchronize(timing_end));
@@ -1243,10 +1218,13 @@ public:
         const float Q_per_ch = Q_tc * image_int_factor;
 
         // DEBUG: Print aggregated scores
-        std::cerr << "DEBUG_AGG: sum_bands=(" << channel_band_sums[0] << ", " << channel_band_sums[1] << ", " << channel_band_sums[2] << ")" << std::endl;
+        std::cerr << "DEBUG_AGG: sum_bands=("
+                  << channel_band_sums[0] << ", " << channel_band_sums[1] << ", "
+                  << channel_band_sums[2] << ", " << channel_band_sums[3] << ")" << std::endl;
         std::cerr << "DEBUG_AGG: beta_sch=" << beta_sch << " num_bands=" << lpyr.num_bands << std::endl;
-        std::cerr << "DEBUG_AGG: Q_spatial_per_channel=(" << channel_q_s[0] << ", "
-                  << channel_q_s[1] << ", " << channel_q_s[2] << ")" << std::endl;
+        std::cerr << "DEBUG_AGG: Q_spatial_per_channel=("
+                  << channel_q_s[0] << ", " << channel_q_s[1] << ", "
+                  << channel_q_s[2] << ", " << channel_q_s[3] << ")" << std::endl;
         std::cerr << "DEBUG_AGG: beta_tch=" << beta_tch_value << " ch_chrom_w=" << params.ch_chrom_w << std::endl;
         std::cerr << "DEBUG_AGG: Q_per_ch=" << Q_per_ch << std::endl;
 
