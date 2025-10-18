@@ -179,11 +179,10 @@ struct TemporalBuffer {
         const size_t kernel_bytes = static_cast<size_t>(filter_len) * sizeof(float);
         for (int c = 0; c < 4; ++c) {
             GPU_CHECK(hipMalloc(&filter_kernel_dev[c], kernel_bytes));
-            GPU_CHECK(hipMemcpyAsync(filter_kernel_dev[c],
-                                     filter_kernels[c].data(),
-                                     kernel_bytes,
-                                     hipMemcpyHostToDevice,
-                                     stream));
+            GPU_CHECK(hipMemcpyHtoDAsync(filter_kernel_dev[c],
+                                         filter_kernels[c].data(),
+                                         kernel_bytes,
+                                         stream));
         }
         GPU_CHECK(hipStreamSynchronize(stream));
 
