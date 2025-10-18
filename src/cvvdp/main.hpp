@@ -2010,19 +2010,42 @@ public:
         // Only support UINT16 for now
         static_assert(T == InputMemType::UINT16, "CVVDP currently only supports UINT16 input");
 
-        // Convert planar uint16 RGB to packed float3
+        // Allocate temporary device buffers for planar RGB (src_planes and dist_planes are HOST pointers!)
+        uint8_t* src_planes_d[3];
+        uint8_t* dist_planes_d[3];
+        size_t plane_bytes_src = stride_src * height;
+        size_t plane_bytes_dist = stride_dist * height;
+
+        for (int p = 0; p < 3; p++) {
+            GPU_CHECK(hipMallocAsync(&src_planes_d[p], plane_bytes_src, stream));
+            GPU_CHECK(hipMallocAsync(&dist_planes_d[p], plane_bytes_dist, stream));
+        }
+
+        // Upload planar RGB from host to device
+        for (int p = 0; p < 3; p++) {
+            GPU_CHECK(hipMemcpyHtoDAsync(src_planes_d[p], src_planes[p], plane_bytes_src, stream));
+            GPU_CHECK(hipMemcpyHtoDAsync(dist_planes_d[p], dist_planes[p], plane_bytes_dist, stream));
+        }
+
+        // Convert planar uint16 RGB to packed float3 using DEVICE pointers
         int threads = 256;
         int blocks = (width * height + threads - 1) / threads;
 
         cvvdp_convert_planar_uint16_to_float3<<<blocks, threads, 0, stream>>>(
-            temp_src_d, src_planes[0], src_planes[1], src_planes[2],
+            temp_src_d, src_planes_d[0], src_planes_d[1], src_planes_d[2],
             width, height, stride_src
         );
 
         cvvdp_convert_planar_uint16_to_float3<<<blocks, threads, 0, stream>>>(
-            temp_dist_d, dist_planes[0], dist_planes[1], dist_planes[2],
+            temp_dist_d, dist_planes_d[0], dist_planes_d[1], dist_planes_d[2],
             width, height, stride_dist
         );
+
+        // Free temporary device buffers
+        for (int p = 0; p < 3; p++) {
+            GPU_CHECK(hipFreeAsync(src_planes_d[p], stream));
+            GPU_CHECK(hipFreeAsync(dist_planes_d[p], stream));
+        }
 
         GPU_CHECK(hipStreamSynchronize(stream));
 
