@@ -27,6 +27,10 @@ struct CastleCSF {
 
     std::vector<float> log_L_bkg_h;
     std::vector<float> log_rho_h;
+    std::vector<float> logS_o0_c0;  // Host-side data for debugging
+    std::vector<float> logS_o0_c1;
+    std::vector<float> logS_o0_c2;
+    std::vector<float> logS_o1_c0;
 
     void init(const std::string& csf_lut_path, hipStream_t s) {
         stream = s;
@@ -116,10 +120,10 @@ struct CastleCSF {
         GPU_CHECK(hipMemcpyHtoDAsync(log_L_bkg_d, log_L_bkg_h.data(), axis_L_bytes, stream));
         GPU_CHECK(hipMemcpyHtoDAsync(log_rho_d, log_rho_h.data(), axis_rho_bytes, stream));
 
-        auto logS_o0_c0 = load_plane("o0_c1");
-        auto logS_o0_c1 = load_plane("o0_c2");
-        auto logS_o0_c2 = load_plane("o0_c3");
-        auto logS_o1_c0 = load_plane("o5_c1");
+        logS_o0_c0 = load_plane("o0_c1");
+        logS_o0_c1 = load_plane("o0_c2");
+        logS_o0_c2 = load_plane("o0_c3");
+        logS_o1_c0 = load_plane("o5_c1");
 
         GPU_CHECK(hipMalloc(&logS_o0_c0_d, plane_bytes));
         GPU_CHECK(hipMalloc(&logS_o0_c1_d, plane_bytes));
@@ -163,6 +167,74 @@ struct CastleCSF {
         num_rho = 0;
         log_L_bkg_h.clear();
         log_rho_h.clear();
+        logS_o0_c0.clear();
+        logS_o0_c1.clear();
+        logS_o0_c2.clear();
+        logS_o1_c0.clear();
+    }
+
+    // Helper method to log CSF sensitivity values for debugging
+    void log_csf_samples(float rho, const float* log_L_bkg_samples, int num_samples, hipStream_t stream) {
+        std::vector<float> log_L_host(num_samples);
+        GPU_CHECK(hipMemcpyDtoHAsync(log_L_host.data(), log_L_bkg_samples, num_samples * sizeof(float), stream));
+        GPU_CHECK(hipStreamSynchronize(stream));
+        
+        std::cerr << "DEBUG_CSF_LOOKUP: rho=" << rho << "cpd" << std::endl;
+        for (int i = 0; i < std::min(5, num_samples); i++) {
+            // Perform CSF lookup for this luminance
+            float log_rho = log10f(rho);
+            
+            // Find indices for interpolation (same logic as in kernels)
+            float rho_idx = 0.0f;
+            for (int j = 0; j < num_rho - 1; j++) {
+                if (log_rho_h[j] <= log_rho && log_rho <= log_rho_h[j + 1]) {
+                    rho_idx = j + (log_rho - log_rho_h[j]) / (log_rho_h[j + 1] - log_rho_h[j]);
+                    break;
+                }
+            }
+
+            float L_idx = 0.0f;
+            for (int j = 0; j < num_L_bkg - 1; j++) {
+                if (log_L_bkg_h[j] <= log_L_host[i] && log_L_host[i] <= log_L_bkg_h[j + 1]) {
+                    L_idx = j + (log_L_host[i] - log_L_bkg_h[j]) / (log_L_bkg_h[j + 1] - log_L_bkg_h[j]);
+                    break;
+                }
+            }
+
+            // Interpolate sensitivity values (host-side version)
+            auto interp2d_host = [](const std::vector<float>& lut, int width, int height, float x, float y) -> float {
+                int x0 = static_cast<int>(floorf(x));
+                int y0 = static_cast<int>(floorf(y));
+                int x1 = std::min(x0 + 1, width - 1);
+                int y1 = std::min(y0 + 1, height - 1);
+                
+                float fx = x - x0;
+                float fy = y - y0;
+                
+                float f00 = lut[y0 * width + x0];
+                float f01 = lut[y1 * width + x0];
+                float f10 = lut[y0 * width + x1];
+                float f11 = lut[y1 * width + x1];
+                
+                float f0 = f00 * (1.0f - fx) + f10 * fx;
+                float f1 = f01 * (1.0f - fx) + f11 * fx;
+                
+                return f0 * (1.0f - fy) + f1 * fy;
+            };
+            
+            float logS_y = interp2d_host(logS_o0_c0, num_rho, num_L_bkg, rho_idx, L_idx);
+            float logS_rg = interp2d_host(logS_o0_c1, num_rho, num_L_bkg, rho_idx, L_idx);
+            float logS_by = interp2d_host(logS_o0_c2, num_rho, num_L_bkg, rho_idx, L_idx);
+            
+            // Convert to linear sensitivity
+            float S_y = powf(10.0f, logS_y);
+            float S_rg = powf(10.0f, logS_rg);
+            float S_by = powf(10.0f, logS_by);
+            
+            std::cerr << "  log_L_bkg[" << i << "]=" << log_L_host[i] 
+                      << " -> logS=(y:" << logS_y << ", rg:" << logS_rg << ", by:" << logS_by << ")"
+                      << " S=(y:" << S_y << ", rg:" << S_rg << ", by:" << S_by << ")" << std::endl;
+        }
     }
 };
 

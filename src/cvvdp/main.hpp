@@ -221,6 +221,14 @@ __global__ void apply_csf_and_gain_kernel(
     const float ch_gain_by = 1.0f;
     const float ch_gain_trans = 1.0f;
 
+    // Debug: Log sensitivity values for first few pixels
+    if (idx < 5) {
+        printf("DEBUG_KERNEL[%d]: logS=(y:%.6f, rg:%.6f, by:%.6f) S=(y:%.6f, rg:%.6f, by:%.6f) contrast=(%.6f, %.6f, %.6f)\n", 
+               idx, logS_y, logS_rg, logS_by, S_y, S_rg, S_by, T.x, T.y, T.z);
+        printf("DEBUG_KERNEL[%d]: T_p_before=(%.6f, %.6f, %.6f) ch_gain=(%.6f, %.6f, %.6f)\n", 
+               idx, T.x * S_y, T.y * S_rg, T.z * S_by, ch_gain_y, ch_gain_rg, ch_gain_by);
+    }
+
     float4 Tp = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
     float4 Rp = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
     if (channel_count > 0) {
@@ -242,6 +250,12 @@ __global__ void apply_csf_and_gain_kernel(
 
     T_p[idx] = Tp;
     R_p[idx] = Rp;
+
+    // Debug: Log final T_p values for first few pixels
+    if (idx < 5) {
+        printf("DEBUG_KERNEL[%d]: T_p_final=(%.6f, %.6f, %.6f, %.6f) R_p_final=(%.6f, %.6f, %.6f, %.6f)\n", 
+               idx, Tp.x, Tp.y, Tp.z, Tp.w, Rp.x, Rp.y, Rp.z, Rp.w);
+    }
 }
 
 // Compute mutual masking term: M_mm = min(|T_p|, |R_p|)
@@ -937,6 +951,33 @@ public:
                 is_baseband ? 1 : 0
             );
 
+            // Debug: Log contrast computation for band 0
+            if (collect_debug && band == 0) {
+                // Sample contrast values
+                std::vector<float> contrast_test_samples(30), contrast_ref_samples(30);
+                std::vector<float> log_bkg_test_samples(10), log_bkg_ref_samples(10);
+                
+                GPU_CHECK(hipMemcpyDtoHAsync(contrast_test_samples.data(), contrast_test_d, 30 * sizeof(float), stream));
+                GPU_CHECK(hipMemcpyDtoHAsync(contrast_ref_samples.data(), contrast_ref_d, 30 * sizeof(float), stream));
+                GPU_CHECK(hipMemcpyDtoHAsync(log_bkg_test_samples.data(), log_L_bkg_test_d, 10 * sizeof(float), stream));
+                GPU_CHECK(hipMemcpyDtoHAsync(log_bkg_ref_samples.data(), log_L_bkg_ref_d, 10 * sizeof(float), stream));
+                GPU_CHECK(hipStreamSynchronize(stream));
+                
+                std::cerr << "DEBUG_CONTRAST[" << band << "]: contrast_test_Y_samples=["
+                          << contrast_test_samples[0] << ", " << contrast_test_samples[3] << ", " 
+                          << contrast_test_samples[6] << "]" << std::endl;
+                std::cerr << "  contrast_test_RG_samples=["
+                          << contrast_test_samples[1] << ", " << contrast_test_samples[4] << ", " 
+                          << contrast_test_samples[7] << "]" << std::endl;
+                std::cerr << "  contrast_test_BY_samples=["
+                          << contrast_test_samples[2] << ", " << contrast_test_samples[5] << ", " 
+                          << contrast_test_samples[8] << "]" << std::endl;
+                std::cerr << "  log_L_bkg_test_samples=[" << log_bkg_test_samples[0] << ", "
+                          << log_bkg_test_samples[1] << ", " << log_bkg_test_samples[2] << "]" << std::endl;
+                std::cerr << "  log_L_bkg_ref_samples=[" << log_bkg_ref_samples[0] << ", "
+                          << log_bkg_ref_samples[1] << ", " << log_bkg_ref_samples[2] << "]" << std::endl;
+            }
+
             if (gauss_test_expanded) {
                 GPU_CHECK(hipFreeAsync(gauss_test_expanded, stream));
             }
@@ -995,6 +1036,25 @@ public:
                     float elapsed = 0.0f;
                     GPU_CHECK(hipEventElapsedTime(&elapsed, timing_start, timing_end));
                     timings.apply_csf_and_gain += elapsed;
+                    
+                    // Copy T_p and R_p data AFTER kernel runs
+                    GPU_CHECK(hipStreamSynchronize(stream));
+                }
+
+                // Debug: Log CSF sensitivity values for band 0
+                if (collect_debug && band == 0) {
+                    // Sample a few CSF sensitivity values
+                    std::vector<float> log_L_test(10), log_L_ref(10);
+                    GPU_CHECK(hipMemcpyDtoHAsync(log_L_test.data(), log_L_bkg_test_d, 10 * sizeof(float), stream));
+                    GPU_CHECK(hipMemcpyDtoHAsync(log_L_ref.data(), log_L_bkg_ref_d, 10 * sizeof(float), stream));
+                    GPU_CHECK(hipStreamSynchronize(stream));
+                    
+                    std::cerr << "DEBUG_CSF[" << band << "]: rho=" << rho << "cpd"
+                              << " log_L_bkg_test_samples=[" << log_L_test[0] << ", " << log_L_test[1] << ", " << log_L_test[2] << "]"
+                              << " log_L_bkg_ref_samples=[" << log_L_ref[0] << ", " << log_L_ref[1] << ", " << log_L_ref[2] << "]" << std::endl;
+                    
+                    // Calculate what sensitivity values should be for these luminances
+                    csf.log_csf_samples(rho, log_L_bkg_test_d, 10, stream);
                 }
 
                 // Apply temporal filtering if enabled
@@ -1017,23 +1077,31 @@ public:
                 std::vector<float4> M_mm_host;
                 std::vector<float4> M_pow_host;
                 std::vector<float4> M_xcm_host;
+                std::vector<float> lap_test_host;
+                std::vector<float> lap_ref_host;
                 if (collect_debug) {
                     test_contrast_host.resize(static_cast<size_t>(band_size) * 3u);
                     ref_contrast_host.resize(static_cast<size_t>(band_size) * 3u);
                     GPU_CHECK(hipMemcpyDtoHAsync(test_contrast_host.data(), test_contrast, band_size * 3 * sizeof(float), stream));
                     GPU_CHECK(hipMemcpyDtoHAsync(ref_contrast_host.data(), ref_contrast, band_size * 3 * sizeof(float), stream));
+
+                    lap_test_host.resize(static_cast<size_t>(band_size) * 3u);
+                    lap_ref_host.resize(static_cast<size_t>(band_size) * 3u);
+                    GPU_CHECK(hipMemcpyDtoHAsync(lap_test_host.data(), test_laplacian[band], lap_test_host.size() * sizeof(float), stream));
+                    GPU_CHECK(hipMemcpyDtoHAsync(lap_ref_host.data(), ref_laplacian[band], lap_ref_host.size() * sizeof(float), stream));
+                }
+
+                // Copy T_p and R_p data AFTER kernel runs for debug statistics
+                if (collect_debug) {
                     T_p_host.resize(band_size);
                     R_p_host.resize(band_size);
                     GPU_CHECK(hipMemcpyDtoHAsync(T_p_host.data(), T_p_d, band_size * sizeof(float4), stream));
                     GPU_CHECK(hipMemcpyDtoHAsync(R_p_host.data(), R_p_d, band_size * sizeof(float4), stream));
-
-                    std::vector<float> lap_test_host(static_cast<size_t>(band_size) * 3u);
-                    std::vector<float> lap_ref_host(static_cast<size_t>(band_size) * 3u);
-                    GPU_CHECK(hipMemcpyDtoHAsync(lap_test_host.data(), test_laplacian[band], lap_test_host.size() * sizeof(float), stream));
-                    GPU_CHECK(hipMemcpyDtoHAsync(lap_ref_host.data(), ref_laplacian[band], lap_ref_host.size() * sizeof(float), stream));
-
                     GPU_CHECK(hipStreamSynchronize(stream));
+                }
 
+                // Debug statistics calculation - moved after T_p data is available
+                if (collect_debug) {
                     std::array<double, kMaxChannels> diff_sum{};
                     std::array<double, kMaxChannels> diff_max{};
                     std::array<double, kMaxChannels> tp_abs_sum{};
@@ -1282,6 +1350,37 @@ public:
                     float elapsed = 0.0f;
                     GPU_CHECK(hipEventElapsedTime(&elapsed, timing_start, timing_end));
                     timings.masking += elapsed;
+                }
+
+                // Debug: Log masking kernel output for band 0
+                if (collect_debug && band == 0) {
+                    // Sample D_d output values
+                    std::vector<float4> D_samples(100);
+                    GPU_CHECK(hipMemcpyDtoHAsync(D_samples.data(), D_d, 100 * sizeof(float4), stream));
+                    GPU_CHECK(hipStreamSynchronize(stream));
+                    
+                    // Calculate statistics
+                    double D_mean[3] = {0, 0, 0};
+                    double D_max[3] = {0, 0, 0};
+                    for (int i = 0; i < 100; i++) {
+                        D_mean[0] += D_samples[i].x / 100.0;
+                        D_mean[1] += D_samples[i].y / 100.0;
+                        D_mean[2] += D_samples[i].z / 100.0;
+                        D_max[0] = std::max(D_max[0], (double)D_samples[i].x);
+                        D_max[1] = std::max(D_max[1], (double)D_samples[i].y);
+                        D_max[2] = std::max(D_max[2], (double)D_samples[i].z);
+                    }
+                    
+                    std::cerr << "DEBUG_D_OUT[" << band << "]: D_mean=("
+                              << D_mean[0] << ", " << D_mean[1] << ", " << D_mean[2] << ") "
+                              << "D_max=(" << D_max[0] << ", " << D_max[1] << ", " << D_max[2] << ")" << std::endl;
+                    
+                    // Also log some raw samples
+                    std::cerr << "  D_samples[0:5]=[(" << D_samples[0].x << "," << D_samples[0].y << "," << D_samples[0].z << "), "
+                              << "(" << D_samples[1].x << "," << D_samples[1].y << "," << D_samples[1].z << "), "
+                              << "(" << D_samples[2].x << "," << D_samples[2].y << "," << D_samples[2].z << "), "
+                              << "(" << D_samples[3].x << "," << D_samples[3].y << "," << D_samples[3].z << "), "
+                              << "(" << D_samples[4].x << "," << D_samples[4].y << "," << D_samples[4].z << ")]" << std::endl;
                 }
 
                 GPU_CHECK(hipFreeAsync(T_p_d, stream));
