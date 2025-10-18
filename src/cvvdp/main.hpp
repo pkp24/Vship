@@ -665,6 +665,7 @@ public:
                 params.sigma_tf,
                 params.beta_tf,
                 frame_rate,
+                params.filter_len,
                 stream
             );
         }

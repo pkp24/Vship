@@ -34,29 +34,24 @@ __device__ __forceinline__ float3 xyz_to_lms2006(float3 xyz) {
     return lms;
 }
 
-// LMS to DKL opponent color space (Derrington-Krauskopf-Lennie)
-// DKL with D65 white point
-__device__ __forceinline__ float3 lms_to_dkl_d65(float3 lms) {
-    // Normalized to D65 white point: L=1.0, M=1.0, S=1.0
-    // These values represent the LMS for D65 white
-    const float L_w = 1.0f;
-    const float M_w = 1.0f;
-    const float S_w = 1.0f;
+// Log-LMS to DKL opponent color space (Derrington-Krauskopf-Lennie) with D65 white point
+__device__ __forceinline__ float3 log_lms_to_dkl_d65(float3 log_lms) {
+    const float M00 = 1.0f;
+    const float M01 = 1.0f;
+    const float M02 = 0.0f;
 
-    // Normalize by white point
-    float l_norm = lms.x / L_w;
-    float m_norm = lms.y / M_w;
-    float s_norm = lms.z / S_w;
+    const float M10 = 1.0f;
+    const float M11 = -2.311130285f;
+    const float M12 = 0.0f;
 
-    // DKL transformation
+    const float M20 = -1.0f;
+    const float M21 = -1.0f;
+    const float M22 = 50.9775696f;
+
     float3 dkl;
-    // Achromatic (luminance) channel
-    dkl.x = l_norm + m_norm;
-    // Red-Green opponent channel
-    dkl.y = l_norm - m_norm;
-    // Blue-Yellow (S-cone) opponent channel
-    dkl.z = s_norm - (l_norm + m_norm);
-
+    dkl.x = M00 * log_lms.x + M01 * log_lms.y + M02 * log_lms.z;
+    dkl.y = M10 * log_lms.x + M11 * log_lms.y + M12 * log_lms.z;
+    dkl.z = M20 * log_lms.x + M21 * log_lms.y + M22 * log_lms.z;
     return dkl;
 }
 
@@ -170,7 +165,13 @@ __global__ void rgb_to_dkl_kernel(float3* data,
     xyz.z = rgb2xyz[6] * rgb.x + rgb2xyz[7] * rgb.y + rgb2xyz[8] * rgb.z;
 
     float3 lms = xyz_to_lms2006(xyz);
-    data[idx] = lms_to_dkl_d65(lms);
+    const float epsilon = 1e-5f;
+    float3 log_lms;
+    log_lms.x = log10f(fmaxf(lms.x, epsilon));
+    log_lms.y = log10f(fmaxf(lms.y, epsilon));
+    log_lms.z = log10f(fmaxf(lms.z, epsilon));
+
+    data[idx] = log_lms_to_dkl_d65(log_lms);
 }
 
 // Kernel to apply log transformation to LMS values
