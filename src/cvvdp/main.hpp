@@ -931,7 +931,7 @@ public:
                 dim3 grid_dim((lpyr.band_widths[band] + block_dim.x - 1) / block_dim.x,
                               (lpyr.band_heights[band] + block_dim.y - 1) / block_dim.y);
 
-                upsample_kernel<<<grid_dim, block_dim, 0, stream>>>(
+                expand_gaussian_kernel<<<grid_dim, block_dim, 0, stream>>>(
                     reinterpret_cast<float*>(test_gaussian[band + 1]),
                     gauss_test_expanded,
                     next_w,
@@ -939,7 +939,7 @@ public:
                     lpyr.band_widths[band],
                     lpyr.band_heights[band],
                     3);
-                upsample_kernel<<<grid_dim, block_dim, 0, stream>>>(
+                expand_gaussian_kernel<<<grid_dim, block_dim, 0, stream>>>(
                     reinterpret_cast<float*>(ref_gaussian[band + 1]),
                     gauss_ref_expanded,
                     next_w,
@@ -1939,6 +1939,12 @@ __global__ void cvvdp_convert_planar_uint16_to_float3(
 
     output[idx] = rgb;
 }
+
+__global__ void expand_gaussian_kernel(const float* input, float* output,
+    int in_width, int in_height,
+    int out_width, int out_height,
+    int channels);
+
 
 // Computing implementation wrapper for FFVship integration
 class CVVDPComputingImplementation {

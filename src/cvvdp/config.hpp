@@ -401,18 +401,33 @@ struct DisplayModel {
     float fov_diagonal = 0.0f;
     ColorSpaceParams color_space;
 
+
     float get_ppd() const {
-        const float diagonal_pixels = std::sqrt(static_cast<float>(width * width + height * height));
-        const float diagonal_meters = diagonal_size_inches * 0.0254f;
-        const float fov_rad = 2.0f * std::atan(diagonal_meters / (2.0f * viewing_distance_meters));
-        const float fov_deg = fov_rad * 180.0f / kPi;
-        return diagonal_pixels / std::max(fov_deg, std::numeric_limits<float>::epsilon());
+        using std::atan; using std::sqrt; using std::max;
+        // Validate inputs defensively
+        const double wpx = std::max(1, width);
+        const double hpx = std::max(1, height);
+        const double diag_in = std::max(0.01f, diagonal_size_inches);
+        const double dist_m = std::max(1e-6f, viewing_distance_meters);
+        
+        // Physical display width in meters from diagonal and pixel aspect
+        const double diag_m = diag_in * 0.0254; // inches -> meters
+        const double width_m = diag_m * (wpx / std::sqrt(wpx*wpx + hpx*hpx));
+        
+        // Horizontal field of view in degrees
+        const double fov_h_rad = 2.0 * atan( (width_m * 0.5) / dist_m );
+        const double fov_h_deg = fov_h_rad * (180.0 / 3.14159265358979323846);
+        
+        // Pixels per degree horizontally
+        const double ppd = wpx / std::max(fov_h_deg, 1e-12);
+
+        return static_cast<float>(ppd);
     }
 
     float get_black_level() const {
         float Lblack = (contrast > 0.0f) ? max_luminance / contrast : 0.0f;
         if (E_ambient > 0.0f) {
-            constexpr float k_refl = 0.01f;
+            constexpr float k_refl = 0.005f;
             Lblack += k_refl * E_ambient / kPi;
         }
         return Lblack;
@@ -546,6 +561,7 @@ inline DisplayModel::ColorSpaceParams load_color_space_parameters(const std::fil
 
     return params;
 }
+
 
 } // namespace cvvdp
 
