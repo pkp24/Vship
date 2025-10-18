@@ -1119,9 +1119,27 @@ public:
             band_scores[band] = band_lp;
             band_channel_counts[band] = band_channel_count;
 
-            std::cerr << "DEBUG_BAND[" << band << "]: lp_norm=("
-                      << band_lp.x << ", " << band_lp.y << ", " << band_lp.z << ", " << band_lp.w << ") "
-                      << "beta=" << beta_value << std::endl;
+            // Enhanced debug output for comparison with Python
+            const float combined_score = combine_channels(band_lp, band_channel_count);
+            std::cerr << "DEBUG_BAND[" << band << "]: "
+                      << "size=" << lpyr.band_widths[band] << "x" << lpyr.band_heights[band] << " "
+                      << "rho=" << rho << "cpd "
+                      << "is_baseband=" << is_baseband << " "
+                      << "channels=" << band_channel_count << std::endl;
+            std::cerr << "  per_channel_lp=(" << band_lp.x << ", " << band_lp.y << ", "
+                      << band_lp.z << ", " << band_lp.w << ") beta=" << beta_value << std::endl;
+            std::cerr << "  combined_score=" << combined_score
+                      << " (ch_weights=[1.0, " << channel_weights[1] << ", "
+                      << channel_weights[2] << ", " << channel_weights[3] << "])" << std::endl;
+
+            // Print sum of channel^beta values for debugging pooling
+            double sum_for_debug = 0.0;
+            for (int c = 0; c < band_channel_count; ++c) {
+                const float ch_val = fmaxf(((&band_lp.x)[c]), 0.0f);
+                sum_for_debug += channel_weights[c] * powf(ch_val, beta_tch_value);
+            }
+            std::cerr << "  sum(ch_weights * ch_val^beta_tch)=" << sum_for_debug
+                      << " beta_tch=" << beta_tch_value << std::endl;
 
             if (collect_debug) {
                 BandDebugInfo info;
@@ -1218,16 +1236,40 @@ public:
         const float image_int_factor = image_mode ? params.image_int : 1.0f;
         const float Q_per_ch = Q_tc * image_int_factor;
 
-        // DEBUG: Print aggregated scores
-        std::cerr << "DEBUG_AGG: sum_bands=("
+        // DEBUG: Print aggregated scores with detailed breakdown
+        std::cerr << "\n=== SPATIAL POOLING (across bands) ===" << std::endl;
+        std::cerr << "DEBUG_AGG: num_bands=" << lpyr.num_bands << " beta_sch=" << beta_sch << std::endl;
+        for (int band = 0; band < lpyr.num_bands; ++band) {
+            const bool is_bb = (band == lpyr.num_bands - 1);
+            std::cerr << "  band[" << band << "]: scores=("
+                      << band_scores[band].x << ", " << band_scores[band].y << ", "
+                      << band_scores[band].z << ", " << band_scores[band].w << ") "
+                      << (is_bb ? "(baseband)" : "") << std::endl;
+        }
+        std::cerr << "DEBUG_AGG: sum_bands^beta_sch=("
                   << channel_band_sums[0] << ", " << channel_band_sums[1] << ", "
                   << channel_band_sums[2] << ", " << channel_band_sums[3] << ")" << std::endl;
-        std::cerr << "DEBUG_AGG: beta_sch=" << beta_sch << " num_bands=" << lpyr.num_bands << std::endl;
         std::cerr << "DEBUG_AGG: Q_spatial_per_channel=("
                   << channel_q_s[0] << ", " << channel_q_s[1] << ", "
                   << channel_q_s[2] << ", " << channel_q_s[3] << ")" << std::endl;
-        std::cerr << "DEBUG_AGG: beta_tch=" << beta_tch_value << " ch_chrom_w=" << params.ch_chrom_w << std::endl;
-        std::cerr << "DEBUG_AGG: Q_per_ch=" << Q_per_ch << std::endl;
+
+        std::cerr << "\n=== CHANNEL POOLING ===" << std::endl;
+        std::cerr << "DEBUG_AGG: active_channels=" << active_channel_count << " beta_tch=" << beta_tch_value << std::endl;
+        std::cerr << "DEBUG_AGG: ch_weights=[1.0, " << channel_weights[1] << ", "
+                  << channel_weights[2] << ", " << channel_weights[3] << "]" << std::endl;
+        double sum_ch_debug = 0.0;
+        for (int c = 0; c < active_channel_count; ++c) {
+            const float val = fmaxf(channel_q_s[c], 0.0f);
+            const double contrib = channel_weights[c] * powf(val, beta_tch_value);
+            sum_ch_debug += contrib;
+            std::cerr << "  ch[" << c << "]: Q_s=" << channel_q_s[c]
+                      << " weight=" << channel_weights[c]
+                      << " Q_s^beta_tch=" << powf(val, beta_tch_value)
+                      << " contrib=" << contrib << std::endl;
+        }
+        std::cerr << "DEBUG_AGG: sum_channels=" << sum_channels << " (verify=" << sum_ch_debug << ")" << std::endl;
+        std::cerr << "DEBUG_AGG: Q_tc=" << Q_tc << " image_int=" << image_int_factor << std::endl;
+        std::cerr << "DEBUG_AGG: Q_per_ch=" << Q_per_ch << " (Q_tc * image_int)" << std::endl;
 
         // Convert Q to JOD scale (matches Python: Q_JOD = 10 - jod_a * Q^jod_exp)
         // Use linearization for small Q values to maintain differentiability
@@ -1244,11 +1286,23 @@ public:
 
         Q_jod = fminf(fmaxf(Q_jod, 0.0f), 10.0f);
 
-        // DEBUG: Print final JOD calculation
+        // DEBUG: Print final JOD calculation with detailed breakdown
+        std::cerr << "\n=== JOD CONVERSION ===" << std::endl;
         std::cerr << "DEBUG_JOD: jod_a=" << params.jod_a << " jod_exp=" << params.jod_exp << std::endl;
-        std::cerr << "DEBUG_JOD: Q_per_ch=" << Q_per_ch << " Q_t=" << Q_t << std::endl;
-        std::cerr << "DEBUG_JOD: using_linearization=" << (Q_per_ch <= Q_t ? "true" : "false") << std::endl;
-        std::cerr << "DEBUG_JOD: Q_jod (final)=" << Q_jod << std::endl;
+        std::cerr << "DEBUG_JOD: Q_per_ch=" << Q_per_ch << " Q_threshold=" << Q_t << std::endl;
+        if (Q_per_ch <= Q_t) {
+            const float jod_a_p = params.jod_a * powf(Q_t, params.jod_exp - 1.0f);
+            std::cerr << "DEBUG_JOD: using_linearization=true" << std::endl;
+            std::cerr << "DEBUG_JOD: jod_a_prime=" << jod_a_p << " (jod_a * Q_t^(jod_exp-1))" << std::endl;
+            std::cerr << "DEBUG_JOD: Q_jod = 10 - " << jod_a_p << " * " << Q_per_ch << " = " << Q_jod << std::endl;
+        } else {
+            const float Q_term = powf(Q_per_ch, params.jod_exp);
+            std::cerr << "DEBUG_JOD: using_linearization=false" << std::endl;
+            std::cerr << "DEBUG_JOD: Q_per_ch^jod_exp = " << Q_per_ch << "^" << params.jod_exp << " = " << Q_term << std::endl;
+            std::cerr << "DEBUG_JOD: Q_jod = 10 - " << params.jod_a << " * " << Q_term << " = " << Q_jod << std::endl;
+        }
+        std::cerr << "DEBUG_JOD: FINAL_JOD=" << Q_jod << " (clamped to [0, 10])" << std::endl;
+        std::cerr << "========================================\n" << std::endl;
 
         if (collect_debug) {
             GPU_CHECK(hipEventDestroy(timing_start));
