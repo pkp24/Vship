@@ -66,9 +66,10 @@ __global__ void extract_log_luminance_kernel(
 
 // Baseband difference kernel - for lowest frequency residual
 // Applies CSF but without masking or high-pass filtering
+// Takes raw DKL Laplacian pyramid values (which for baseband is the final Gaussian level)
 __launch_bounds__(256)
 __global__ void baseband_difference_kernel(
-    const float* test_contrast, const float* ref_contrast,
+    const float3* test_dkl, const float3* ref_dkl,
     const float* log_L_bkg_test, const float* log_L_bkg_ref,
     float4* D_out,
     int width, int height,
@@ -83,17 +84,9 @@ __global__ void baseband_difference_kernel(
     int pixels = width * height;
     if (idx >= pixels) return;
 
-    const int base = idx * 3;
-    float3 T = make_float3(
-        test_contrast[base + 0],
-        test_contrast[base + 1],
-        test_contrast[base + 2]
-    );
-    float3 R = make_float3(
-        ref_contrast[base + 0],
-        ref_contrast[base + 1],
-        ref_contrast[base + 2]
-    );
+    // Read raw DKL values from Laplacian pyramid (baseband = final Gaussian level)
+    float3 T = test_dkl[idx];
+    float3 R = ref_dkl[idx];
 
     // Use per-pixel background luminance if available
     float log_L_bkg = (log_L_bkg_test && log_L_bkg_ref)
@@ -460,14 +453,17 @@ __global__ void compute_weber_contrast_kernel(
     float background_test = min_bkg;
     float background_ref = min_bkg;
 
+    // IMPORTANT: Always use current Gaussian level Y for background luminance
+    // Python uses the Gaussian pyramid at the current band level for CSF lookup
+    // NOT the expanded level from the next coarser band
     switch (static_cast<ContrastMode>(contrast_mode)) {
         case ContrastMode::WEBER_G1_REF:
-            background_ref = fmaxf(is_baseband ? ref_y_curr : ref_y_exp, min_bkg);
+            background_ref = fmaxf(ref_y_curr, min_bkg);
             background_test = background_ref;
             break;
         case ContrastMode::WEBER_G1:
-            background_test = fmaxf(is_baseband ? test_y_curr : test_y_exp, min_bkg);
-            background_ref = fmaxf(is_baseband ? ref_y_curr : ref_y_exp, min_bkg);
+            background_test = fmaxf(test_y_curr, min_bkg);
+            background_ref = fmaxf(ref_y_curr, min_bkg);
             break;
         case ContrastMode::WEBER_G0_REF:
         default:
@@ -1011,8 +1007,10 @@ public:
             if (is_baseband) {
                 band_channel_count = (temporal_band && temporal_band->frames_processed > 1) ? 4 : 3;
                 if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
+                // For baseband, pass raw Laplacian pyramid DKL values (not contrast-encoded)
                 baseband_difference_kernel<<<blocks, threads, 0, stream>>>(
-                    test_contrast, ref_contrast,
+                    reinterpret_cast<const float3*>(test_laplacian[band]),
+                    reinterpret_cast<const float3*>(ref_laplacian[band]),
                     log_L_bkg_test_d, log_L_bkg_ref_d,
                     D_d,
                     lpyr.band_widths[band], lpyr.band_heights[band],
@@ -1653,7 +1651,9 @@ public:
             active_channel_count = std::max(active_channel_count, band_channel_count);
             for (int c = 0; c < band_channel_count; ++c) {
                 const float component = fmaxf(((&band_scores[band].x)[c]), 0.0f);
-                const float weight = channel_weights[c] * (is_baseband_band ? baseband_weights[c] : 1.0f);
+                // IMPORTANT: Only apply baseband_weights in spatial pooling, NOT channel_weights
+                // Channel weights are applied later in channel pooling
+                const float weight = is_baseband_band ? baseband_weights[c] : 1.0f;
                 channel_band_sums[c] += powf(component * weight, beta_sch);
             }
         }
@@ -1664,9 +1664,10 @@ public:
             channel_q_s[c] = (sum > 0.0f) ? powf(sum, 1.0f / beta_sch) : 0.0f;
         }
 
+        // Channel pooling: apply channel_weights here
         float sum_channels = 0.0f;
         for (int c = 0; c < active_channel_count; ++c) {
-            sum_channels += powf(fmaxf(channel_q_s[c], 0.0f), beta_tch_value);
+            sum_channels += powf(fmaxf(channel_q_s[c], 0.0f) * channel_weights[c], beta_tch_value);
         }
         float Q_tc = (sum_channels > 0.0f)
                          ? powf(sum_channels, 1.0f / beta_tch_value)
