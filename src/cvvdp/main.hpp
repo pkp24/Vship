@@ -492,7 +492,8 @@ __global__ void apply_masking_kernel(
     int channel_count,
     int clamp_mode,
     float d_max,
-    int size
+    int size,
+    float4 mask_q_vec
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= size) return;
@@ -510,7 +511,9 @@ __global__ void apply_masking_kernel(
     };
 
     for (int c = 0; c < channel_count; ++c) {
-        const float denom = 1.0f + fmaxf(((&M.x)[c]), 0.0f);
+        // Apply power to mask values (like Python: safe_pow(G_mask, q))
+        const float M_powered = safe_pow(fmaxf(((&M.x)[c]), 0.0f), (&mask_q_vec.x)[c]);
+        const float denom = 1.0f + M_powered;
         values[c] = safe_pow(components[c], mask_p) / denom;
     }
 
@@ -1147,22 +1150,14 @@ public:
                     timings.phase_uncertainty += elapsed;
                 }
 
-                float4* M_pow_d;
-                GPU_CHECK(hipMallocAsync(&M_pow_d, band_size * sizeof(float4), stream));
-                apply_channel_power_kernel<<<blocks, threads, 0, stream>>>(
-                    M_mm_d, M_pow_d,
-                    mask_q_vec,
-                    band_channel_count,
-                    band_size
-                );
-
+                // CORRECT: Apply XCM BEFORE power
                 float4* M_xcm_d;
                 GPU_CHECK(hipMallocAsync(&M_xcm_d, band_size * sizeof(float4), stream));
 
                 if (cross_channel_masking_enabled && xcm_weights_d) {
                     if (collect_debug) GPU_CHECK(hipEventRecord(timing_start, stream));
                     apply_cross_channel_masking_kernel<<<blocks, threads, 0, stream>>>(
-                        M_pow_d, M_xcm_d, xcm_weights_d,
+                        M_mm_d, M_xcm_d, xcm_weights_d,
                         band_channel_count,
                         band_size
                     );
@@ -1174,15 +1169,15 @@ public:
                         timings.cross_channel_mask += elapsed;
                     }
                 } else {
-                    GPU_CHECK(hipMemcpyDtoDAsync(M_xcm_d, M_pow_d, band_size * sizeof(float4), stream));
+                    GPU_CHECK(hipMemcpyDtoDAsync(M_xcm_d, M_mm_d, band_size * sizeof(float4), stream));
                 }
+
+                // Note: Power will be applied inside apply_masking_kernel
 
                 if (collect_debug) {
                     M_mm_host.resize(band_size);
-                    M_pow_host.resize(band_size);
-                    M_xcm_host.resize(band_size);
+                    M_xcm_host.resize(band_size);  // After XCM, before power
                     GPU_CHECK(hipMemcpyDtoHAsync(M_mm_host.data(), M_mm_d, band_size * sizeof(float4), stream));
-                    GPU_CHECK(hipMemcpyDtoHAsync(M_pow_host.data(), M_pow_d, band_size * sizeof(float4), stream));
                     GPU_CHECK(hipMemcpyDtoHAsync(M_xcm_host.data(), M_xcm_d, band_size * sizeof(float4), stream));
                     GPU_CHECK(hipStreamSynchronize(stream));
 
@@ -1213,15 +1208,21 @@ public:
                     };
 
                     std::array<double, kMaxChannels> mm_mean{}, mm_min{}, mm_max{};
-                    std::array<double, kMaxChannels> mp_mean{}, mp_min{}, mp_max{};
-                    std::array<double, kMaxChannels> mx_mean{}, mx_min{}, mx_max{};
+                    std::array<double, kMaxChannels> mx_mean{}, mx_min{}, mx_max{};  // After XCM, before power
                     compute_stats(M_mm_host, mm_mean, mm_min, mm_max);
-                    compute_stats(M_pow_host, mp_mean, mp_min, mp_max);
                     compute_stats(M_xcm_host, mx_mean, mx_min, mx_max);
+
+                    // Calculate expected powered values for debug
+                    std::array<double, kMaxChannels> mp_mean{}, mp_min{}, mp_max{};
+                    for (int c = 0; c < band_channel_count; ++c) {
+                        mp_mean[c] = std::pow(std::max(mx_mean[c], 0.0), (&mask_q_vec.x)[c]);
+                        mp_min[c] = std::pow(std::max(mx_min[c], 0.0), (&mask_q_vec.x)[c]);
+                        mp_max[c] = std::pow(std::max(mx_max[c], 0.0), (&mask_q_vec.x)[c]);
+                    }
 
                     std::array<double, kMaxChannels> denom_mean{};
                     for (int c = 0; c < band_channel_count; ++c) {
-                        denom_mean[c] = 1.0 + std::max(mx_mean[c], 0.0);
+                        denom_mean[c] = 1.0 + mp_mean[c];  // Use powered values for denominator
                     }
 
                     std::cerr << "DEBUG_MASK[" << band << "]: ";
@@ -1230,15 +1231,15 @@ public:
                         if (c > 0) std::cerr << ", ";
                         std::cerr << mm_mean[c];
                     }
-                    std::cerr << ") M_pow_mean=(";
-                    for (int c = 0; c < band_channel_count; ++c) {
-                        if (c > 0) std::cerr << ", ";
-                        std::cerr << mp_mean[c];
-                    }
                     std::cerr << ") M_xcm_mean=(";
                     for (int c = 0; c < band_channel_count; ++c) {
                         if (c > 0) std::cerr << ", ";
                         std::cerr << mx_mean[c];
+                    }
+                    std::cerr << ") M_pow_mean=(";
+                    for (int c = 0; c < band_channel_count; ++c) {
+                        if (c > 0) std::cerr << ", ";
+                        std::cerr << mp_mean[c];
                     }
                     std::cerr << ") denom_mean=(";
                     for (int c = 0; c < band_channel_count; ++c) {
@@ -1252,15 +1253,15 @@ public:
                         if (c > 0) std::cerr << ", ";
                         std::cerr << mm_min[c] << "/" << mm_max[c];
                     }
-                    std::cerr << ") M_pow_minmax=(";
-                    for (int c = 0; c < band_channel_count; ++c) {
-                        if (c > 0) std::cerr << ", ";
-                        std::cerr << mp_min[c] << "/" << mp_max[c];
-                    }
                     std::cerr << ") M_xcm_minmax=(";
                     for (int c = 0; c < band_channel_count; ++c) {
                         if (c > 0) std::cerr << ", ";
                         std::cerr << mx_min[c] << "/" << mx_max[c];
+                    }
+                    std::cerr << ") M_pow_minmax=(";
+                    for (int c = 0; c < band_channel_count; ++c) {
+                        if (c > 0) std::cerr << ", ";
+                        std::cerr << mp_min[c] << "/" << mp_max[c];
                     }
                     std::cerr << ")" << std::endl;
                 }
@@ -1272,7 +1273,8 @@ public:
                     band_channel_count,
                     clamp_mode_value,
                     params.d_max,
-                    band_size
+                    band_size,
+                    mask_q_vec
                 );
                 if (collect_debug) {
                     GPU_CHECK(hipEventRecord(timing_end, stream));
@@ -1285,7 +1287,6 @@ public:
                 GPU_CHECK(hipFreeAsync(T_p_d, stream));
                 GPU_CHECK(hipFreeAsync(R_p_d, stream));
                 GPU_CHECK(hipFreeAsync(M_mm_d, stream));
-                GPU_CHECK(hipFreeAsync(M_pow_d, stream));
                 GPU_CHECK(hipFreeAsync(M_xcm_d, stream));
             }
 
