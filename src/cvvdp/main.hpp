@@ -449,6 +449,14 @@ __global__ void compute_weber_contrast_kernel(
     float test_y_exp = test_exp_ptr[idx * 3 + 0];
     float ref_y_exp = ref_exp_ptr[idx * 3 + 0];
 
+    // Debug: Print Gaussian pyramid values for first few pixels
+    if (idx < 5) {
+        printf("DEBUG_GAUSSIAN[%d]: test_y_curr=%.6f, ref_y_curr=%.6f, test_y_exp=%.6f, ref_y_exp=%.6f\n", 
+               idx, test_y_curr, ref_y_curr, test_y_exp, ref_y_exp);
+        printf("DEBUG_GAUSSIAN[%d]: is_baseband=%d, contrast_mode=%d\n", 
+               idx, is_baseband, contrast_mode);
+    }
+
     float background_test = min_bkg;
     float background_ref = min_bkg;
 
@@ -489,6 +497,12 @@ __global__ void compute_weber_contrast_kernel(
 
     log_bkg_test_out[idx] = log10f(background_test);
     log_bkg_ref_out[idx] = log10f(background_ref);
+
+    // Debug: Print background values for first few pixels
+    if (idx < 5) {
+        printf("DEBUG_BACKGROUND[%d]: background_test=%.6f, background_ref=%.6f, log_bkg_test=%.6f, log_bkg_ref=%.6f\n", 
+               idx, background_test, background_ref, log10f(background_test), log10f(background_ref));
+    }
 }
 
 enum class ClampMode : int {

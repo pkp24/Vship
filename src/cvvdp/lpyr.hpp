@@ -185,6 +185,15 @@ struct LaplacianPyramid {
             static_cast<size_t>(width) * static_cast<size_t>(height) * channels * sizeof(float);
         GPU_CHECK(hipMallocAsync(&gaussian_levels[0], level0_bytes, stream));
         GPU_CHECK(hipMemcpyDtoDAsync(gaussian_levels[0], input, level0_bytes, stream));
+        
+        // Debug: Print sample input values for first level
+        if (width * height <= 1000000) { // Only for reasonable sizes
+            std::vector<float> debug_samples(30);
+            GPU_CHECK(hipMemcpyDtoHAsync(debug_samples.data(), input, 30 * sizeof(float), stream));
+            GPU_CHECK(hipStreamSynchronize(stream));
+            std::cerr << "DEBUG_PYRAMID_INPUT: Y_samples=[" << debug_samples[0] << ", " 
+                      << debug_samples[3] << ", " << debug_samples[6] << "]" << std::endl;
+        }
 
         for (int i = 1; i < num_bands; ++i) {
             const int in_w = band_widths[i - 1];
@@ -206,6 +215,15 @@ struct LaplacianPyramid {
                 out_w,
                 out_h,
                 channels);
+            
+            // Debug: Print sample Gaussian values after downsampling
+            if (i <= 2 && out_w * out_h <= 1000000) { // Only for first few levels and reasonable sizes
+                std::vector<float> debug_samples(30);
+                GPU_CHECK(hipMemcpyDtoHAsync(debug_samples.data(), gaussian_levels[i], 30 * sizeof(float), stream));
+                GPU_CHECK(hipStreamSynchronize(stream));
+                std::cerr << "DEBUG_PYRAMID_LEVEL[" << i << "]: Y_samples=[" << debug_samples[0] << ", " 
+                          << debug_samples[3] << ", " << debug_samples[6] << "]" << std::endl;
+            }
         }
 
         for (int i = 0; i < num_bands - 1; ++i) {
