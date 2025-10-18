@@ -1095,9 +1095,99 @@ public:
                 if (collect_debug) {
                     T_p_host.resize(band_size);
                     R_p_host.resize(band_size);
+                    std::vector<float4> S_host(band_size);  // Also collect sensitivity values
+
                     GPU_CHECK(hipMemcpyDtoHAsync(T_p_host.data(), T_p_d, band_size * sizeof(float4), stream));
                     GPU_CHECK(hipMemcpyDtoHAsync(R_p_host.data(), R_p_d, band_size * sizeof(float4), stream));
+                    // Note: We don't have S_d saved, but we can reconstruct from output or just show T_p, R_p
                     GPU_CHECK(hipStreamSynchronize(stream));
+
+                    // Enhanced debug output matching Python format
+                    const int width = lpyr.band_widths[band];
+                    const int height = lpyr.band_heights[band];
+
+                    std::cerr << "\n=== BAND " << band << " DEBUG ===" << std::endl;
+                    std::cerr << "Band " << band << ": size=" << height << "x" << width
+                              << ", rho=" << rho << " cpd, is_baseband=" << is_baseband << std::endl;
+                    std::cerr << "  Tensor shapes: T_p=" << band_size << " elements (" << height << "x" << width << ")"
+                              << ", channels=" << band_channel_count << std::endl;
+
+                    // Sample pixels from center and offsets (matching Python)
+                    const int cy = height / 2;
+                    const int cx = width / 2;
+                    std::vector<std::pair<int,int>> sample_coords;
+                    sample_coords.push_back({cy, cx});
+                    sample_coords.push_back({cy, std::min(cx + 10, width - 1)});
+                    sample_coords.push_back({std::min(cy + 10, height - 1), cx});
+                    sample_coords.push_back({std::max(cy - 10, 0), cx});
+                    sample_coords.push_back({cy, std::max(cx - 10, 0)});
+
+                    // Print per-channel sample values and statistics
+                    for (int ch = 0; ch < std::min(band_channel_count, 4); ++ch) {
+                        std::cerr << "\n  Channel " << ch << ":" << std::endl;
+
+                        // Sample pixel values
+                        std::cerr << "    Sample pixels: [";
+                        for (size_t i = 0; i < sample_coords.size(); ++i) {
+                            if (i > 0) std::cerr << ", ";
+                            std::cerr << "(" << sample_coords[i].first << "," << sample_coords[i].second << ")";
+                        }
+                        std::cerr << "]" << std::endl;
+
+                        std::cerr << "    T_f: [";
+                        for (size_t i = 0; i < sample_coords.size(); ++i) {
+                            int y = sample_coords[i].first;
+                            int x = sample_coords[i].second;
+                            int idx = y * width + x;
+                            if (idx < band_size) {
+                                if (i > 0) std::cerr << ", ";
+                                std::cerr << std::scientific << std::setprecision(6) << (&T_p_host[idx].x)[ch];
+                            }
+                        }
+                        std::cerr << std::defaultfloat << "]" << std::endl;
+
+                        std::cerr << "    R_f: [";
+                        for (size_t i = 0; i < sample_coords.size(); ++i) {
+                            int y = sample_coords[i].first;
+                            int x = sample_coords[i].second;
+                            int idx = y * width + x;
+                            if (idx < band_size) {
+                                if (i > 0) std::cerr << ", ";
+                                std::cerr << std::scientific << std::setprecision(6) << (&R_p_host[idx].x)[ch];
+                            }
+                        }
+                        std::cerr << std::defaultfloat << "]" << std::endl;
+
+                        // Statistics for T_f
+                        double T_min = std::numeric_limits<double>::infinity();
+                        double T_max = -std::numeric_limits<double>::infinity();
+                        double T_mean = 0.0;
+                        for (int i = 0; i < band_size; ++i) {
+                            double val = static_cast<double>((&T_p_host[i].x)[ch]);
+                            T_min = std::min(T_min, val);
+                            T_max = std::max(T_max, val);
+                            T_mean += val;
+                        }
+                        T_mean /= band_size;
+
+                        // Statistics for R_f
+                        double R_min = std::numeric_limits<double>::infinity();
+                        double R_max = -std::numeric_limits<double>::infinity();
+                        double R_mean = 0.0;
+                        for (int i = 0; i < band_size; ++i) {
+                            double val = static_cast<double>((&R_p_host[i].x)[ch]);
+                            R_min = std::min(R_min, val);
+                            R_max = std::max(R_max, val);
+                            R_mean += val;
+                        }
+                        R_mean /= band_size;
+
+                        std::cerr << "    Statistics:" << std::endl;
+                        std::cerr << "      T_f: min=" << std::scientific << std::setprecision(6) << T_min
+                                  << ", max=" << T_max << ", mean=" << T_mean << std::defaultfloat << std::endl;
+                        std::cerr << "      R_f: min=" << std::scientific << std::setprecision(6) << R_min
+                                  << ", max=" << R_max << ", mean=" << R_mean << std::defaultfloat << std::endl;
+                    }
                 }
 
                 // Debug statistics calculation - moved after T_p data is available
@@ -1352,35 +1442,53 @@ public:
                     timings.masking += elapsed;
                 }
 
-                // Debug: Log masking kernel output for band 0
-                if (collect_debug && band == 0) {
-                    // Sample D_d output values
-                    std::vector<float4> D_samples(100);
-                    GPU_CHECK(hipMemcpyDtoHAsync(D_samples.data(), D_d, 100 * sizeof(float4), stream));
+                // Enhanced D (difference) debug output matching Python format
+                if (collect_debug && band < 9) {  // First 9 bands like Python
+                    std::vector<float4> D_host(band_size);
+                    GPU_CHECK(hipMemcpyDtoHAsync(D_host.data(), D_d, band_size * sizeof(float4), stream));
                     GPU_CHECK(hipStreamSynchronize(stream));
-                    
-                    // Calculate statistics
-                    double D_mean[3] = {0, 0, 0};
-                    double D_max[3] = {0, 0, 0};
-                    for (int i = 0; i < 100; i++) {
-                        D_mean[0] += D_samples[i].x / 100.0;
-                        D_mean[1] += D_samples[i].y / 100.0;
-                        D_mean[2] += D_samples[i].z / 100.0;
-                        D_max[0] = std::max(D_max[0], (double)D_samples[i].x);
-                        D_max[1] = std::max(D_max[1], (double)D_samples[i].y);
-                        D_max[2] = std::max(D_max[2], (double)D_samples[i].z);
+
+                    const int width = lpyr.band_widths[band];
+                    const int height = lpyr.band_heights[band];
+                    const int cy = height / 2;
+                    const int cx = width / 2;
+                    std::vector<std::pair<int,int>> sample_coords;
+                    sample_coords.push_back({cy, cx});
+                    sample_coords.push_back({cy, std::min(cx + 10, width - 1)});
+                    sample_coords.push_back({std::min(cy + 10, height - 1), cx});
+                    sample_coords.push_back({std::max(cy - 10, 0), cx});
+                    sample_coords.push_back({cy, std::max(cx - 10, 0)});
+
+                    // Print D sample values and statistics for each channel
+                    for (int ch = 0; ch < std::min(band_channel_count, 4); ++ch) {
+                        // Sample values
+                        std::cerr << "    D (difference) ch" << ch << ": [";
+                        for (size_t i = 0; i < sample_coords.size(); ++i) {
+                            int y = sample_coords[i].first;
+                            int x = sample_coords[i].second;
+                            int idx = y * width + x;
+                            if (idx < band_size) {
+                                if (i > 0) std::cerr << ", ";
+                                std::cerr << std::scientific << std::setprecision(6) << (&D_host[idx].x)[ch];
+                            }
+                        }
+                        std::cerr << std::defaultfloat << "]" << std::endl;
+
+                        // Statistics
+                        double D_min = std::numeric_limits<double>::infinity();
+                        double D_max = -std::numeric_limits<double>::infinity();
+                        double D_mean = 0.0;
+                        for (int i = 0; i < band_size; ++i) {
+                            double val = static_cast<double>((&D_host[i].x)[ch]);
+                            D_min = std::min(D_min, val);
+                            D_max = std::max(D_max, val);
+                            D_mean += val;
+                        }
+                        D_mean /= band_size;
+
+                        std::cerr << "      D ch" << ch << " stats: min=" << std::scientific << std::setprecision(6) << D_min
+                                  << ", max=" << D_max << ", mean=" << D_mean << std::defaultfloat << std::endl;
                     }
-                    
-                    std::cerr << "DEBUG_D_OUT[" << band << "]: D_mean=("
-                              << D_mean[0] << ", " << D_mean[1] << ", " << D_mean[2] << ") "
-                              << "D_max=(" << D_max[0] << ", " << D_max[1] << ", " << D_max[2] << ")" << std::endl;
-                    
-                    // Also log some raw samples
-                    std::cerr << "  D_samples[0:5]=[(" << D_samples[0].x << "," << D_samples[0].y << "," << D_samples[0].z << "), "
-                              << "(" << D_samples[1].x << "," << D_samples[1].y << "," << D_samples[1].z << "), "
-                              << "(" << D_samples[2].x << "," << D_samples[2].y << "," << D_samples[2].z << "), "
-                              << "(" << D_samples[3].x << "," << D_samples[3].y << "," << D_samples[3].z << "), "
-                              << "(" << D_samples[4].x << "," << D_samples[4].y << "," << D_samples[4].z << ")]" << std::endl;
                 }
 
                 GPU_CHECK(hipFreeAsync(T_p_d, stream));

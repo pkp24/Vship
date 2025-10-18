@@ -158,9 +158,13 @@ struct LaplacianPyramid {
         for (int i = 0; i < num_bands; ++i) {
             band_widths[i] = curr_w;
             band_heights[i] = curr_h;
+            // Python formula: [1.0] + [0.3228 * 2^(-f) for f in range(height)] * ppd/2
+            // Band 0 uses 1.0, bands 1+ use 0.3228 * 2^(-(i-1)), baseband uses 0.1
             band_freqs[i] = (i == num_bands - 1)
-                ? 0.1f
-                : (0.3228f * powf(2.0f, -static_cast<float>(i)) * (ppd / 2.0f));
+                ? 0.1f  // Baseband
+                : (i == 0)
+                    ? (1.0f * ppd / 2.0f)  // First band uses coefficient 1.0
+                    : (0.3228f * powf(2.0f, -static_cast<float>(i - 1)) * (ppd / 2.0f));
 
             curr_w = std::max(1, curr_w / 2);
             curr_h = std::max(1, curr_h / 2);
